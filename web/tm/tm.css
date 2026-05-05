@@ -83,16 +83,17 @@ body:not([data-route=login]):not([data-route=register]):not([data-route=loading]
 .demoBanner b{color:var(--ac)}
 
 /* One-click demo picker on the login page. AAA contrast on pure black. */
-#demoBox{margin:.4rem 0 1rem;border:1px solid #333;border-radius:8px;background:#0a0a0a}
-#demoBox summary{cursor:pointer;padding:.7rem .9rem;color:#fff;font-weight:700;list-style:none;min-height:44px;display:flex;align-items:center}
-#demoBox summary:focus-visible{outline:3px solid #ffd400;outline-offset:2px;border-radius:8px}
+#demoBox{margin:.4rem 0 1rem;border:1px solid #333;border-radius:10px;background:#0a0a0a;overflow:hidden}
+#demoBox summary{cursor:pointer;padding:.7rem .9rem;color:#fff;font-weight:700;list-style:none;min-height:44px;display:flex;align-items:center;gap:.4rem}
+#demoBox summary:focus-visible{outline:3px solid #ffd400;outline-offset:-3px;border-radius:10px}
 #demoBox summary::-webkit-details-marker{display:none}
-#demoBox summary::before{content:"+ ";color:var(--ac);font-weight:800}
-#demoBox[open] summary::before{content:"− "}
-#demoBox .help{padding:0 .9rem;color:#ccc;margin:.4rem 0 .6rem;font-size:.85rem}
-#demoBox .row{display:flex;flex-wrap:wrap;gap:.5rem;padding:0 .9rem .9rem}
-.demoChip{display:inline-flex;align-items:center;gap:.4rem;padding:.55rem .8rem;border:1px solid var(--ac);background:#000;color:#fff;border-radius:999px;cursor:pointer;font:inherit;font-size:.85rem;min-height:44px}
-.demoChip b{color:var(--ac)}
-.demoChip span{color:#ddd}
+#demoBox summary::before{content:"+";display:inline-block;width:1.1em;color:var(--ac);font-weight:800;text-align:center}
+#demoBox[open] summary::before{content:"−"}
+#demoBox .help{padding:0 .9rem;color:#ccc;margin:.4rem 0 .6rem;font-size:.85rem;line-height:1.45}
+#demoBox .row{display:flex;flex-direction:column;gap:.45rem;padding:0 .9rem .9rem}
+.demoChip{display:flex;align-items:center;justify-content:space-between;gap:.85rem;width:100%;padding:.6rem .85rem;border:1px solid var(--ac);background:#000;color:#fff;border-radius:8px;cursor:pointer;font:inherit;min-height:44px;text-align:left;box-sizing:border-box}
+.demoChip b{color:var(--ac);font-weight:800;letter-spacing:.04em;font-size:.74rem;text-transform:uppercase;flex:0 0 auto;white-space:nowrap}
+.demoChip span{color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:600 .8rem/1.1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-align:right;flex:1 1 auto;min-width:0}
 .demoChip:hover{background:#1a0d00}
 .demoChip:focus-visible{outline:3px solid #ffd400;outline-offset:2px}
+.demoChip[disabled]{opacity:.5;cursor:wait}

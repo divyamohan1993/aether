@@ -250,14 +250,16 @@ function viewLogin(){
  loadDemoCreds().then(creds=>{
   for(const c of creds){
    const b=document.createElement('button');b.type='button';b.className='demoChip';
+   b.setAttribute('aria-label',c.tier_name+' demo account, '+c.email);
    const t=document.createElement('b');t.textContent=c.tier_name;
-   const s=document.createElement('span');s.textContent=' · '+c.email;
+   const s=document.createElement('span');s.textContent=c.email;
    b.append(t,s);
    b.addEventListener('click',async()=>{dErr.textContent='';
+    const all=dList.querySelectorAll('.demoChip');all.forEach(x=>x.disabled=true);
     try{await importDemoToIDB(c);
      $('#lEmail').value=c.email;$('#lPass').value=DEMO_PASS;
      await submit();
-    }catch(err){dErr.textContent='Demo import failed: '+(err.message||String(err))}
+    }catch(err){dErr.textContent='Demo import failed: '+(err.message||String(err));all.forEach(x=>x.disabled=false)}
    });
    dList.append(b);
   }
