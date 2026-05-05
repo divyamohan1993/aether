@@ -99,7 +99,8 @@ gcloud run deploy "${SERVICE}" \
   --timeout=60 \
   --port=8080 \
   --execution-environment=gen2 \
-  --set-env-vars="GCP_PROJECT=${PROJECT_ID},VERTEX_REGION=${VERTEX_REGION},VERTEX_MODEL=${VERTEX_MODEL},NODE_ENV=production,LOG_LEVEL=info"
+  --set-env-vars="GCP_PROJECT=${PROJECT_ID},VERTEX_REGION=${VERTEX_REGION},VERTEX_MODEL=${VERTEX_MODEL},NODE_ENV=production,LOG_LEVEL=info,FIRESTORE_DB=(default),TM_BOOTSTRAP_ALLOW=${TM_BOOTSTRAP_ALLOW:-0}" \
+  --set-secrets="TM_SERVER_PUB_B64=tm-server-pub:latest,TM_SERVER_PRIV_B64=tm-server-priv:latest"
 
 URL="$(gcloud run services describe "${SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)')"
 

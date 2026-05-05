@@ -23,6 +23,13 @@ const ALLOWED_ORIGINS = new Set(['https://dmj.one', 'https://aether.dmj.one']);
 
 const auth = new GoogleAuth({ scopes: 'https://www.googleapis.com/auth/cloud-platform' });
 
+let _tmRouter = null;
+async function loadTmRouter() {
+  if (_tmRouter) return _tmRouter;
+  _tmRouter = await import('./tm/router.js');
+  return _tmRouter;
+}
+
 // Triage response schema enforced by Gemini structured output.
 const TRIAGE_SCHEMA = {
   type: 'OBJECT',
@@ -477,13 +484,19 @@ async function handleRequest(req, res) {
   logJson('INFO', { fn: 'handleRequest', requestId, ip, msg: 'request_start', method: req.method, path: pathname, ua: sanitizeHeader(req.headers['user-agent']) });
 
   try {
-    if (pathname === '/healthz') {
+    if (pathname === '/healthz' || pathname === '/api/healthz') {
       sendJson(res, 200, { ok: true });
       return;
     }
     if (pathname === '/api/v1/triage') {
       await handleTriage(req, res, { ip, requestId, startedAt });
       return;
+    }
+    if (pathname === '/tm' || pathname.startsWith('/tm/')
+        || pathname === '/api/v1/tm' || pathname.startsWith('/api/v1/tm/')) {
+      const tm = await loadTmRouter();
+      const handled = await tm.route(req, res, url, { requestId, ip, startedAt });
+      if (handled) return;
     }
     const route = STATIC_ROUTES[pathname];
     if (route && (req.method === 'GET' || req.method === 'HEAD')) {

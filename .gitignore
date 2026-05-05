@@ -64,3 +64,10 @@ service-account*.json
 /tmp/
 *.tmp
 *.bak
+
+# Task Manager local secrets / scratch
+server/tm/_iface.md
+TM_SPEC.md
+firestore-indexes.json
+deploy/firestore-indexes.json
+/tmp/aether-ndma/

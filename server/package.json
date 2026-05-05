@@ -12,6 +12,11 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@noble/hashes": "^2.0.0",
+    "@noble/post-quantum": "^0.6.1",
     "google-auth-library": "^10.6.2"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
   }
 }

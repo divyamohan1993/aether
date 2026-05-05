@@ -32,7 +32,11 @@ WORKDIR /app
 COPY --chown=node:node --from=deps /app/node_modules ./node_modules
 COPY --chown=node:node server/server.js ./server.js
 COPY --chown=node:node server/package.json ./package.json
+COPY --chown=node:node server/tm/ ./tm/
 COPY --chown=node:node web/ ./web/
+
+# Strip dev-only artefacts from the tm/ tree so the image stays lean.
+RUN rm -rf /app/tm/_test /app/tm/_browser /app/tm/_iface.md
 
 USER node
 EXPOSE 8080
