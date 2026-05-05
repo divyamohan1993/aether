@@ -12,8 +12,12 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:#000;color:#fff;height:100%;overflow:hidden;font:16px/1.4 system-ui,sans-serif;-webkit-tap-highlight-color:transparent;user-select:none;touch-action:manipulation}
 body{display:grid;grid-template-rows:auto 1fr auto;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-#bar{display:flex;justify-content:space-between;gap:.5rem;padding:.6rem .8rem;font:600 .75rem/1 ui-monospace,monospace;color:#888}
+#bar{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.5rem;padding:.6rem .8rem;font:600 .75rem/1.3 ui-monospace,monospace;color:#888}
 #bar span{white-space:nowrap}
+#bar .id{flex:1;min-width:50%;color:#d8631a;text-align:left;text-transform:none;letter-spacing:0}
+#bar .id b{color:#fff;font-weight:700}
+#bar .so{background:none;border:1px solid #333;color:#aaa;border-radius:6px;padding:.25rem .5rem;font:inherit;cursor:pointer;min-height:32px}
+#bar .so:focus-visible{outline:3px solid #ffd400;outline-offset:2px}
 main{display:grid;place-items:center;padding:1rem;min-height:0}
 #s{width:min(72vw,72vh,360px);height:min(72vw,72vh,360px);min-width:200px;min-height:200px;border-radius:50%;background:#1a0000;color:#fff;border:3px solid #ff2a2a;font:800 clamp(1.1rem,4.2vw,1.6rem)/1.2 inherit;cursor:pointer;display:grid;place-items:center;text-align:center;padding:1rem;transition:.15s}
 #s[data-r="1"]{background:#ff2a2a;border-color:#fff;animation:p 1.2s ease-in-out infinite}
@@ -35,12 +39,24 @@ summary{cursor:pointer;color:#aaa;font-size:.78rem;padding:.5rem;min-height:44px
 summary:focus-visible{outline:3px solid #ffd400;outline-offset:2px}
 .v{margin-top:.5rem;text-align:left;color:#999;font-size:.75rem;line-height:1.55;padding:.6rem;border:1px solid #222;border-radius:8px;background:#050505}
 </style></head><body>
-<div id="bar" role="status" aria-live="polite"><span id="bb" aria-label="Battery"></span><span id="bn" aria-label="Network"></span><span id="bq" aria-label="Queue"></span><span id="bl" aria-label="Language"></span></div>
+<div id="bar" role="status" aria-live="polite"><span class="id" id="bi" aria-label="Signed-in user"></span><span id="bg" aria-label="Location"></span><span id="bb" aria-label="Battery"></span><span id="bn" aria-label="Network"></span><span id="bq" aria-label="Queue"></span><span id="bl" aria-label="Language"></span><button class="so" id="bo" type="button" aria-label="Sign out">Sign out</button></div>
 <main><button id="s" type="button" data-r="0"></button></main>
 <footer><p id="p" role="status" aria-live="polite" aria-atomic="true"></p><p id="h"></p><details><summary id="ps">Privacy</summary><div class="v" id="pt"></div></details></footer>
 <script>
 (()=>{
-const D=document,N=navigator,$=i=>D.getElementById(i),S=$('s'),P=$('p'),Q=$('bq'),BB=$('bb'),BN=$('bn'),BL=$('bl'),A=(t,e,f)=>t.addEventListener(e,f),CE=t=>D.createElement(t);
+const D=document,N=navigator,$=i=>D.getElementById(i),S=$('s'),P=$('p'),Q=$('bq'),BB=$('bb'),BN=$('bn'),BL=$('bl'),BI=$('bi'),BG=$('bg'),BO=$('bo'),A=(t,e,f)=>t.addEventListener(e,f),CE=t=>D.createElement(t);
+// Login gate. SOS requires a TM session so every dispatch carries an
+// identified caller. If there is no session, send the responder to the
+// TM login page and bring them back here on success.
+const SS=()=>{try{return JSON.parse(sessionStorage.getItem('aether-tm-session'))}catch(e){return null}};
+const decodeJwt=t=>{try{const p=t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');const pad='='.repeat((4-p.length%4)%4);return JSON.parse(atob(p+pad))}catch(e){return null}};
+const sess=SS();const claims=sess?decodeJwt(sess.token):null;
+if(!sess||!claims||(claims.exp&&claims.exp*1000<Date.now())){location.replace('/tm/#/login?next=%2F');throw new Error('redirecting');}
+const TIER={100:'NDMA',80:'State',60:'District',40:'Responder',20:'Volunteer'};
+const idB=CE('b');idB.textContent=sess.email||claims.uid;
+const idS=CE('span');idS.textContent=' · '+(TIER[claims.tier]||claims.tier)+' · '+claims.scope_path;
+BI.append(idB,idS);
+A(BO,'click',()=>{sessionStorage.removeItem('aether-tm-session');location.replace('/tm/#/login?next=%2F')});
 const L={
 en:{b:'Hold to send SOS',r:'Recording',s:'Sending',o:'Saved offline. Will send when signal returns.',e:'Could not send. Will retry.',h:'Help is on the way. Stay where you are.',n:'No signal',q:n=>`Queue: ${n} pending`,t:'Goes only to State Disaster Response Force. False reports cost lives.',pv:'Privacy',pt:'Voice clip, language, rough location, battery and signal go only to SDRF rescue. No accounts. No tracking. Audio deleted in 24 hours. No keys on this device.'},
 hi:{b:'SOS भेजने के लिए दबाए रखें',r:'रिकॉर्ड हो रहा है',s:'भेजा जा रहा है',o:'ऑफ़लाइन सहेजा गया. सिग्नल आते ही भेज देंगे.',e:'नहीं भेज सके. फिर कोशिश करेंगे.',h:'मदद आ रही है. वहीं रहें.',n:'कोई सिग्नल नहीं',q:n=>`क़तार: ${n} बाकी`,t:'केवल राज्य आपदा बल को. झूठी सूचना से जान जाती है.',pv:'निजता',pt:'आवाज़, भाषा, मोटा स्थान, बैटरी, नेटवर्क केवल बचाव दल को. कोई खाता नहीं. कोई ट्रैकिंग नहीं. ऑडियो 24 घंटे में हटती है. कोई कुंजी इस फ़ोन में नहीं.'},
@@ -50,7 +66,7 @@ const lg=(N.language||'en').slice(0,2),k=L[lg]?lg:'en',T=L[k];
 D.documentElement.lang=k+'-IN';
 S.textContent=T.b;$('h').textContent=T.t;$('ps').textContent=T.pv;$('pt').textContent=T.pt;BL.textContent=k.toUpperCase();
 let cid=localStorage.getItem('aid');if(!cid){cid=crypto.randomUUID();localStorage.setItem('aid',cid)}
-let qc=0,tm,mr,ch=[],st,rs=0,pt=0,tp=false,geo='';
+let qc=0,tm,mr,ch=[],st,rs=0,pt=0,tp=false,geo='',geoAcc=null,geoSrc='';
 const setMsg=m=>{P.textContent=m||'';P.className=m?'x':''};
 const setRes=(m,u)=>{P.replaceChildren();const b=CE('b');b.textContent=u;P.append(b,CE('br'),m);P.className='x u-'+u};
 const setQC=()=>{Q.textContent=qc?T.q(qc):''};
@@ -58,17 +74,24 @@ if(N.getBattery)N.getBattery().then(b=>{const u=()=>{const p=Math.round(b.level*
 const net=()=>{const c=N.connection,o=N.onLine;BN.textContent=o?(c&&c.effectiveType||'on'):T.n;BN.style.color=o?'#888':'#ff7a00'};
 net();A(self,'online',()=>{net();flush()});A(self,'offline',net);
 if(N.connection)A(N.connection,'change',net);
-if(N.geolocation)N.geolocation.getCurrentPosition(p=>{geo=p.coords.latitude.toFixed(4)+','+p.coords.longitude.toFixed(4)},()=>{},{enableHighAccuracy:false,timeout:2000,maximumAge:600000});
+// High-accuracy GPS. We watch position so the SOS button always has the
+// freshest fix without needing a permission prompt mid-recording.
+const setGeo=p=>{geo=p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6);geoAcc=p.coords.accuracy;geoSrc=p.coords.accuracy<=50?'gps':'wifi';BG.textContent='GPS '+(geoAcc?Math.round(geoAcc)+'m':'on');BG.style.color='#3aa655'};
+const noGeo=()=>{BG.textContent='no GPS';BG.style.color='#ff7a00'};
+if(N.geolocation){
+  N.geolocation.getCurrentPosition(setGeo,noGeo,{enableHighAccuracy:true,timeout:8000,maximumAge:0});
+  try{N.geolocation.watchPosition(setGeo,()=>{},{enableHighAccuracy:true,timeout:15000,maximumAge:30000})}catch(e){}
+}else{noGeo()}
 const idb=()=>new Promise((r,j)=>{const o=indexedDB.open('a',1);o.onupgradeneeded=e=>e.target.result.createObjectStore('q',{keyPath:'id',autoIncrement:true});o.onsuccess=e=>r(e.target.result);o.onerror=()=>j(o.error)});
 const qPut=r=>idb().then(d=>new Promise(s=>{const x=d.transaction('q','readwrite');x.objectStore('q').add(r);x.oncomplete=s}));
 const qDel=i=>idb().then(d=>new Promise(s=>{const x=d.transaction('q','readwrite');x.objectStore('q').delete(i);x.oncomplete=s}));
 const qAll=()=>idb().then(d=>new Promise(r=>{const o=[];d.transaction('q','readonly').objectStore('q').openCursor().onsuccess=e=>{const c=e.target.result;c?(o.push(c.value),c.continue()):r(o)}}));
 const qCnt=()=>idb().then(d=>new Promise(r=>{d.transaction('q','readonly').objectStore('q').count().onsuccess=e=>r(e.target.result)}));
-const send=async r=>{const h={'Content-Type':r.mime,'X-Client-Id':cid,'X-Client-Lang':N.language||'en-IN','X-Client-Timestamp':r.ts};if(r.geo)h['X-Client-Geo']=r.geo;if(r.bat!=null)h['X-Client-Battery']=String(r.bat);const c=N.connection;if(c&&c.effectiveType)h['X-Client-Network']=c.effectiveType;const x=await fetch('/api/v1/triage',{method:'POST',headers:h,body:r.blob});if(!x.ok)throw 0;return x.json()};
+const send=async r=>{const s=SS();if(!s){location.replace('/tm/#/login?next=%2F');throw 0}const h={'Content-Type':r.mime,'X-Client-Id':cid,'X-Client-Lang':N.language||'en-IN','X-Client-Timestamp':r.ts,'Authorization':'Bearer '+s.token};if(r.geo){h['X-Client-Geo']=r.geo;if(r.geoAcc!=null)h['X-Client-Geo-Accuracy']=String(Math.round(r.geoAcc));if(r.geoSrc)h['X-Client-Geo-Source']=r.geoSrc}if(r.bat!=null)h['X-Client-Battery']=String(r.bat);const c=N.connection;if(c&&c.effectiveType)h['X-Client-Network']=c.effectiveType;const x=await fetch('/api/v1/triage',{method:'POST',headers:h,body:r.blob});if(x.status===401){sessionStorage.removeItem('aether-tm-session');location.replace('/tm/#/login?next=%2F');throw 0}if(!x.ok)throw 0;return x.json()};
 const render=j=>{const tr=j&&j.triage||{},u=['CRITICAL','HIGH','MEDIUM','LOW','UNCLEAR'].includes(tr.urgency)?tr.urgency:'UNCLEAR',sm=String(tr.summary_for_dispatch||'');setRes((sm?sm+' · ':'')+T.h,u)};
 const flush=async()=>{const a=await qAll();for(const it of a){try{const j=await send(it);await qDel(it.id);qc=Math.max(0,qc-1);setQC();render(j)}catch(e){break}}};
 const enq=async r=>{await qPut(r);qc=await qCnt();setQC();if('serviceWorker' in navigator&&'SyncManager' in self){try{const w=await N.serviceWorker.ready;await w.sync.register('flush')}catch(e){}}setMsg(T.o)};
-const up=async b=>{let bt=null;if(N.getBattery){try{const x=await N.getBattery();bt=Math.round(x.level*100)}catch(e){}}const c=N.connection,r={blob:b,mime:b.type||'audio/webm',ts:new Date().toISOString(),geo,bat:bt,id_:cid,lang:N.language||'en-IN',net:c&&c.effectiveType||''};setMsg(T.s);if(!N.onLine)return enq(r);try{render(await send(r))}catch(e){await enq(r)}};
+const up=async b=>{let bt=null;if(N.getBattery){try{const x=await N.getBattery();bt=Math.round(x.level*100)}catch(e){}}const c=N.connection,r={blob:b,mime:b.type||'audio/webm',ts:new Date().toISOString(),geo,geoAcc,geoSrc,bat:bt,id_:cid,lang:N.language||'en-IN',net:c&&c.effectiveType||''};setMsg(T.s);if(!N.onLine)return enq(r);try{render(await send(r))}catch(e){await enq(r)}};
 const start=async()=>{if(rs)return;try{st=await N.mediaDevices.getUserMedia({audio:{channelCount:1,sampleRate:16000,noiseSuppression:false}});const m=['audio/webm;codecs=opus','audio/ogg;codecs=opus'].find(t=>MediaRecorder.isTypeSupported(t))||'';mr=new MediaRecorder(st,m?{mimeType:m,audioBitsPerSecond:12000}:{audioBitsPerSecond:12000});ch=[];mr.ondataavailable=e=>e.data.size&&ch.push(e.data);mr.onstop=()=>{st.getTracks().forEach(x=>x.stop());const b=new Blob(ch,{type:mr.mimeType||'audio/webm'});rs=0;S.dataset.r='0';S.setAttribute('aria-pressed','false');S.textContent=T.b;if(b.size>500)up(b)};mr.start();rs=1;S.dataset.r='1';S.setAttribute('aria-pressed','true');S.textContent=T.r;setMsg('');tm=setTimeout(stop,30000)}catch(e){setMsg(T.e)}};
 const stop=()=>{if(!rs)return;clearTimeout(tm);try{mr.state!=='inactive'&&mr.stop()}catch(e){}};
 const dn=e=>{e.preventDefault();if(!rs){start();pt=Date.now();tp=false}else if(tp)stop()};

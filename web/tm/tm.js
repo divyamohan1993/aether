@@ -195,15 +195,31 @@ function userOpts(sel){
 
 function flash(node,msg,cls){node.innerHTML=`<p class="${cls||'muted'}" role=status>${esc(msg)}</p>`}
 
+const DEMO_PASS='aether-demo-2026';
+async function loadDemoCreds(){
+ const r=await fetch('/demo/credentials.json',{cache:'force-cache'});
+ if(!r.ok)throw new Error('demo_unavailable');
+ return await r.json();
+}
+async function importDemoToIDB(rec){
+ const d=await idb();
+ await new Promise((res,rej)=>{const tx=d.transaction('keyrings','readwrite');tx.objectStore('keyrings').put({email:rec.email,salt:rec.encrypted_priv.saltB64,iv:rec.encrypted_priv.ivB64,ct:rec.encrypted_priv.ctB64,pubkey_b64:rec.pubkey_b64,created_at:new Date().toISOString()});tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});
+}
 function viewLogin(){
  main.removeAttribute('aria-busy');
  const qs=new URLSearchParams((location.hash.split('?')[1])||'');
  const qEmail=(qs.get('email')||'').trim().toLowerCase();
+ const next=qs.get('next')||'';
+ const safeNext=/^\/[A-Za-z0-9\/_\-.?#=&%]*$/.test(next)?next:'';
  const isDemo=qs.get('demo')==='1';
- const banner=isDemo?`<p class=demoBanner role=note><b>${esc(T.demo_banner.split('.')[0])}.</b> ${esc(T.demo_banner.split('.').slice(1).join('.').trim())}</p>`:'';
  main.innerHTML=`<section class=card aria-labelledby=hLogin>
   <h1 id=hLogin>${esc(T.login_title)}</h1>
-  ${banner}
+  <p id=lBanner></p>
+  <details id=demoBox><summary>${esc(T.demo_pick||'Use a demo account (one click)')}</summary>
+   <p class=help>${esc(T.demo_pick_help||'Sign in instantly with a published demo identity. The passphrase is auto-filled.')}</p>
+   <div id=demoList class=row></div>
+   <p id=demoErr role=alert class=err></p>
+  </details>
   <form id=fLogin novalidate>
    <label for=lEmail>${esc(T.login_email)}<input type=email id=lEmail name=email autocomplete=username required value="${esc(qEmail)}"></label>
    <label for=lPass>${esc(T.login_pass)}<input type=password id=lPass name=pass autocomplete=current-password required></label>
@@ -212,17 +228,40 @@ function viewLogin(){
   </form>
   <p class=help>${esc(T.login_help)} <a href="#/register">${esc(T.reg_link)}</a></p>
  </section>`;
- const f=$('#fLogin'),er=$('#lErr');
- if(isDemo)$('#lPass').value='aether-demo-2026';
- f.addEventListener('submit',async e=>{
-  e.preventDefault();er.textContent='';
+ const f=$('#fLogin'),er=$('#lErr'),banner=$('#lBanner');
+ if(isDemo){
+  banner.setAttribute('role','note');
+  banner.className='demoBanner';
+  const b=document.createElement('b');b.textContent=(T.demo_banner||'Demo mode.').split('.')[0]+'.';
+  banner.append(b,' ',(T.demo_banner||'The passphrase below is published. Do not reuse this account in production.').split('.').slice(1).join('.').trim());
+  $('#lPass').value=DEMO_PASS;
+ }
+ const submit=async()=>{er.textContent='';
   const btn=f.querySelector('button[type=submit]');btn.disabled=true;btn.textContent=T.working;
   try{
    await login($('#lEmail').value.trim().toLowerCase(),$('#lPass').value);
    $('#lPass').value='';
+   if(safeNext){location.assign(safeNext);return}
    location.hash='#/';
   }catch(err){er.textContent=err.message||T.err_creds;btn.disabled=false;btn.textContent=T.login_btn}
- });
+ };
+ f.addEventListener('submit',e=>{e.preventDefault();submit()});
+ const dList=$('#demoList'),dErr=$('#demoErr');
+ loadDemoCreds().then(creds=>{
+  for(const c of creds){
+   const b=document.createElement('button');b.type='button';b.className='demoChip';
+   const t=document.createElement('b');t.textContent=c.tier_name;
+   const s=document.createElement('span');s.textContent=' · '+c.email;
+   b.append(t,s);
+   b.addEventListener('click',async()=>{dErr.textContent='';
+    try{await importDemoToIDB(c);
+     $('#lEmail').value=c.email;$('#lPass').value=DEMO_PASS;
+     await submit();
+    }catch(err){dErr.textContent='Demo import failed: '+(err.message||String(err))}
+   });
+   dList.append(b);
+  }
+ }).catch(()=>{$('#demoBox').open=false;dErr.textContent='Demo accounts unavailable right now.'});
  if(qEmail)$('#lPass').focus();else $('#lEmail').focus();
 }
 

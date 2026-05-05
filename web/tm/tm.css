@@ -81,3 +81,18 @@ body[data-route=login] header nav,body[data-route=register] header nav,body[data
 body:not([data-route=login]):not([data-route=register]):not([data-route=loading]) #btnLogout{display:inline-flex}
 .demoBanner{margin:0 0 .9rem;padding:.7rem .85rem;border-left:4px solid var(--ac);background:#1a0d00;color:#fff;border-radius:0 8px 8px 0;font-size:.9rem;line-height:1.45}
 .demoBanner b{color:var(--ac)}
+
+/* One-click demo picker on the login page. AAA contrast on pure black. */
+#demoBox{margin:.4rem 0 1rem;border:1px solid #333;border-radius:8px;background:#0a0a0a}
+#demoBox summary{cursor:pointer;padding:.7rem .9rem;color:#fff;font-weight:700;list-style:none;min-height:44px;display:flex;align-items:center}
+#demoBox summary:focus-visible{outline:3px solid #ffd400;outline-offset:2px;border-radius:8px}
+#demoBox summary::-webkit-details-marker{display:none}
+#demoBox summary::before{content:"+ ";color:var(--ac);font-weight:800}
+#demoBox[open] summary::before{content:"− "}
+#demoBox .help{padding:0 .9rem;color:#ccc;margin:.4rem 0 .6rem;font-size:.85rem}
+#demoBox .row{display:flex;flex-wrap:wrap;gap:.5rem;padding:0 .9rem .9rem}
+.demoChip{display:inline-flex;align-items:center;gap:.4rem;padding:.55rem .8rem;border:1px solid var(--ac);background:#000;color:#fff;border-radius:999px;cursor:pointer;font:inherit;font-size:.85rem;min-height:44px}
+.demoChip b{color:var(--ac)}
+.demoChip span{color:#ddd}
+.demoChip:hover{background:#1a0d00}
+.demoChip:focus-visible{outline:3px solid #ffd400;outline-offset:2px}

@@ -308,12 +308,47 @@ async function getAccessToken() {
   return t;
 }
 
-async function callVertex({ audioBuf, audioMime, langHint, geoHint, requestId }) {
+async function persistDispatch(d) {
+  const fs = await import('./tm/firestore.js').catch(() => null);
+  if (!fs || typeof fs.setDoc !== 'function') return;
+  const doc = {
+    id: d.id,
+    received_at: d.receivedAt,
+    request_id: d.requestId,
+    caller_uid: d.caller?.uid || null,
+    caller_email: d.caller?.email || null,
+    caller_name: d.caller?.name || null,
+    caller_tier: d.caller?.tier ?? null,
+    caller_scope_path: d.caller?.scope_path || null,
+    location: d.location || null,
+    triage: d.triage || null,
+    audio_bytes: d.audioBytes,
+    audio_mime: d.audioMime,
+    network: d.network || null,
+    battery: d.battery && Number.isFinite(Number(d.battery)) ? Number(d.battery) : null,
+    client_timestamp: d.clientTs || null,
+    lang_hint: d.langHint || null,
+    latency_ms: d.latencyMs,
+    ip: d.ip || null,
+    created_at: new Date()
+  };
+  await fs.setDoc('tm_dispatches', d.id, doc);
+}
+
+async function callVertex({ audioBuf, audioMime, langHint, geoHint, caller, location, requestId }) {
   const token = await getAccessToken();
+  const callerLine = caller
+    ? `Caller is identified: name "${caller.name || 'unknown'}", email ${caller.email || 'unknown'}, tier ${caller.tier_name || caller.tier}, scope ${caller.scope_path || 'unknown'}.`
+    : 'Caller identity: anonymous.';
+  const locationLine = location
+    ? `Caller GPS: ${location.lat.toFixed(6)}, ${location.lng.toFixed(6)} (accuracy ${location.accuracy_m ? Math.round(location.accuracy_m) + ' m' : 'unknown'}, source ${location.source}). Treat this as the canonical location. Do not ask the speaker to state where they are.`
+    : 'Caller GPS: unavailable. Listen for landmarks or place names in the audio.';
   const userText = [
+    callerLine,
+    locationLine,
     `X-Client-Lang hint: ${langHint || 'none'}`,
     `X-Client-Geo hint: ${geoHint || 'none'}`,
-    'Triage the attached audio per the schema.'
+    'Triage the attached audio per the schema. The speaker is a known responder calling about a situation; capture only the situation, casualties, needs, and ambient cues. Do not echo the caller name or coordinates back into the JSON.'
   ].join('\n');
   const reqBody = {
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
@@ -389,6 +424,28 @@ async function handleTriage(req, res, ctx) {
     sendError(res, 429, 'rate_limited', 'Too many requests. Slow down.', { 'Retry-After': String(rate.retryAfter) });
     return;
   }
+  // Authentication is required for triage so every dispatch is signed by a
+  // known responder and the model can skip identity questions entirely.
+  let caller = null;
+  try {
+    const authMod = await import('./tm/auth.js');
+    const session = await authMod.authenticate({ headers: req.headers });
+    const usersMod = await import('./tm/users.js');
+    const u = await usersMod.getUser(session, session.uid).catch(() => null);
+    caller = {
+      uid: session.uid,
+      tier: session.tier,
+      tier_name: u?.tier_name || null,
+      scope_path: session.scope_path,
+      email: u?.email || null,
+      name: u?.name || null
+    };
+  } catch (e) {
+    logJson('WARNING', { fn: 'handleTriage', requestId: ctx.requestId, ip: ctx.ip, msg: 'auth_required', err: e?.message || String(e) });
+    const status = e?.status === 401 ? 401 : 401;
+    sendError(res, status, 'auth_required', 'Triage requires a Task Manager session. Sign in at /tm/.');
+    return;
+  }
   let body;
   try {
     body = await readBody(req, MAX_BODY);
@@ -413,18 +470,38 @@ async function handleTriage(req, res, ctx) {
   }
   const langHint = sanitizeHeader(req.headers['x-client-lang']);
   const geoHint = sanitizeHeader(req.headers['x-client-geo']);
+  const geoSource = sanitizeHeader(req.headers['x-client-geo-source']);
+  const geoAccuracy = sanitizeHeader(req.headers['x-client-geo-accuracy']);
   const clientId = sanitizeHeader(req.headers['x-client-id']) || null;
   const battery = sanitizeHeader(req.headers['x-client-battery']);
   const network = sanitizeHeader(req.headers['x-client-network']);
   const clientTs = sanitizeHeader(req.headers['x-client-timestamp']);
   const id = randomUUID();
   const receivedAt = new Date().toISOString();
+  let location = null;
+  if (geoHint) {
+    const m = /^(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)$/.exec(geoHint);
+    if (m) {
+      const lat = Number(m[1]);
+      const lng = Number(m[2]);
+      if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+        location = {
+          lat,
+          lng,
+          accuracy_m: geoAccuracy && Number.isFinite(Number(geoAccuracy)) ? Number(geoAccuracy) : null,
+          source: (geoSource === 'gps' || geoSource === 'wifi' || geoSource === 'ip') ? geoSource : 'browser'
+        };
+      }
+    }
+  }
   try {
     const { triage, modelLatencyMs } = await callVertex({
       audioBuf: body,
       audioMime: sniffed,
       langHint,
       geoHint,
+      caller,
+      location,
       requestId: ctx.requestId
     });
     const latencyMs = Date.now() - ctx.startedAt;
@@ -432,6 +509,8 @@ async function handleTriage(req, res, ctx) {
       fn: 'handleTriage',
       requestId: ctx.requestId,
       clientId,
+      callerUid: caller?.uid,
+      callerEmail: caller?.email,
       ip: ctx.ip,
       msg: 'triage_ok',
       audioBytes: body.length,
@@ -440,16 +519,26 @@ async function handleTriage(req, res, ctx) {
       battery,
       network,
       clientTs,
+      hasLocation: !!location,
       urgency: triage?.urgency,
       confidence: triage?.confidence,
       modelLatencyMs,
       latencyMs
     });
+    persistDispatch({
+      id, receivedAt, caller, location, triage, latencyMs,
+      audioBytes: body.length, audioMime: sniffed, network, battery,
+      clientTs, langHint, ip: ctx.ip, requestId: ctx.requestId
+    }).catch((err) => logJson('WARNING', {
+      fn: 'persistDispatch', requestId: ctx.requestId, msg: 'dispatch_persist_failed', err: String(err)
+    }));
     sendJson(res, 200, {
       id,
       received_at: receivedAt,
       model: MODEL_ID,
       latency_ms: latencyMs,
+      caller,
+      location,
       triage
     });
   } catch (e) {

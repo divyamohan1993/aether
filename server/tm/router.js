@@ -464,6 +464,26 @@ async function dispatchApi(req, res, sub, url, ctx) {
     return sendJson(res, 200, await tasks.dashboard(actor));
   }
 
+  if (sub === 'dispatches') {
+    if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
+    const limitRaw = parseInt(url.searchParams.get('limit') || '50', 10);
+    const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 50, 1), 200);
+    const upper = actor.scope_path + '/￿';
+    const fsMod = await import('./firestore.js');
+    const rows = await fsMod.queryDocs('tm_dispatches', [
+      { field: 'caller_scope_path', op: '>=', value: actor.scope_path },
+      { field: 'caller_scope_path', op: '<=', value: upper }
+    ], { orderBy: 'caller_scope_path', limit }).catch(() => []);
+    const out = [];
+    for (const r of rows) {
+      const sp = r.data.caller_scope_path;
+      if (sp !== actor.scope_path && !(typeof sp === 'string' && sp.startsWith(actor.scope_path + '/'))) continue;
+      out.push({ id: r.id, ...r.data });
+    }
+    out.sort((a, b) => (b.received_at || '').localeCompare(a.received_at || ''));
+    return sendJson(res, 200, { dispatches: out });
+  }
+
   return sendError(res, 404, 'not_found', 'No such TM route.');
 }
 
