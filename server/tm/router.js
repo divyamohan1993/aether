@@ -11,6 +11,10 @@ import { gzipSync, brotliCompressSync, constants as zlibConst } from 'node:zlib'
 import * as users from './users.js';
 import * as projects from './projects.js';
 import * as tasks from './tasks.js';
+import * as dispatches from './dispatches.js';
+import * as units from './units.js';
+import * as assignments from './assignments.js';
+import * as dss from './dss.js';
 import { FirestoreError } from './firestore.js';
 import { ApiError, ScopeError, NotFoundError, ConflictError } from './_errors.js';
 
@@ -379,6 +383,12 @@ async function dispatchApi(req, res, sub, url, ctx) {
       const suspend = body?.suspend === true || body?.suspend === 'true';
       return sendJson(res, 200, await users.suspend(actor, uid, suspend));
     }
+    if (action === 'escalation-policy') {
+      if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
+      const body = await readJsonBody(req);
+      const policy = String(body?.policy || '');
+      return sendJson(res, 200, await users.setEscalationPolicy(actor, uid, policy));
+    }
     if (action === '') {
       if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
       return sendJson(res, 200, await users.getUser(actor, uid));
@@ -468,20 +478,121 @@ async function dispatchApi(req, res, sub, url, ctx) {
     if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
     const limitRaw = parseInt(url.searchParams.get('limit') || '50', 10);
     const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 50, 1), 200);
-    const upper = actor.scope_path + '/￿';
-    const fsMod = await import('./firestore.js');
-    const rows = await fsMod.queryDocs('tm_dispatches', [
-      { field: 'caller_scope_path', op: '>=', value: actor.scope_path },
-      { field: 'caller_scope_path', op: '<=', value: upper }
-    ], { orderBy: 'caller_scope_path', limit }).catch(() => []);
-    const out = [];
-    for (const r of rows) {
-      const sp = r.data.caller_scope_path;
-      if (sp !== actor.scope_path && !(typeof sp === 'string' && sp.startsWith(actor.scope_path + '/'))) continue;
-      out.push({ id: r.id, ...r.data });
+    const mineParam = url.searchParams.get('mine');
+    if (mineParam === 'only') {
+      return sendJson(res, 200, { dispatches: await dispatches.listMine(actor, { limit }) });
     }
-    out.sort((a, b) => (b.received_at || '').localeCompare(a.received_at || ''));
-    return sendJson(res, 200, { dispatches: out });
+    const status = url.searchParams.get('status') || null;
+    const requiresReview = url.searchParams.get('requires_review') === '1' || url.searchParams.get('requires_review') === 'true';
+    const includeMine = mineParam === '1' || mineParam === 'true';
+    return sendJson(res, 200, {
+      dispatches: await dispatches.listTeam(actor, { limit, status, requires_review: requiresReview, mine: includeMine })
+    });
+  }
+
+  if (sub.startsWith('dispatches/')) {
+    const rest = sub.slice('dispatches/'.length);
+    const slash = rest.indexOf('/');
+    const did = decodeURIComponent(slash < 0 ? rest : rest.slice(0, slash));
+    const action = slash < 0 ? '' : rest.slice(slash + 1);
+    if (!did) return sendError(res, 404, 'not_found', 'No such dispatch route.');
+    if (action === '') {
+      if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
+      return sendJson(res, 200, await dispatches.get(actor, did));
+    }
+    if (action === 'escalate') {
+      if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
+      const body = await readJsonBody(req);
+      const sig = body?.action_signature_b64 || body?.signature_b64;
+      const mod = await getAuth();
+      if (typeof mod.requireFreshUserSig === 'function') {
+        await mod.requireFreshUserSig(actor, 'dispatch.escalate', `dispatch.escalate|${did}`, sig);
+      }
+      return sendJson(res, 200, await dispatches.escalate(actor, did, body, sig));
+    }
+    if (action === 'review') {
+      if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
+      const body = await readJsonBody(req).catch(() => ({}));
+      return sendJson(res, 200, await dispatches.markReviewed(actor, did, body));
+    }
+    if (action === 'status') {
+      if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
+      return sendJson(res, 200, await assignments.readWorkerStatus(actor, did));
+    }
+    if (action === 'suggestions') {
+      if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
+      const dispatch = await dispatches.get(actor, did);
+      const candidates = await units.listAvailableInScope(dispatch.caller_scope_path || actor.scope_path);
+      const top = dss.suggest(dispatch, candidates, 3);
+      return sendJson(res, 200, { suggestions: top });
+    }
+    if (action === 'assign') {
+      if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
+      const body = await readJsonBody(req);
+      const sig = body?.action_signature_b64 || body?.signature_b64;
+      const mod = await getAuth();
+      if (typeof mod.requireFreshUserSig === 'function') {
+        await mod.requireFreshUserSig(actor, 'dispatch.assign', `dispatch.assign|${did}|${body?.unit_id || ''}`, sig);
+      }
+      return sendJson(res, 200, await assignments.assignUnit(actor, did, body, sig));
+    }
+    return sendError(res, 404, 'not_found', 'No such dispatch route.');
+  }
+
+  if (sub === 'units') {
+    if (method === 'GET') {
+      const opts = {
+        status: url.searchParams.get('status') || null,
+        type: url.searchParams.get('type') || null,
+        limit: parseInt(url.searchParams.get('limit') || '0', 10) || undefined,
+        include_archived: url.searchParams.get('include_archived') === 'true'
+      };
+      return sendJson(res, 200, { units: await units.list(actor, opts) });
+    }
+    if (method === 'POST') {
+      const body = await readJsonBody(req);
+      return sendJson(res, 201, await units.create(actor, body));
+    }
+    return sendError(res, 405, 'method_not_allowed', 'Use GET or POST.', { Allow: 'GET, POST' });
+  }
+
+  if (sub.startsWith('units/')) {
+    const uid = decodeURIComponent(sub.slice('units/'.length));
+    if (!uid || uid.includes('/')) return sendError(res, 404, 'not_found', 'No such unit route.');
+    if (method === 'GET') return sendJson(res, 200, await units.get(actor, uid));
+    if (method === 'PATCH') {
+      const body = await readJsonBody(req);
+      const wantsSig = body?.scope_path !== undefined || body?.contact_phone !== undefined || body?.name !== undefined;
+      let sig = null;
+      if (wantsSig) {
+        sig = body?.action_signature_b64 || body?.signature_b64;
+        const mod = await getAuth();
+        if (typeof mod.requireFreshUserSig === 'function') {
+          await mod.requireFreshUserSig(actor, 'unit.update', `unit.update|${uid}`, sig);
+        }
+      }
+      return sendJson(res, 200, await units.update(actor, uid, body, sig));
+    }
+    if (method === 'DELETE') {
+      const body = await readJsonBody(req).catch(() => ({}));
+      const sig = body?.action_signature_b64 || body?.signature_b64;
+      const mod = await getAuth();
+      if (typeof mod.requireFreshUserSig === 'function') {
+        await mod.requireFreshUserSig(actor, 'unit.archive', `unit.archive|${uid}`, sig);
+      }
+      return sendJson(res, 200, await units.archive(actor, uid, sig));
+    }
+    return sendError(res, 405, 'method_not_allowed', 'Use GET, PATCH, or DELETE.', { Allow: 'GET, PATCH, DELETE' });
+  }
+
+  if (sub.startsWith('assignments/')) {
+    const aid = decodeURIComponent(sub.slice('assignments/'.length));
+    if (!aid || aid.includes('/')) return sendError(res, 404, 'not_found', 'No such assignment route.');
+    if (method === 'PATCH') {
+      const body = await readJsonBody(req);
+      return sendJson(res, 200, await assignments.updateAssignment(actor, aid, body));
+    }
+    return sendError(res, 405, 'method_not_allowed', 'Use PATCH.', { Allow: 'PATCH' });
   }
 
   return sendError(res, 404, 'not_found', 'No such TM route.');
@@ -497,8 +608,10 @@ async function dispatchWeb(req, res, sub) {
     return;
   }
   if (sub === '' || sub === 'login' || sub === 'register' || sub === 'projects'
-      || sub === 'users' || sub === 'dashboard'
-      || sub.startsWith('projects/') || sub.startsWith('users/')) {
+      || sub === 'users' || sub === 'dashboard' || sub === 'tasks'
+      || sub === 'dispatches' || sub === 'units'
+      || sub.startsWith('projects/') || sub.startsWith('users/')
+      || sub.startsWith('dispatches/') || sub.startsWith('units/')) {
     await serveStaticFile(req, res, join(WEB_TM_DIR, 'index.html'), null);
     return;
   }
@@ -539,9 +652,20 @@ export async function route(req, res, url, ctx) {
           'POST /api/v1/tm/users/:uid/suspend',
           'GET|POST /api/v1/tm/projects',
           'GET|PATCH|DELETE /api/v1/tm/projects/:pid',
+          'POST /api/v1/tm/users/:uid/escalation-policy',
           'GET|POST /api/v1/tm/tasks',
           'GET|PATCH|DELETE /api/v1/tm/tasks/:tid',
-          'GET /api/v1/tm/dashboard'
+          'GET /api/v1/tm/dashboard',
+          'GET /api/v1/tm/dispatches',
+          'GET /api/v1/tm/dispatches/:id',
+          'POST /api/v1/tm/dispatches/:id/escalate',
+          'POST /api/v1/tm/dispatches/:id/review',
+          'GET /api/v1/tm/dispatches/:id/status',
+          'GET /api/v1/tm/dispatches/:id/suggestions',
+          'POST /api/v1/tm/dispatches/:id/assign',
+          'GET|POST /api/v1/tm/units',
+          'GET|PATCH|DELETE /api/v1/tm/units/:unit_id',
+          'PATCH /api/v1/tm/assignments/:aid'
         ]
       });
       return true;

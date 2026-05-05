@@ -1,0 +1,165 @@
+// Dispatch escalation pipeline. Reads + mutates tm_dispatches/{id}.
+// Scope rules: an actor sees every dispatch whose caller_scope_path is a
+// prefix of their own scope_path. They can act (escalate / mark reviewed)
+// only when the caller is at a strictly lower tier in their subtree.
+
+import { getDoc, queryDocs, runTransaction } from './firestore.js';
+import { record as auditRecord } from './audit.js';
+import { ApiError, ScopeError, NotFoundError } from './_errors.js';
+
+const STATUS_VALUES = new Set(['none', 'pending_review', 'escalated', 'auto_escalated', 'reviewed']);
+
+function clampLimit(n, def) {
+  const v = Number.isFinite(n) ? n : def;
+  return Math.min(Math.max(Math.floor(v) || def, 1), 200);
+}
+
+function projectDispatch(id, data) {
+  return { id, ...data };
+}
+
+function inActorSubtree(actorScope, callerScope) {
+  if (typeof callerScope !== 'string') return false;
+  return callerScope === actorScope || callerScope.startsWith(actorScope + '/');
+}
+
+// All dispatches filed by the actor.
+export async function listMine(actor, opts) {
+  if (!actor || !actor.uid) throw new ApiError('unauthorized', 'No session.', 401);
+  const limit = clampLimit(opts?.limit, 50);
+  const rows = await queryDocs('tm_dispatches', [
+    { field: 'caller_uid', op: '==', value: actor.uid }
+  ], { limit }).catch(() => []);
+  const out = rows.map((r) => projectDispatch(r.id, r.data));
+  out.sort((a, b) => (b.received_at || '').localeCompare(a.received_at || ''));
+  return out;
+}
+
+// Subtree feed. Excludes the actor's own dispatches unless mine=true.
+// Optional status filter, applied in memory because Firestore composite
+// indexes are not pre-declared for this collection.
+export async function listTeam(actor, opts) {
+  if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
+  const limit = clampLimit(opts?.limit, 50);
+  const includeMine = !!opts?.mine;
+  const status = typeof opts?.status === 'string' && STATUS_VALUES.has(opts.status) ? opts.status : null;
+  const requiresReview = opts?.requires_review === true;
+  const upper = actor.scope_path + '/￿';
+  const rows = await queryDocs('tm_dispatches', [
+    { field: 'caller_scope_path', op: '>=', value: actor.scope_path },
+    { field: 'caller_scope_path', op: '<=', value: upper }
+  ], { orderBy: 'caller_scope_path', limit: 200 }).catch(() => []);
+  const out = [];
+  for (const r of rows) {
+    const sp = r.data.caller_scope_path;
+    if (!inActorSubtree(actor.scope_path, sp)) continue;
+    if (!includeMine && r.data.caller_uid === actor.uid) continue;
+    if (status && r.data.escalation_status !== status) continue;
+    if (requiresReview && r.data.requires_review !== true) continue;
+    out.push(projectDispatch(r.id, r.data));
+  }
+  out.sort((a, b) => (b.received_at || '').localeCompare(a.received_at || ''));
+  return out.slice(0, limit);
+}
+
+export async function get(actor, id) {
+  if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
+  if (typeof id !== 'string' || id.length === 0) {
+    throw new ApiError('bad_request', 'id required.', 400);
+  }
+  const doc = await getDoc('tm_dispatches', id);
+  if (!doc) throw new NotFoundError('dispatch_not_found', 'No such dispatch.');
+  if (!inActorSubtree(actor.scope_path, doc.caller_scope_path)) {
+    throw new ScopeError('out_of_scope', 'Dispatch is outside your subtree.');
+  }
+  return projectDispatch(id, doc);
+}
+
+function appendChain(existing, entry) {
+  const arr = Array.isArray(existing) ? existing.slice() : [];
+  arr.push(entry);
+  return arr;
+}
+
+// Escalate: actor must outrank caller AND must have at least one parent
+// (cannot escalate from NDMA root). Re-sign verified by router.
+export async function escalate(actor, id, body, signatureB64) {
+  if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
+  if (Number(actor.tier) >= 100) {
+    throw new ScopeError('no_supervisor', 'You are at the top of the chain.');
+  }
+  return runTransaction(async (tx) => {
+    const doc = await tx.get('tm_dispatches', id);
+    if (!doc) throw new NotFoundError('dispatch_not_found', 'No such dispatch.');
+    if (!inActorSubtree(actor.scope_path, doc.caller_scope_path)) {
+      throw new ScopeError('out_of_scope', 'Dispatch is outside your subtree.');
+    }
+    const callerTier = Number(doc.caller_tier);
+    if (Number.isFinite(callerTier) && callerTier >= actor.tier) {
+      throw new ScopeError('caller_at_or_above_actor', 'Cannot escalate a dispatch from your peer or superior.');
+    }
+    const note = typeof body?.note === 'string' && body.note.length <= 500 ? body.note : null;
+    const entry = {
+      actor_uid: actor.uid,
+      actor_tier: actor.tier,
+      action: 'escalate',
+      target_tier: actor.tier,
+      ts: new Date().toISOString()
+    };
+    if (note) entry.note = note;
+    const chain = appendChain(doc.escalation_chain, entry);
+    tx.update('tm_dispatches', id, {
+      escalation_chain: chain,
+      escalation_status: 'escalated',
+      requires_review: false,
+      updated_at: new Date()
+    });
+    await auditRecord(actor.uid, 'dispatch.escalate', `tm_dispatches/${id}`,
+      { caller_uid: doc.caller_uid, caller_tier: callerTier, note }, signatureB64 || null);
+    return projectDispatch(id, { ...doc, escalation_chain: chain, escalation_status: 'escalated', requires_review: false });
+  });
+}
+
+// Mark a dispatch as reviewed. No re-sign required; this is a low-risk
+// triage action and the audit record carries the actor uid.
+export async function markReviewed(actor, id, body) {
+  if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
+  return runTransaction(async (tx) => {
+    const doc = await tx.get('tm_dispatches', id);
+    if (!doc) throw new NotFoundError('dispatch_not_found', 'No such dispatch.');
+    if (!inActorSubtree(actor.scope_path, doc.caller_scope_path)) {
+      throw new ScopeError('out_of_scope', 'Dispatch is outside your subtree.');
+    }
+    const callerTier = Number(doc.caller_tier);
+    if (Number.isFinite(callerTier) && callerTier >= actor.tier) {
+      throw new ScopeError('caller_at_or_above_actor', 'Cannot review a dispatch from your peer or superior.');
+    }
+    const note = typeof body?.note === 'string' && body.note.length <= 500 ? body.note : null;
+    const entry = {
+      actor_uid: actor.uid,
+      actor_tier: actor.tier,
+      action: 'reviewed',
+      ts: new Date().toISOString()
+    };
+    if (note) entry.note = note;
+    const chain = appendChain(doc.escalation_chain, entry);
+    const nextStatus = doc.escalation_status === 'escalated' || doc.escalation_status === 'auto_escalated'
+      ? doc.escalation_status
+      : 'reviewed';
+    tx.update('tm_dispatches', id, {
+      escalation_chain: chain,
+      escalation_status: nextStatus,
+      requires_review: false,
+      reviewed_at: new Date(),
+      reviewed_by_uid: actor.uid
+    });
+    await auditRecord(actor.uid, 'dispatch.review', `tm_dispatches/${id}`,
+      { caller_uid: doc.caller_uid, note }, null);
+    return projectDispatch(id, {
+      ...doc,
+      escalation_chain: chain,
+      escalation_status: nextStatus,
+      requires_review: false
+    });
+  });
+}

@@ -77,6 +77,13 @@ export function canActOn(actor, target) {
   return isInScope(actor.scope_path, target.scope_path);
 }
 
+export const ESCALATION_POLICIES = Object.freeze(['auto', 'manual_review', 'none']);
+export const DEFAULT_ESCALATION_POLICY = 'manual_review';
+
+export function isValidEscalationPolicy(p) {
+  return typeof p === 'string' && ESCALATION_POLICIES.includes(p);
+}
+
 function publicUser(u) {
   if (!u) return null;
   return {
@@ -89,9 +96,53 @@ function publicUser(u) {
     scope_path: u.scope_path,
     pubkey_b64: u.pubkey_b64,
     status: u.status,
+    escalation_policy: isValidEscalationPolicy(u.escalation_policy) ? u.escalation_policy : DEFAULT_ESCALATION_POLICY,
     created_at: u.created_at,
     last_login: u.last_login || null
   };
+}
+
+// Best-effort lookup. Returns the policy value or DEFAULT_ESCALATION_POLICY
+// on any error so persistDispatch never blocks on this side-channel read.
+export async function getEscalationPolicy(uid) {
+  if (typeof uid !== 'string' || uid.length === 0) return DEFAULT_ESCALATION_POLICY;
+  try {
+    const doc = await getDoc('tm_users', uid);
+    if (!doc) return DEFAULT_ESCALATION_POLICY;
+    return isValidEscalationPolicy(doc.escalation_policy) ? doc.escalation_policy : DEFAULT_ESCALATION_POLICY;
+  } catch {
+    return DEFAULT_ESCALATION_POLICY;
+  }
+}
+
+// Set escalation_policy on a target user. Actor must be strictly higher
+// tier and contain the target's scope. NDMA can set anyone below them.
+export async function setEscalationPolicy(actor, targetUid, policy) {
+  if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
+  if (typeof targetUid !== 'string' || targetUid.length === 0) {
+    throw new ApiError('bad_request', 'target uid required.', 400);
+  }
+  if (!isValidEscalationPolicy(policy)) {
+    throw new ApiError('bad_policy', 'policy must be auto, manual_review, or none.', 400);
+  }
+  return runTransaction(async (tx) => {
+    const target = await tx.get('tm_users', targetUid);
+    if (!target) throw new NotFoundError('user_not_found', 'No such user.');
+    if (!isInScope(actor.scope_path, target.scope_path)) {
+      throw new ScopeError('out_of_scope', 'Target is outside your subtree.');
+    }
+    if (target.tier >= actor.tier) {
+      throw new ScopeError('tier_at_or_above_actor', 'Cannot set policy for someone at or above your tier.');
+    }
+    const prev = isValidEscalationPolicy(target.escalation_policy) ? target.escalation_policy : DEFAULT_ESCALATION_POLICY;
+    if (prev === policy) {
+      return publicUser({ uid: targetUid, ...target, escalation_policy: policy });
+    }
+    tx.update('tm_users', targetUid, { escalation_policy: policy, updated_at: new Date() });
+    await auditRecord(actor.uid, 'user.escalation_policy', `tm_users/${targetUid}`,
+      { from: prev, to: policy }, null);
+    return publicUser({ uid: targetUid, ...target, escalation_policy: policy });
+  });
 }
 
 export async function getMe(actor) {

@@ -311,6 +311,23 @@ async function getAccessToken() {
 async function persistDispatch(d) {
   const fs = await import('./tm/firestore.js').catch(() => null);
   if (!fs || typeof fs.setDoc !== 'function') return;
+  let policy = 'manual_review';
+  try {
+    const usersMod = await import('./tm/users.js');
+    if (typeof usersMod.getEscalationPolicy === 'function' && d.caller?.uid) {
+      policy = await usersMod.getEscalationPolicy(d.caller.uid);
+    }
+  } catch { /* fall through with default */ }
+  const escalationStatus = policy === 'auto'
+    ? 'auto_escalated'
+    : policy === 'manual_review' ? 'pending_review' : 'none';
+  const requiresReview = policy === 'manual_review';
+  const escalationChain = policy === 'auto'
+    ? [{ actor_uid: d.caller?.uid || null, actor_tier: d.caller?.tier ?? null, action: 'auto_escalated', ts: d.receivedAt }]
+    : [];
+  const workerStatus = 'received';
+  const workerHistory = [{ status: workerStatus, ts: d.receivedAt }];
+  const workerSummary = 'Request received. Dispatcher reviewing now.';
   const doc = {
     id: d.id,
     received_at: d.receivedAt,
@@ -330,6 +347,14 @@ async function persistDispatch(d) {
     lang_hint: d.langHint || null,
     latency_ms: d.latencyMs,
     ip: d.ip || null,
+    escalation_status: escalationStatus,
+    requires_review: requiresReview,
+    escalation_chain: escalationChain,
+    policy_at_capture: policy,
+    assignments: [],
+    worker_status: workerStatus,
+    worker_status_history: workerHistory,
+    worker_summary_text: workerSummary,
     created_at: new Date()
   };
   await fs.setDoc('tm_dispatches', d.id, doc);

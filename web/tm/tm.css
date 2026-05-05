@@ -97,3 +97,52 @@ body:not([data-route=login]):not([data-route=register]):not([data-route=loading]
 .demoChip:hover{background:#1a0d00}
 .demoChip:focus-visible{outline:3px solid #ffd400;outline-offset:2px}
 .demoChip[disabled]{opacity:.5;cursor:wait}
+
+/* Dispatches view: tabs (segmented control), status pills, urgency, detail rows. */
+.tabs{display:flex;flex-wrap:wrap;gap:.4rem;margin:.6rem 0 .8rem;padding:.25rem;background:var(--card);border:1px solid var(--bord);border-radius:10px}
+.tabs .tabBtn{flex:1 1 8rem;text-align:center;padding:.55rem .9rem;border-radius:8px;color:var(--mut);text-decoration:none;font-weight:700;border:1px solid transparent;min-height:44px;display:inline-flex;align-items:center;justify-content:center;font-size:.92rem}
+.tabs .tabBtn:hover,.tabs .tabBtn:focus-visible{color:var(--fg);border-color:var(--bord)}
+.tabs .tabBtn.active{background:var(--ac);color:#000;border-color:var(--ac)}
+.tabs .tabBtn[aria-selected=true]{background:var(--ac);color:#000;border-color:var(--ac)}
+.pill{display:inline-block;font:700 .72rem/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-transform:uppercase;letter-spacing:.06em;padding:.28rem .55rem;border-radius:999px;border:1px solid transparent;white-space:nowrap}
+.pill.p-none{background:#1c1c1c;color:#f0f0f0;border-color:#444}
+.pill.p-pending_review{background:#3a2a00;color:#ffe066;border-color:#665200}
+.pill.p-escalated{background:#5a2200;color:#ffd28a;border-color:#a04400}
+.pill.p-auto_escalated{background:#003a36;color:#7ce0d4;border-color:#006e66}
+.pill.p-reviewed{background:#0e3a18;color:#9be8af;border-color:#1f6a30}
+.urg{display:inline-block;font:800 .72rem/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-transform:uppercase;letter-spacing:.06em;padding:.28rem .55rem;border-radius:6px;background:#1a1a1a;color:#fff;border:1px solid #333}
+.urg.u-CRITICAL{background:#5a0000;color:#ffb4b4;border-color:#a00000}
+.urg.u-HIGH{background:#3a1a00;color:#ffc88a;border-color:#a04400}
+.urg.u-MEDIUM{background:#2a2a00;color:#ffe066;border-color:#666600}
+.urg.u-LOW{background:#0a2a0a;color:#9be8af;border-color:#1f6a30}
+.urg.u-UNCLEAR{background:#1a1a1a;color:#bdbdbd;border-color:#333}
+.actCell{display:flex;flex-wrap:wrap;gap:.3rem}
+.actCell button{padding:.4rem .65rem;min-height:36px;font-size:.85rem}
+.detRow td{background:#050505;border-top:1px dashed var(--bord)}
+.detList{display:grid;grid-template-columns:max-content 1fr;gap:.4rem .8rem;font-size:.85rem;padding:.5rem 0}
+.detList dt{color:var(--mut);font-weight:700;text-transform:uppercase;letter-spacing:.05em;font-size:.7rem;padding-top:.2rem}
+.detList dd{margin:0}
+.triagePre{margin:0;padding:.6rem .8rem;background:#000;border:1px solid var(--bord);border-radius:8px;color:#e8e8e8;font:.78rem/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;max-height:18rem;overflow:auto}
+.loc{font:600 .85rem/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+
+/* Worker status pills (DSS), DSS suggestions, assignments. */
+.pill.ws-received{background:#1c1c1c;color:#f0f0f0;border-color:#444}
+.pill.ws-under_review{background:#1a3a5a;color:#cfe6ff;border-color:#2a5a8a}
+.pill.ws-resources_assigned{background:#3a2a00;color:#ffe066;border-color:#665200}
+.pill.ws-en_route{background:#3a1a00;color:#ffc88a;border-color:#a04400}
+.pill.ws-on_scene{background:#003a36;color:#7ce0d4;border-color:#006e66}
+.pill.ws-resolved{background:#0e3a18;color:#9be8af;border-color:#1f6a30}
+.pill.ws-cancelled{background:#5a0000;color:#ffb4b4;border-color:#a00000}
+.pill.ws-assigned{background:#3a2a00;color:#ffe066;border-color:#665200}
+.pill.ws-completed{background:#0e3a18;color:#9be8af;border-color:#1f6a30}
+.pendBar{display:inline-block;background:#3a1a00;color:#ffd28a;border:1px solid #a04400;padding:.4rem .65rem;border-radius:8px;margin-bottom:.6rem;font-weight:700;font-size:.85rem}
+.detList h3{font-size:.95rem;margin:.7rem 0 .3rem;color:var(--ac);font-weight:700}
+.dssTbl button{padding:.35rem .55rem;min-height:34px;font-size:.8rem}
+.manualAsn{display:flex;flex-wrap:wrap;gap:.5rem;align-items:flex-end;padding:.6rem;background:#050505;border:1px solid var(--bord);border-radius:10px;margin-bottom:.5rem}
+.manualAsn label{flex:1 1 8rem;font-size:.78rem}
+.manualAsn input,.manualAsn select{min-height:38px;padding:.4rem .55rem}
+.manualAsn button[type=submit]{padding:.5rem .85rem;min-height:38px}
+.asnList{list-style:none;display:grid;gap:.4rem;margin-bottom:.5rem}
+.asnRow{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.5rem .65rem;background:#050505;border:1px solid var(--bord);border-radius:8px;font-size:.85rem}
+.asnName{font-weight:700;color:var(--fg)}
+.asnRow .asnSet{margin-left:auto;min-width:8rem}

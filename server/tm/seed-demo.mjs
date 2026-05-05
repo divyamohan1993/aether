@@ -228,6 +228,18 @@ async function provisionProject(pid, name, description, ownerUid, scopePath) {
   return data;
 }
 
+async function provisionUnit(unitId, doc) {
+  const existing = await getDoc('tm_units', unitId);
+  if (existing && !FORCE) {
+    log('demo_unit_exists_skip', { unit_id: unitId, name: doc.name });
+    return existing;
+  }
+  await setDoc('tm_units', unitId, doc);
+  log(existing ? 'demo_unit_overwritten' : 'demo_unit_created',
+    { unit_id: unitId, name: doc.name, type: doc.type, scope_path: doc.scope_path });
+  return doc;
+}
+
 async function provisionTask(tid, projectId, title, description, scopePath, creatorUid, assigneeUid, priority, status, dueDays) {
   const existing = await getDoc('tm_tasks', tid);
   if (existing && !FORCE) {
@@ -316,6 +328,37 @@ async function main() {
     'Cross-check load tables against IS 14458. Three vendors. Compile note for SDMA.',
     taskScope, districtUid, null, 'low', 'done', null
   );
+
+  // Six demo response units around Shimla. Lat/lng spread within a few
+  // kilometres of the district HQ. All start available so the DSS UI has
+  // something to suggest as soon as the demo loads.
+  const unitScope = 'demo/HP/Shimla';
+  const unitNow = NOW();
+  const SEED_UNITS = [
+    { unit_id: 'demo-unit-amb-047', type: 'ambulance',   name: 'AMB-047',       contact_phone: '+91 11 2345 6789', capacity: 4, lat: 31.1048, lng: 77.1734 },
+    { unit_id: 'demo-unit-amb-052', type: 'ambulance',   name: 'AMB-052',       contact_phone: '+91 11 2345 6790', capacity: 4, lat: 31.1175, lng: 77.1658 },
+    { unit_id: 'demo-unit-amb-061', type: 'ambulance',   name: 'AMB-061',       contact_phone: '+91 11 2345 6791', capacity: 4, lat: 31.0921, lng: 77.1812 },
+    { unit_id: 'demo-unit-fe-12',   type: 'fire_engine', name: 'FE-12',         contact_phone: '+91 11 2345 6792', capacity: 8, lat: 31.1083, lng: 77.1701 },
+    { unit_id: 'demo-unit-sdrf-a3', type: 'sdrf_team',   name: 'SDRF Alpha-3',  contact_phone: '+91 11 2345 6793', capacity: 8, lat: 31.1290, lng: 77.1530 },
+    { unit_id: 'demo-unit-drn-04',  type: 'drone',       name: 'DRN-04',        contact_phone: '+91 11 2345 6794', capacity: 2, lat: 31.0850, lng: 77.1900 }
+  ];
+  for (const u of SEED_UNITS) {
+    await provisionUnit(u.unit_id, {
+      type: u.type,
+      name: u.name,
+      contact_phone: u.contact_phone,
+      scope_path: unitScope,
+      status: 'available',
+      capacity: u.capacity,
+      location: { lat: u.lat, lng: u.lng },
+      last_status_at: unitNow,
+      created_at: unitNow,
+      created_by_uid: provisioned.district.uid,
+      archived: false,
+      is_demo: true
+    });
+  }
+  log('seed_units_complete', { N: SEED_UNITS.length, scope_path: unitScope });
 
   // Build the public credentials.json artefact.
   const credentials = SEEDS.map((seed) => {

@@ -1,0 +1,267 @@
+// Resource registry for the dispatcher DSS. tm_units/{unit_id} stores
+// ambulance, fire engine, SDRF, medical team, drone, helicopter, and
+// police records. Units are scoped to a home base (scope_path) so that
+// scope filtering reuses the existing isInScope semantics.
+
+import { randomUUID } from 'node:crypto';
+import { getDoc, setDoc, queryDocs, runTransaction } from './firestore.js';
+import { record as auditRecord } from './audit.js';
+import { isInScope, isValidScope, TIER } from './users.js';
+import { ApiError, ScopeError, NotFoundError, ConflictError } from './_errors.js';
+
+export const UNIT_TYPES = Object.freeze([
+  'ambulance', 'fire_engine', 'police', 'sdrf_team',
+  'medical_team', 'drone', 'helicopter'
+]);
+
+export const UNIT_STATUSES = Object.freeze([
+  'available', 'en_route', 'on_scene', 'returning', 'busy', 'offline'
+]);
+
+const NAME_RE = /^[A-Za-z0-9 .,'\-_/]{1,40}$/;
+const PHONE_RE = /^\+?[0-9 \-]{6,24}$/;
+
+function isValidName(n) { return typeof n === 'string' && NAME_RE.test(n); }
+function isValidPhone(p) { return typeof p === 'string' && PHONE_RE.test(p); }
+function isValidType(t) { return UNIT_TYPES.includes(t); }
+function isValidStatus(s) { return UNIT_STATUSES.includes(s); }
+
+function isValidLocation(loc) {
+  if (loc === null) return true;
+  if (!loc || typeof loc !== 'object') return false;
+  const lat = Number(loc.lat), lng = Number(loc.lng);
+  return Number.isFinite(lat) && Number.isFinite(lng)
+    && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+}
+
+function projectUnit(id, data) {
+  return {
+    unit_id: id,
+    type: data.type,
+    name: data.name,
+    contact_phone: data.contact_phone,
+    scope_path: data.scope_path,
+    status: data.status,
+    capacity: Number.isFinite(Number(data.capacity)) ? Number(data.capacity) : null,
+    location: data.location || null,
+    last_status_at: data.last_status_at || null,
+    created_at: data.created_at || null,
+    archived: data.archived === true
+  };
+}
+
+function clampLimit(n, def) {
+  const v = Number.isFinite(n) ? n : def;
+  return Math.min(Math.max(Math.floor(v) || def, 1), 500);
+}
+
+function statusRank(s) {
+  const order = { available: 0, en_route: 1, on_scene: 2, returning: 3, busy: 4, offline: 5 };
+  return order[s] ?? 9;
+}
+
+// List units inside the actor's subtree. Filters: status, type, limit.
+export async function list(actor, opts) {
+  if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
+  const limit = clampLimit(opts?.limit, 200);
+  const wantStatus = typeof opts?.status === 'string' && isValidStatus(opts.status) ? opts.status : null;
+  const wantType = typeof opts?.type === 'string' && isValidType(opts.type) ? opts.type : null;
+  const includeArchived = opts?.include_archived === true;
+  const upper = actor.scope_path + '/￿';
+  const rows = await queryDocs('tm_units', [
+    { field: 'scope_path', op: '>=', value: actor.scope_path },
+    { field: 'scope_path', op: '<=', value: upper }
+  ], { orderBy: 'scope_path', limit: 500 }).catch(() => []);
+  const out = [];
+  for (const r of rows) {
+    if (!isInScope(actor.scope_path, r.data.scope_path)) continue;
+    if (!includeArchived && r.data.archived === true) continue;
+    if (wantStatus && r.data.status !== wantStatus) continue;
+    if (wantType && r.data.type !== wantType) continue;
+    out.push(projectUnit(r.id, r.data));
+  }
+  out.sort((a, b) => {
+    const sr = statusRank(a.status) - statusRank(b.status);
+    if (sr !== 0) return sr;
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
+  return out.slice(0, limit);
+}
+
+export async function get(actor, unitId) {
+  if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
+  if (typeof unitId !== 'string' || unitId.length === 0) {
+    throw new ApiError('bad_request', 'unit_id required.', 400);
+  }
+  const doc = await getDoc('tm_units', unitId);
+  if (!doc) throw new NotFoundError('unit_not_found', 'No such unit.');
+  if (!isInScope(actor.scope_path, doc.scope_path)) {
+    throw new ScopeError('out_of_scope', 'Unit is outside your subtree.');
+  }
+  return projectUnit(unitId, doc);
+}
+
+// Create a unit. District tier (60) and above only. Validates type,
+// scope inside the actor's subtree, name uniqueness within that scope.
+export async function create(actor, body) {
+  if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
+  if (Number(actor.tier) < TIER.district) {
+    throw new ScopeError('tier_too_low', 'Only district tier and above can create units.');
+  }
+  const type = String(body?.type || '');
+  const name = String(body?.name || '').trim();
+  const phone = String(body?.contact_phone || '').trim();
+  const scopePath = String(body?.scope_path || actor.scope_path);
+  const status = String(body?.status || 'available');
+  const capacity = body?.capacity == null ? null : Number(body.capacity);
+  const location = body?.location ?? null;
+
+  if (!isValidType(type)) throw new ApiError('bad_type', 'Invalid type.', 400);
+  if (!isValidName(name)) throw new ApiError('bad_name', 'Invalid name.', 400);
+  if (!isValidPhone(phone)) throw new ApiError('bad_phone', 'Invalid contact phone.', 400);
+  if (!isValidScope(scopePath)) throw new ApiError('bad_scope', 'Invalid scope_path.', 400);
+  if (!isInScope(actor.scope_path, scopePath)) {
+    throw new ScopeError('out_of_scope', 'Scope is outside your subtree.');
+  }
+  if (!isValidStatus(status)) throw new ApiError('bad_status', 'Invalid status.', 400);
+  if (capacity !== null && (!Number.isFinite(capacity) || capacity < 0 || capacity > 500)) {
+    throw new ApiError('bad_capacity', 'Capacity must be 0-500.', 400);
+  }
+  if (!isValidLocation(location)) throw new ApiError('bad_location', 'Invalid location.', 400);
+
+  const upper = scopePath + '/￿';
+  const dupRows = await queryDocs('tm_units', [
+    { field: 'scope_path', op: '>=', value: scopePath },
+    { field: 'scope_path', op: '<=', value: upper }
+  ], { limit: 200 }).catch(() => []);
+  for (const r of dupRows) {
+    if (r.data.archived === true) continue;
+    if (String(r.data.name || '').toLowerCase() === name.toLowerCase()
+        && r.data.scope_path === scopePath) {
+      throw new ConflictError('unit_name_taken', 'A unit with this name already exists in scope.');
+    }
+  }
+
+  const unitId = randomUUID();
+  const now = new Date();
+  const doc = {
+    type, name, contact_phone: phone, scope_path: scopePath,
+    status, capacity: capacity === null ? null : Math.floor(capacity),
+    location: location || null,
+    last_status_at: now,
+    created_at: now,
+    created_by_uid: actor.uid,
+    archived: false
+  };
+  await setDoc('tm_units', unitId, doc);
+  await auditRecord(actor.uid, 'unit.create', `tm_units/${unitId}`,
+    { type, name, scope_path: scopePath, status }, null);
+  return projectUnit(unitId, doc);
+}
+
+// Update a unit. Status / location / capacity updates are low-risk.
+// Re-sign required for scope or contact_phone changes.
+export async function update(actor, unitId, body, signatureB64) {
+  if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
+  if (typeof unitId !== 'string' || unitId.length === 0) {
+    throw new ApiError('bad_request', 'unit_id required.', 400);
+  }
+  return runTransaction(async (tx) => {
+    const doc = await tx.get('tm_units', unitId);
+    if (!doc) throw new NotFoundError('unit_not_found', 'No such unit.');
+    if (!isInScope(actor.scope_path, doc.scope_path)) {
+      throw new ScopeError('out_of_scope', 'Unit is outside your subtree.');
+    }
+    const patch = { last_status_at: new Date() };
+    let auditPayload = {};
+    if (body?.status !== undefined) {
+      if (!isValidStatus(body.status)) throw new ApiError('bad_status', 'Invalid status.', 400);
+      patch.status = body.status;
+      auditPayload.status = body.status;
+    }
+    if (body?.capacity !== undefined) {
+      const cap = body.capacity == null ? null : Number(body.capacity);
+      if (cap !== null && (!Number.isFinite(cap) || cap < 0 || cap > 500)) {
+        throw new ApiError('bad_capacity', 'Capacity must be 0-500.', 400);
+      }
+      patch.capacity = cap === null ? null : Math.floor(cap);
+      auditPayload.capacity = patch.capacity;
+    }
+    if (body?.location !== undefined) {
+      if (!isValidLocation(body.location)) throw new ApiError('bad_location', 'Invalid location.', 400);
+      patch.location = body.location || null;
+    }
+    if (body?.name !== undefined) {
+      if (Number(actor.tier) < TIER.district) {
+        throw new ScopeError('tier_too_low', 'Only district tier and above can rename units.');
+      }
+      const name = String(body.name || '').trim();
+      if (!isValidName(name)) throw new ApiError('bad_name', 'Invalid name.', 400);
+      patch.name = name;
+      auditPayload.name = name;
+    }
+    if (body?.contact_phone !== undefined) {
+      const phone = String(body.contact_phone || '').trim();
+      if (!isValidPhone(phone)) throw new ApiError('bad_phone', 'Invalid contact phone.', 400);
+      patch.contact_phone = phone;
+      auditPayload.contact_phone = phone;
+    }
+    if (body?.scope_path !== undefined) {
+      const scopePath = String(body.scope_path);
+      if (!isValidScope(scopePath)) throw new ApiError('bad_scope', 'Invalid scope_path.', 400);
+      if (!isInScope(actor.scope_path, scopePath)) {
+        throw new ScopeError('out_of_scope', 'New scope is outside your subtree.');
+      }
+      patch.scope_path = scopePath;
+      auditPayload.scope_path = scopePath;
+    }
+    tx.update('tm_units', unitId, patch);
+    await auditRecord(actor.uid, 'unit.update', `tm_units/${unitId}`,
+      auditPayload, signatureB64 || null);
+    return projectUnit(unitId, { ...doc, ...patch });
+  });
+}
+
+// Soft-delete a unit. Sets status='offline' and archived=true.
+export async function archive(actor, unitId, signatureB64) {
+  if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
+  if (Number(actor.tier) < TIER.district) {
+    throw new ScopeError('tier_too_low', 'Only district tier and above can archive units.');
+  }
+  return runTransaction(async (tx) => {
+    const doc = await tx.get('tm_units', unitId);
+    if (!doc) throw new NotFoundError('unit_not_found', 'No such unit.');
+    if (!isInScope(actor.scope_path, doc.scope_path)) {
+      throw new ScopeError('out_of_scope', 'Unit is outside your subtree.');
+    }
+    tx.update('tm_units', unitId, {
+      archived: true,
+      status: 'offline',
+      last_status_at: new Date()
+    });
+    await auditRecord(actor.uid, 'unit.archive', `tm_units/${unitId}`,
+      { name: doc.name, type: doc.type }, signatureB64 || null);
+    return { unit_id: unitId, archived: true };
+  });
+}
+
+// Helper used by assignments.js: list candidates inside a dispatch scope.
+// Returns only available units. Bounded read.
+export async function listAvailableInScope(scopePath, limit = 200) {
+  if (!isValidScope(scopePath)) return [];
+  const upper = scopePath + '/￿';
+  const rows = await queryDocs('tm_units', [
+    { field: 'scope_path', op: '>=', value: scopePath },
+    { field: 'scope_path', op: '<=', value: upper }
+  ], { orderBy: 'scope_path', limit: Math.min(Math.max(limit, 1), 500) }).catch(() => []);
+  const out = [];
+  for (const r of rows) {
+    if (r.data.archived === true) continue;
+    if (r.data.status !== 'available') continue;
+    if (!isInScope(scopePath, r.data.scope_path)) continue;
+    out.push(projectUnit(r.id, r.data));
+  }
+  return out;
+}
+
+export const _internal = { projectUnit, statusRank, isValidName, isValidPhone };

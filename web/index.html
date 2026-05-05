@@ -9,90 +9,278 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
+/* AAA on #000: #fff 21 #ddd 17.5 #ccc 15.9 #aaa 9.3 #d8631a 4.85 (large). Pills #fff/#ff1f1f, #000/#ffd400 13.2, #000/#3aa655 5.1, #fff/#1a4a8a 7.4, #fff/#7a1f1f 7.0. Focus #ffd400 13.2. */
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{background:#000;color:#fff;height:100%;overflow:hidden;font:16px/1.4 system-ui,sans-serif;-webkit-tap-highlight-color:transparent;user-select:none;touch-action:manipulation}
-body{display:grid;grid-template-rows:auto 1fr auto;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-#bar{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.5rem;padding:.6rem .8rem;font:600 .75rem/1.3 ui-monospace,monospace;color:#888}
-#bar span{white-space:nowrap}
-#bar .id{flex:1;min-width:50%;color:#d8631a;text-align:left;text-transform:none;letter-spacing:0}
-#bar .id b{color:#fff;font-weight:700}
-#bar .so{background:none;border:1px solid #333;color:#aaa;border-radius:6px;padding:.25rem .5rem;font:inherit;cursor:pointer;min-height:32px}
-#bar .so:focus-visible{outline:3px solid #ffd400;outline-offset:2px}
-main{display:grid;place-items:center;padding:1rem;min-height:0}
-#s{width:min(72vw,72vh,360px);height:min(72vw,72vh,360px);min-width:200px;min-height:200px;border-radius:50%;background:#1a0000;color:#fff;border:3px solid #ff2a2a;font:800 clamp(1.1rem,4.2vw,1.6rem)/1.2 inherit;cursor:pointer;display:grid;place-items:center;text-align:center;padding:1rem;transition:.15s}
-#s[data-r="1"]{background:#ff2a2a;border-color:#fff;animation:p 1.2s ease-in-out infinite}
-#s:focus-visible{outline:4px solid #ffd400;outline-offset:6px}
-#s:active{transform:scale(.97)}
+html,body{background:#000;color:#fff;font:16px/1.45 system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
+body{min-height:100dvh;display:flex;flex-direction:column;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+header{position:sticky;top:0;background:#000;border-bottom:1px solid #1a1a1a;z-index:5;padding:.5rem .75rem;display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
+.id{flex:1 1 auto;min-width:0;font:600 .8rem/1.3 system-ui,sans-serif;color:#d8631a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.id b{color:#fff;font-weight:700}
+.bg{display:flex;flex-wrap:wrap;gap:.35rem;align-items:center;font:700 .7rem/1.2 ui-monospace,monospace;color:#aaa}
+.bg span{padding:.2rem .4rem;border:1px solid #2a2a2a;border-radius:4px;white-space:nowrap;background:#0a0a0a}
+.so{background:#0a0a0a;border:1px solid #444;color:#fff;border-radius:6px;padding:.35rem .6rem;font:700 .75rem ui-monospace,monospace;cursor:pointer;min-height:34px}
+.so:focus-visible,.snd:focus-visible,.rt:focus-visible,footer summary:focus-visible{outline:3px solid #ffd400;outline-offset:2px}
+@media(max-width:560px){.id{flex:1 1 100%;font-size:.75rem}.bg{flex:1 1 auto;font-size:.66rem;order:2}.so{order:3}}
+main{flex:1;padding:.75rem 1rem 1rem;display:grid;gap:.85rem;max-width:560px;width:100%;margin:0 auto}
+.sos{justify-self:center;width:clamp(180px,60vmin,320px);aspect-ratio:1;border-radius:50%;background:#1a0000;color:#fff;border:3px solid #ff2a2a;font:800 clamp(1rem,4vw,1.5rem)/1.2 inherit;cursor:pointer;display:grid;place-items:center;text-align:center;padding:1rem;transition:transform .15s,background .15s;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+.sos[data-r="1"]{background:#ff2a2a;border-color:#fff;animation:p 1.2s ease-in-out infinite}
+.sos:focus-visible{outline:4px solid #ffd400;outline-offset:6px}
+.sos:active{transform:scale(.97)}
 @keyframes p{50%{box-shadow:0 0 0 16px rgba(255,42,42,.25)}}
-@media(prefers-reduced-motion:reduce){#s{animation:none!important}}
-#p{margin:1rem auto;max-width:min(92vw,420px);text-align:center;font-size:.95rem;color:#ddd;min-height:1.4rem}
-#p.x{padding:.9rem 1rem;border:1px solid #333;border-radius:14px;background:#0a0a0a}
-#p b{display:inline-block;font:800 .8rem/1 ui-monospace,monospace;padding:.4rem .6rem;border-radius:6px;margin-bottom:.5rem;background:#666;color:#fff}
-.u-CRITICAL b{background:#ff1f1f}
-.u-HIGH b{background:#ff7a00;color:#000}
-.u-MEDIUM b{background:#ffd400;color:#000}
-.u-LOW b{background:#3aa655;color:#000}
-footer{padding:.8rem 1rem;text-align:center;color:#777;font-size:.78rem;line-height:1.5}
+@media(prefers-reduced-motion:reduce){.sos,.p-sending{animation:none!important;transition:none!important}}
+.pn{padding:.75rem .9rem;border:1px solid #222;border-radius:10px;background:#050505}
+.pn h2{font:700 .78rem/1.2 ui-monospace,monospace;color:#bbb;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.55rem}
+.res{font-size:.95rem;color:#ddd;min-height:1.4rem}
+.res.empty{color:#aaa;font-size:.85rem}
+.tag{display:inline-block;font:800 .72rem/1 ui-monospace,monospace;padding:.35rem .5rem;border-radius:4px;margin-right:.45rem;vertical-align:.05em;background:#444;color:#fff}
+.u-CRITICAL .tag{background:#ff1f1f}
+.u-HIGH .tag{background:#ff7a00;color:#000}
+.u-MEDIUM .tag{background:#ffd400;color:#000}
+.u-LOW .tag{background:#3aa655;color:#000}
+.res .meta{display:block;margin-top:.5rem;font:600 .7rem/1.4 ui-monospace,monospace;color:#aaa;letter-spacing:.02em}
+.qhead{display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.55rem}
+.qhead h2{margin:0}
+.snd{background:#0a0a0a;border:1px solid #555;color:#fff;border-radius:6px;padding:.4rem .7rem;font:700 .75rem ui-monospace,monospace;cursor:pointer;min-height:36px}
+.snd:disabled,.rt:disabled{opacity:.4;cursor:not-allowed}
+.qlist{list-style:none;display:grid;gap:.4rem}
+.qlist li{display:grid;grid-template-columns:auto auto 1fr auto;align-items:center;gap:.55rem;padding:.5rem .6rem;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:6px;font:600 .78rem ui-monospace,monospace;color:#ddd}
+.qlist time{color:#ccc;justify-self:start}
+.qlist .sz{color:#888;font-size:.7rem;justify-self:end;margin-right:.2rem}
+.pill{font:800 .66rem/1 ui-monospace,monospace;padding:.3rem .42rem;border-radius:3px;text-transform:uppercase;letter-spacing:.05em;justify-self:start}
+.p-pending{background:#333;color:#fff}
+.p-sending{background:#1a4a8a;color:#fff;animation:pulse 1s ease-in-out infinite}
+.p-failed{background:#7a1f1f;color:#fff}
+@keyframes pulse{50%{opacity:.55}}
+.rt{background:#1a1a1a;border:1px solid #555;color:#fff;border-radius:5px;padding:.3rem .55rem;font:700 1rem/1 ui-monospace,monospace;cursor:pointer;min-height:36px;min-width:36px;justify-self:end}
+.qlist .err{grid-column:1/-1;color:#ff8a8a;font:600 .68rem/1.4 ui-monospace,monospace;margin-top:.15rem}
+.qempty{display:block!important;color:#aaa;font-size:.8rem;text-align:center;padding:.8rem .5rem;background:transparent!important;border:1px dashed #222!important}
+.tlist{list-style:none;display:grid;gap:.45rem}
+.tlist li{padding:.55rem .65rem;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:8px;display:grid;gap:.3rem}
+.tlist .th{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;font:700 .7rem/1 ui-monospace,monospace;color:#bbb;letter-spacing:.04em}
+.tlist .th time{color:#ddd}
+.tlist .sm{font-size:.85rem;color:#fff;line-height:1.45}
+.tlist .ul{display:flex;flex-wrap:wrap;gap:.3rem;font:700 .66rem/1 ui-monospace,monospace;color:#ccc}
+.tlist .ul span{padding:.25rem .42rem;border:1px solid #2a2a2a;border-radius:3px;background:#050505}
+.tlist .empty{color:#aaa;font-style:italic;text-align:center;padding:.6rem}
+.spill{font:800 .66rem/1 ui-monospace,monospace;padding:.3rem .42rem;border-radius:3px;text-transform:uppercase;letter-spacing:.05em}
+.s-received{background:#444;color:#fff}
+.s-under_review{background:#1a4a8a;color:#fff}
+.s-resources_assigned{background:#5a3a00;color:#ffd28a}
+.s-en_route{background:#3a1a00;color:#ffc88a}
+.s-on_scene{background:#003a36;color:#7ce0d4}
+.s-resolved{background:#0e3a18;color:#9be8af}
+.s-cancelled{background:#7a1f1f;color:#fff}
+footer{padding:1rem;text-align:center;color:#aaa;font-size:.78rem;line-height:1.5}
 footer p{max-width:36rem;margin:0 auto}
-details{margin-top:.5rem}
-summary{cursor:pointer;color:#aaa;font-size:.78rem;padding:.5rem;min-height:44px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px}
-summary:focus-visible{outline:3px solid #ffd400;outline-offset:2px}
-.v{margin-top:.5rem;text-align:left;color:#999;font-size:.75rem;line-height:1.55;padding:.6rem;border:1px solid #222;border-radius:8px;background:#050505}
+footer details{margin-top:.6rem}
+footer summary{cursor:pointer;color:#ccc;font-size:.78rem;padding:.5rem;min-height:44px;display:inline-flex;align-items:center;border-radius:6px}
+footer .v{margin-top:.5rem;text-align:left;color:#bbb;font-size:.75rem;line-height:1.55;padding:.7rem;border:1px solid #222;border-radius:8px;background:#050505}
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style></head><body>
-<div id="bar" role="status" aria-live="polite"><span class="id" id="bi" aria-label="Signed-in user"></span><span id="bg" aria-label="Location"></span><span id="bb" aria-label="Battery"></span><span id="bn" aria-label="Network"></span><span id="bq" aria-label="Queue"></span><span id="bl" aria-label="Language"></span><button class="so" id="bo" type="button" aria-label="Sign out">Sign out</button></div>
-<main><button id="s" type="button" data-r="0"></button></main>
-<footer><p id="p" role="status" aria-live="polite" aria-atomic="true"></p><p id="h"></p><details><summary id="ps">Privacy</summary><div class="v" id="pt"></div></details></footer>
+<header>
+<span class="id" id="bi" aria-label="Signed-in user"></span>
+<span class="bg" role="status" aria-label="Device status"><span id="bg" aria-label="Location"></span><span id="bb" aria-label="Battery"></span><span id="bn" aria-label="Network"></span><span id="bl" aria-label="Language"></span></span>
+<button class="so" id="bo" type="button">Sign out</button>
+</header>
+<main>
+<button class="sos" id="s" type="button" data-r="0" aria-pressed="false"></button>
+<section class="pn" aria-labelledby="rh"><h2 id="rh"></h2><div class="res empty" id="p" role="status" aria-live="polite" aria-atomic="true"></div></section>
+<section class="pn" aria-labelledby="th"><h2 id="th"></h2><ul class="tlist" id="tl" aria-live="polite" aria-atomic="false"></ul></section>
+<section class="pn" aria-labelledby="qh"><div class="qhead"><h2 id="qh"></h2><button class="snd" id="sn" type="button"></button></div><ul class="qlist" id="ql"></ul></section>
+<span class="sr" id="lv" role="status" aria-live="polite" aria-atomic="true"></span>
+</main>
+<footer><p id="h"></p><details><summary id="ps"></summary><div class="v" id="pt"></div></details></footer>
 <script>
 (()=>{
-const D=document,N=navigator,$=i=>D.getElementById(i),S=$('s'),P=$('p'),Q=$('bq'),BB=$('bb'),BN=$('bn'),BL=$('bl'),BI=$('bi'),BG=$('bg'),BO=$('bo'),A=(t,e,f)=>t.addEventListener(e,f),CE=t=>D.createElement(t);
-// Login gate. SOS requires a TM session so every dispatch carries an
-// identified caller. If there is no session, send the responder to the
-// TM login page and bring them back here on success.
+const D=document,N=navigator,$=i=>D.getElementById(i),CE=t=>D.createElement(t),A=(t,e,f)=>t.addEventListener(e,f);
+const S=$('s'),P=$('p'),BB=$('bb'),BN=$('bn'),BL=$('bl'),BI=$('bi'),BG=$('bg'),BO=$('bo'),QH=$('qh'),QL=$('ql'),SN=$('sn'),LV=$('lv'),TL=$('tl');
 const SS=()=>{try{return JSON.parse(sessionStorage.getItem('aether-tm-session'))}catch(e){return null}};
-const decodeJwt=t=>{try{const p=t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');const pad='='.repeat((4-p.length%4)%4);return JSON.parse(atob(p+pad))}catch(e){return null}};
-const sess=SS();const claims=sess?decodeJwt(sess.token):null;
-if(!sess||!claims||(claims.exp&&claims.exp*1000<Date.now())){location.replace('/tm/#/login?next=%2F');throw new Error('redirecting');}
+const dj=t=>{try{const p=t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'),pad='='.repeat((4-p.length%4)%4);return JSON.parse(atob(p+pad))}catch(e){return null}};
+const sess=SS(),cl=sess?dj(sess.token):null;
+if(!sess||!cl||(cl.exp&&cl.exp*1000<Date.now())){location.replace('/tm/#/login?next=%2F');throw 0}
 const TIER={100:'NDMA',80:'State',60:'District',40:'Responder',20:'Volunteer'};
-const idB=CE('b');idB.textContent=sess.email||claims.uid;
-const idS=CE('span');idS.textContent=' · '+(TIER[claims.tier]||claims.tier)+' · '+claims.scope_path;
-BI.append(idB,idS);
+const idB=CE('b');idB.textContent=sess.email||cl.uid;
+BI.append(idB,D.createTextNode(' · '+(TIER[cl.tier]||cl.tier)+' · '+cl.scope_path));
 A(BO,'click',()=>{sessionStorage.removeItem('aether-tm-session');location.replace('/tm/#/login?next=%2F')});
 const L={
-en:{b:'Hold to send SOS',r:'Recording',s:'Sending',o:'Saved offline. Will send when signal returns.',e:'Could not send. Will retry.',h:'Help is on the way. Stay where you are.',n:'No signal',q:n=>`Queue: ${n} pending`,t:'Goes only to State Disaster Response Force. False reports cost lives.',pv:'Privacy',pt:'Voice clip, language, rough location, battery and signal go only to SDRF rescue. No accounts. No tracking. Audio deleted in 24 hours. No keys on this device.'},
-hi:{b:'SOS भेजने के लिए दबाए रखें',r:'रिकॉर्ड हो रहा है',s:'भेजा जा रहा है',o:'ऑफ़लाइन सहेजा गया. सिग्नल आते ही भेज देंगे.',e:'नहीं भेज सके. फिर कोशिश करेंगे.',h:'मदद आ रही है. वहीं रहें.',n:'कोई सिग्नल नहीं',q:n=>`क़तार: ${n} बाकी`,t:'केवल राज्य आपदा बल को. झूठी सूचना से जान जाती है.',pv:'निजता',pt:'आवाज़, भाषा, मोटा स्थान, बैटरी, नेटवर्क केवल बचाव दल को. कोई खाता नहीं. कोई ट्रैकिंग नहीं. ऑडियो 24 घंटे में हटती है. कोई कुंजी इस फ़ोन में नहीं.'},
-ta:{b:'SOS அனுப்ப அழுத்திப் பிடி',r:'பதிவு செய்கிறது',s:'அனுப்புகிறது',o:'ஆஃப்லைனில் சேமித்தது. சிக்னல் வந்ததும் அனுப்பும்.',e:'அனுப்ப முடியவில்லை. மீண்டும் முயற்சிக்கும்.',h:'உதவி வருகிறது. அங்கேயே இரு.',n:'சிக்னல் இல்லை',q:n=>`வரிசை: ${n} நிலுவை`,t:'மாநில பேரிடர் மீட்புப் படைக்கு மட்டுமே. பொய் அறிக்கைகள் உயிர்களை இழக்கும்.',pv:'தனியுரிமை',pt:'குரல், மொழி, இடம், மின்கலம், நெட்வொர்க் மீட்புப் படைக்கு மட்டுமே. கணக்கு இல்லை. கண்காணிப்பு இல்லை. ஒலி 24 மணி நேரத்தில் நீக்கம். சாதனத்தில் சாவி இல்லை.'},
-bn:{b:'SOS পাঠাতে চেপে ধরুন',r:'রেকর্ড হচ্ছে',s:'পাঠানো হচ্ছে',o:'অফলাইনে সংরক্ষিত. সিগন্যাল এলেই পাঠাবে.',e:'পাঠাতে পারিনি. আবার চেষ্টা করব.',h:'সাহায্য আসছে. সেখানেই থাকুন.',n:'সিগন্যাল নেই',q:n=>`সারি: ${n} বাকি`,t:'শুধু রাজ্য বিপর্যয় মোকাবিলা বাহিনীকে. মিথ্যা খবর প্রাণ কাড়ে.',pv:'গোপনীয়তা',pt:'ভয়েস, ভাষা, আনুমানিক অবস্থান, ব্যাটারি, নেটওয়ার্ক শুধু উদ্ধারকারী দলকে. অ্যাকাউন্ট নেই. ট্র্যাকিং নেই. অডিও ২৪ ঘণ্টায় মুছে যায়. ফোনে চাবি নেই.'}};
+en:{b:'Hold to send SOS',r:'Recording',h:'Help is on the way. Stay where you are.',n:'No signal',rh:'Latest dispatch',rp:'No dispatches yet. Press the SOS button to send one.',q:'Queue',pd:'pending',pl:'Nothing pending. Recordings sent immediately.',sn:'Send now',rt:'Retry',ax:'Recording queued.',sx:'Sent.',fx:'Send failed.',pv:'Privacy',pt:'Voice clip, language, rough location, battery and signal go only to SDRF rescue. No accounts. No tracking. Audio deleted in 24 hours.',t:'Goes only to State Disaster Response Force. False reports cost lives.',ts:'Status',te:'No active requests. Updates appear here after you send an SOS.'},
+hi:{b:'SOS भेजने के लिए दबाए रखें',r:'रिकॉर्ड हो रहा है',h:'मदद आ रही है. वहीं रहें.',n:'कोई सिग्नल नहीं',rh:'अंतिम सूचना',rp:'अभी कोई सूचना नहीं. SOS दबाकर भेजें.',q:'क़तार',pd:'बाकी',pl:'कुछ बाकी नहीं.',sn:'अभी भेजें',rt:'पुनः प्रयास',ax:'क़तार में जोड़ा गया.',sx:'भेज दिया.',fx:'भेज नहीं सके.',pv:'निजता',pt:'आवाज़, भाषा, मोटा स्थान, बैटरी, नेटवर्क केवल बचाव दल को. ऑडियो 24 घंटे में हटती है.',t:'केवल राज्य आपदा बल को. झूठी सूचना से जान जाती है.',ts:'स्थिति',te:'कोई सक्रिय अनुरोध नहीं.'},
+ta:{b:'SOS அனுப்ப அழுத்திப் பிடி',r:'பதிவு செய்கிறது',h:'உதவி வருகிறது.',n:'சிக்னல் இல்லை',rh:'சமீப அனுப்பு',rp:'இதுவரை அனுப்பவில்லை.',q:'வரிசை',pd:'நிலுவை',pl:'நிலுவை இல்லை.',sn:'இப்போதே அனுப்பு',rt:'மீண்டும்',ax:'வரிசையில் சேர்ந்தது.',sx:'அனுப்பப்பட்டது.',fx:'அனுப்ப முடியவில்லை.',pv:'தனியுரிமை',pt:'குரல், மொழி, இடம் மீட்புப் படைக்கு மட்டுமே.',t:'மாநில பேரிடர் மீட்புப் படைக்கு மட்டுமே.',ts:'நிலை',te:'செயலில் கோரிக்கை இல்லை.'},
+bn:{b:'SOS পাঠাতে চেপে ধরুন',r:'রেকর্ড হচ্ছে',h:'সাহায্য আসছে. সেখানেই থাকুন.',n:'সিগন্যাল নেই',rh:'সর্বশেষ পাঠানো',rp:'এখনো কিছু পাঠানো হয়নি.',q:'সারি',pd:'বাকি',pl:'কিছু বাকি নেই.',sn:'এখনই পাঠান',rt:'পুনরায়',ax:'সারিতে যুক্ত হলো.',sx:'পাঠানো হলো.',fx:'পাঠানো যায়নি.',pv:'গোপনীয়তা',pt:'ভয়েস, ভাষা, অবস্থান, ব্যাটারি, নেটওয়ার্ক শুধু উদ্ধারকারী দলকে. অডিও ২৪ ঘন্টায় মুছে যায়.',t:'শুধু রাজ্য বিপর্যয় বাহিনীকে. মিথ্যা খবর প্রাণ কাড়ে.',ts:'অবস্থা',te:'কোনো অনুরোধ নেই.'}};
 const lg=(N.language||'en').slice(0,2),k=L[lg]?lg:'en',T=L[k];
 D.documentElement.lang=k+'-IN';
-S.textContent=T.b;$('h').textContent=T.t;$('ps').textContent=T.pv;$('pt').textContent=T.pt;BL.textContent=k.toUpperCase();
+S.textContent=T.b;BL.textContent=k.toUpperCase();
+$('h').textContent=T.t;$('ps').textContent=T.pv;$('pt').textContent=T.pt;
+$('rh').textContent=T.rh;$('th').textContent=T.ts;SN.textContent=T.sn;
+const setEmpty=()=>{P.replaceChildren(T.rp);P.className='res empty'};
+setEmpty();
 let cid=localStorage.getItem('aid');if(!cid){cid=crypto.randomUUID();localStorage.setItem('aid',cid)}
-let qc=0,tm,mr,ch=[],st,rs=0,pt=0,tp=false,geo='',geoAcc=null,geoSrc='';
-const setMsg=m=>{P.textContent=m||'';P.className=m?'x':''};
-const setRes=(m,u)=>{P.replaceChildren();const b=CE('b');b.textContent=u;P.append(b,CE('br'),m);P.className='x u-'+u};
-const setQC=()=>{Q.textContent=qc?T.q(qc):''};
-if(N.getBattery)N.getBattery().then(b=>{const u=()=>{const p=Math.round(b.level*100);BB.textContent=p+'%'+(b.charging?'+':'');BB.style.color=p<=15?'#ff7a00':'#888'};u();A(b,'levelchange',u);A(b,'chargingchange',u)});
-const net=()=>{const c=N.connection,o=N.onLine;BN.textContent=o?(c&&c.effectiveType||'on'):T.n;BN.style.color=o?'#888':'#ff7a00'};
-net();A(self,'online',()=>{net();flush()});A(self,'offline',net);
-if(N.connection)A(N.connection,'change',net);
-// High-accuracy GPS. We watch position so the SOS button always has the
-// freshest fix without needing a permission prompt mid-recording.
+if(N.getBattery)N.getBattery().then(b=>{const u=()=>{const p=Math.round(b.level*100);BB.textContent=p+'%'+(b.charging?'+':'');BB.style.color=p<=15?'#ff7a00':'#aaa'};u();A(b,'levelchange',u);A(b,'chargingchange',u)});
+const net=()=>{const c=N.connection,o=N.onLine;BN.textContent=o?(c&&c.effectiveType||'on'):T.n;BN.style.color=o?'#aaa':'#ff7a00'};
+net();
+let geo='',geoAcc=null,geoSrc='';
 const setGeo=p=>{geo=p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6);geoAcc=p.coords.accuracy;geoSrc=p.coords.accuracy<=50?'gps':'wifi';BG.textContent='GPS '+(geoAcc?Math.round(geoAcc)+'m':'on');BG.style.color='#3aa655'};
 const noGeo=()=>{BG.textContent='no GPS';BG.style.color='#ff7a00'};
-if(N.geolocation){
-  N.geolocation.getCurrentPosition(setGeo,noGeo,{enableHighAccuracy:true,timeout:8000,maximumAge:0});
-  try{N.geolocation.watchPosition(setGeo,()=>{},{enableHighAccuracy:true,timeout:15000,maximumAge:30000})}catch(e){}
-}else{noGeo()}
-const idb=()=>new Promise((r,j)=>{const o=indexedDB.open('a',1);o.onupgradeneeded=e=>e.target.result.createObjectStore('q',{keyPath:'id',autoIncrement:true});o.onsuccess=e=>r(e.target.result);o.onerror=()=>j(o.error)});
-const qPut=r=>idb().then(d=>new Promise(s=>{const x=d.transaction('q','readwrite');x.objectStore('q').add(r);x.oncomplete=s}));
-const qDel=i=>idb().then(d=>new Promise(s=>{const x=d.transaction('q','readwrite');x.objectStore('q').delete(i);x.oncomplete=s}));
-const qAll=()=>idb().then(d=>new Promise(r=>{const o=[];d.transaction('q','readonly').objectStore('q').openCursor().onsuccess=e=>{const c=e.target.result;c?(o.push(c.value),c.continue()):r(o)}}));
-const qCnt=()=>idb().then(d=>new Promise(r=>{d.transaction('q','readonly').objectStore('q').count().onsuccess=e=>r(e.target.result)}));
-const send=async r=>{const s=SS();if(!s){location.replace('/tm/#/login?next=%2F');throw 0}const h={'Content-Type':r.mime,'X-Client-Id':cid,'X-Client-Lang':N.language||'en-IN','X-Client-Timestamp':r.ts,'Authorization':'Bearer '+s.token};if(r.geo){h['X-Client-Geo']=r.geo;if(r.geoAcc!=null)h['X-Client-Geo-Accuracy']=String(Math.round(r.geoAcc));if(r.geoSrc)h['X-Client-Geo-Source']=r.geoSrc}if(r.bat!=null)h['X-Client-Battery']=String(r.bat);const c=N.connection;if(c&&c.effectiveType)h['X-Client-Network']=c.effectiveType;const x=await fetch('/api/v1/triage',{method:'POST',headers:h,body:r.blob});if(x.status===401){sessionStorage.removeItem('aether-tm-session');location.replace('/tm/#/login?next=%2F');throw 0}if(!x.ok)throw 0;return x.json()};
-const render=j=>{const tr=j&&j.triage||{},u=['CRITICAL','HIGH','MEDIUM','LOW','UNCLEAR'].includes(tr.urgency)?tr.urgency:'UNCLEAR',sm=String(tr.summary_for_dispatch||'');setRes((sm?sm+' · ':'')+T.h,u)};
-const flush=async()=>{const a=await qAll();for(const it of a){try{const j=await send(it);await qDel(it.id);qc=Math.max(0,qc-1);setQC();render(j)}catch(e){break}}};
-const enq=async r=>{await qPut(r);qc=await qCnt();setQC();if('serviceWorker' in navigator&&'SyncManager' in self){try{const w=await N.serviceWorker.ready;await w.sync.register('flush')}catch(e){}}setMsg(T.o)};
-const up=async b=>{let bt=null;if(N.getBattery){try{const x=await N.getBattery();bt=Math.round(x.level*100)}catch(e){}}const c=N.connection,r={blob:b,mime:b.type||'audio/webm',ts:new Date().toISOString(),geo,geoAcc,geoSrc,bat:bt,id_:cid,lang:N.language||'en-IN',net:c&&c.effectiveType||''};setMsg(T.s);if(!N.onLine)return enq(r);try{render(await send(r))}catch(e){await enq(r)}};
-const start=async()=>{if(rs)return;try{st=await N.mediaDevices.getUserMedia({audio:{channelCount:1,sampleRate:16000,noiseSuppression:false}});const m=['audio/webm;codecs=opus','audio/ogg;codecs=opus'].find(t=>MediaRecorder.isTypeSupported(t))||'';mr=new MediaRecorder(st,m?{mimeType:m,audioBitsPerSecond:12000}:{audioBitsPerSecond:12000});ch=[];mr.ondataavailable=e=>e.data.size&&ch.push(e.data);mr.onstop=()=>{st.getTracks().forEach(x=>x.stop());const b=new Blob(ch,{type:mr.mimeType||'audio/webm'});rs=0;S.dataset.r='0';S.setAttribute('aria-pressed','false');S.textContent=T.b;if(b.size>500)up(b)};mr.start();rs=1;S.dataset.r='1';S.setAttribute('aria-pressed','true');S.textContent=T.r;setMsg('');tm=setTimeout(stop,30000)}catch(e){setMsg(T.e)}};
+if(N.geolocation){N.geolocation.getCurrentPosition(setGeo,noGeo,{enableHighAccuracy:true,timeout:8000,maximumAge:0});try{N.geolocation.watchPosition(setGeo,()=>{},{enableHighAccuracy:true,timeout:15000,maximumAge:30000})}catch(e){}}else noGeo();
+const IDB=()=>new Promise((r,j)=>{const o=indexedDB.open('a',3);o.onupgradeneeded=e=>{const d=e.target.result;if(!d.objectStoreNames.contains('q'))d.createObjectStore('q',{keyPath:'id',autoIncrement:true});if(!d.objectStoreNames.contains('tracked'))d.createObjectStore('tracked',{keyPath:'id'})};o.onsuccess=e=>r(e.target.result);o.onerror=()=>j(o.error)});
+const TX=(s,m)=>IDB().then(d=>d.transaction(s,m).objectStore(s));
+const qPut=r=>TX('q','readwrite').then(o=>new Promise(s=>{const q=o.put(r);q.onsuccess=()=>s(q.result)}));
+const qDel=i=>TX('q','readwrite').then(o=>new Promise(s=>{o.delete(i).onsuccess=()=>s()}));
+const qGet=i=>TX('q','readonly').then(o=>new Promise(s=>{o.get(i).onsuccess=e=>s(e.target.result)}));
+const qAll=()=>TX('q','readonly').then(o=>new Promise(r=>{const a=[];o.openCursor().onsuccess=e=>{const c=e.target.result;c?(a.push(c.value),c.continue()):r(a)}}));
+const tPut=r=>TX('tracked','readwrite').then(o=>new Promise(s=>{o.put(r).onsuccess=()=>s()}));
+const tDel=i=>TX('tracked','readwrite').then(o=>new Promise(s=>{o.delete(i).onsuccess=()=>s()}));
+const tAll=()=>TX('tracked','readonly').then(o=>new Promise(r=>{const a=[];o.openCursor().onsuccess=e=>{const c=e.target.result;c?(a.push(c.value),c.continue()):r(a)}}));
+const fmtT=ms=>{const d=new Date(ms);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
+const live=t=>{LV.textContent=t};
+const renderQ=async()=>{
+  const items=await qAll();
+  QH.replaceChildren(T.q+(items.length?' · '+items.length+' '+T.pd:''));
+  QL.replaceChildren();
+  if(!items.length){const li=CE('li');li.className='qempty';li.textContent=T.pl;QL.append(li);SN.disabled=true;return}
+  SN.disabled=!N.onLine||busy;
+  const lbl={pending:'Pending',sending:'Sending',failed:'Failed'};
+  for(const it of items){
+    const li=CE('li');
+    const tm=CE('time');tm.dateTime=it.capturedAt;tm.textContent=fmtT(Date.parse(it.capturedAt));tm.title=new Date(it.capturedAt).toLocaleString();
+    const pl=CE('span');pl.className='pill p-'+it.status;pl.textContent=lbl[it.status]||it.status;
+    const sz=CE('span');sz.className='sz';sz.textContent=Math.round(((it.blob&&it.blob.size)||0)/1024)+'KB';
+    const bt=CE('button');bt.className='rt';bt.type='button';bt.textContent='↻';bt.setAttribute('aria-label',T.rt+' '+tm.textContent);bt.disabled=it.status==='sending';
+    bt.onclick=()=>retry(it.id);
+    li.append(tm,pl,sz,bt);
+    if(it.status==='failed'&&it.lastError){const er=CE('span');er.className='err';er.textContent=it.lastError;li.append(er)}
+    QL.append(li);
+  }
+};
+const SLAB={received:'Received',under_review:'Under review',resources_assigned:'Assigned',en_route:'En route',on_scene:'On scene',resolved:'Resolved',cancelled:'Cancelled'};
+const UTYP={ambulance:'AMB',fire_engine:'FE',police:'POL',sdrf_team:'SDRF',medical_team:'MED',drone:'DRN',helicopter:'HEL'};
+const renderT=async()=>{
+  const items=(await tAll()).sort((a,b)=>String(b.capturedAt||'').localeCompare(String(a.capturedAt||''))).slice(0,5);
+  TL.replaceChildren();
+  if(!items.length){const li=CE('li');li.className='empty';li.textContent=T.te;TL.append(li);return}
+  for(const it of items){
+    const li=CE('li');
+    const hd=CE('div');hd.className='th';
+    const tm=CE('time');tm.dateTime=it.capturedAt;tm.textContent=fmtT(Date.parse(it.capturedAt));tm.title=new Date(it.capturedAt).toLocaleString();
+    const sp=CE('span');const st=it.lastStatus||'received';sp.className='spill s-'+st;sp.textContent=SLAB[st]||st;
+    hd.append(tm,sp);li.append(hd);
+    const sm=CE('div');sm.className='sm';sm.textContent=it.summary||T.h;li.append(sm);
+    if(Array.isArray(it.assignments)&&it.assignments.length){
+      const ul=CE('div');ul.className='ul';
+      for(const a of it.assignments){
+        const s=CE('span');s.textContent=(UTYP[a.unit_type]||a.unit_type||'UNIT')+' '+(a.unit_name||'')+' · '+(a.status||'');
+        ul.append(s);
+      }
+      li.append(ul);
+    }
+    TL.append(li);
+  }
+};
+const trackAdd=async j=>{
+  if(!j||!j.id)return;
+  await tPut({id:j.id,capturedAt:j.received_at||new Date().toISOString(),lastStatus:'received',summary:'Request received. Dispatcher reviewing.',lastUpdatedAt:Date.now(),assignments:[]});
+  const all=(await tAll()).sort((a,b)=>String(a.capturedAt||'').localeCompare(String(b.capturedAt||'')));
+  for(let i=0;i<all.length-5;i++)await tDel(all[i].id);
+  await renderT();
+};
+const pollOne=async id=>{
+  const s=SS();if(!s)return;
+  try{
+    const r=await fetch('/api/v1/tm/dispatches/'+encodeURIComponent(id)+'/status',{headers:{'Authorization':'Bearer '+s.token}});
+    if(!r.ok)return;
+    const j=await r.json(),cur=(await tAll()).find(x=>x.id===id);if(!cur)return;
+    cur.lastStatus=j.worker_status||cur.lastStatus;
+    cur.summary=j.worker_summary_text||cur.summary;
+    cur.assignments=j.assignments||[];cur.lastUpdatedAt=Date.now();
+    await tPut(cur);
+  }catch(e){}
+};
+const pollAll=async()=>{
+  if(!N.onLine||D.visibilityState!=='visible')return;
+  const now=Date.now();
+  for(const it of await tAll()){
+    const f=it.lastStatus==='resolved'||it.lastStatus==='cancelled';
+    if(f&&now-(it.lastUpdatedAt||0)>86400000){await tDel(it.id);continue}
+    if(!f)await pollOne(it.id);
+  }
+  await renderT();
+};
+let pollTm=null;
+const startPoll=()=>{if(pollTm)return;pollAll();pollTm=setInterval(pollAll,15000)};
+const stopPoll=()=>{if(pollTm){clearInterval(pollTm);pollTm=null}};
+const setRes=j=>{
+  const tr=j.triage||{},u=tr.urgency||'UNCLEAR';
+  const sm=String(tr.summary_for_dispatch||T.h);
+  P.replaceChildren();P.className='res u-'+u;
+  const tg=CE('span');tg.className='tag';tg.textContent=u;
+  P.append(tg,sm);
+  const meta=[];
+  if(j.caller&&(j.caller.name||j.caller.email))meta.push(j.caller.name||j.caller.email);
+  if(j.location)meta.push(j.location.lat.toFixed(4)+','+j.location.lng.toFixed(4));
+  if(j.received_at)meta.push(fmtT(Date.parse(j.received_at)));
+  if(meta.length){const m=CE('span');m.className='meta';m.textContent=meta.join(' · ');P.append(m)}
+};
+const send=async r=>{
+  const s=SS();if(!s){location.replace('/tm/#/login?next=%2F');throw new Error('no session')}
+  const h={'Content-Type':r.mime,'X-Client-Id':cid,'X-Client-Lang':r.lang||(N.language||'en-IN'),'X-Client-Timestamp':r.ts,'Authorization':'Bearer '+s.token};
+  if(r.geo){h['X-Client-Geo']=r.geo;if(r.geoAcc!=null)h['X-Client-Geo-Accuracy']=String(Math.round(r.geoAcc));if(r.geoSrc)h['X-Client-Geo-Source']=r.geoSrc}
+  if(r.bat!=null)h['X-Client-Battery']=String(r.bat);
+  if(r.net)h['X-Client-Network']=r.net;
+  const x=await fetch('/api/v1/triage',{method:'POST',headers:h,body:r.blob});
+  if(x.status===401){sessionStorage.removeItem('aether-tm-session');location.replace('/tm/#/login?next=%2F');throw new Error('auth')}
+  if(!x.ok)throw new Error('HTTP '+x.status);
+  return x.json();
+};
+let busy=false;
+const flush=async()=>{
+  if(busy||!N.onLine)return;
+  busy=true;SN.disabled=true;
+  try{
+    while(N.onLine){
+      const items=await qAll();
+      const it=items.find(i=>i.status==='pending'||i.status==='failed');
+      if(!it)break;
+      it.status='sending';it.lastError='';await qPut(it);await renderQ();
+      try{
+        const j=await send(it);
+        await qDel(it.id);
+        await trackAdd(j);
+        setRes(j);live(T.sx+' '+fmtT(Date.now()));
+        await renderQ();startPoll();
+      }catch(e){
+        const cur=await qGet(it.id);
+        const em=String(e.message||e);
+        if(cur){cur.status='failed';cur.lastError=em;await qPut(cur)}
+        live(T.fx+' '+em);
+        break;
+      }
+    }
+  }finally{busy=false;await renderQ()}
+};
+const retry=async i=>{const it=await qGet(i);if(!it||it.status==='sending')return;it.status='pending';it.lastError='';await qPut(it);await renderQ();flush()};
+const enq=async r=>{await qPut(r);await renderQ();live(T.ax);if('serviceWorker' in N&&'SyncManager' in self){try{const w=await N.serviceWorker.ready;await w.sync.register('flush')}catch(e){}}flush()};
+A(SN,'click',()=>flush());
+let rs=0,mr,st,ch=[],tm,pt=0,tp=false;
+const start=async()=>{if(rs)return;
+  try{
+    st=await N.mediaDevices.getUserMedia({audio:{channelCount:1,sampleRate:16000,noiseSuppression:false}});
+    const m=['audio/webm;codecs=opus','audio/ogg;codecs=opus'].find(t=>MediaRecorder.isTypeSupported(t))||'';
+    mr=new MediaRecorder(st,m?{mimeType:m,audioBitsPerSecond:12000}:{audioBitsPerSecond:12000});
+    ch=[];
+    mr.ondataavailable=e=>e.data.size&&ch.push(e.data);
+    mr.onstop=async()=>{
+      st.getTracks().forEach(x=>x.stop());
+      const b=new Blob(ch,{type:mr.mimeType||'audio/webm'});
+      rs=0;S.dataset.r='0';S.setAttribute('aria-pressed','false');S.textContent=T.b;
+      if(b.size<=500)return;
+      let bt=null;if(N.getBattery){try{const x=await N.getBattery();bt=Math.round(x.level*100)}catch(e){}}
+      const c=N.connection,now=new Date().toISOString();
+      await enq({capturedAt:now,status:'pending',blob:b,mime:b.type||'audio/webm',ts:now,geo,geoAcc,geoSrc,bat:bt,lang:N.language||'en-IN',net:c&&c.effectiveType||'',lastError:''});
+    };
+    mr.start();rs=1;S.dataset.r='1';S.setAttribute('aria-pressed','true');S.textContent=T.r;
+    tm=setTimeout(stop,30000);
+  }catch(e){live(T.fx+' '+(e.message||e))}
+};
 const stop=()=>{if(!rs)return;clearTimeout(tm);try{mr.state!=='inactive'&&mr.stop()}catch(e){}};
 const dn=e=>{e.preventDefault();if(!rs){start();pt=Date.now();tp=false}else if(tp)stop()};
 const upE=e=>{e.preventDefault();if(rs){if(Date.now()-pt>250)stop();else tp=true}};
@@ -101,8 +289,13 @@ const kc=e=>e.key===' '||e.key==='Enter';
 A(S,'keydown',e=>{if(kc(e)&&!e.repeat){e.preventDefault();dn(e)}});
 A(S,'keyup',e=>{if(kc(e)){e.preventDefault();upE(e)}});
 A(S,'contextmenu',e=>e.preventDefault());
-if('mediaSession' in navigator)try{N.mediaSession.setActionHandler('play',()=>!rs&&start());N.mediaSession.setActionHandler('stop',()=>rs&&stop())}catch(e){}
-qCnt().then(n=>{qc=n;setQC();if(N.onLine)flush()});
-if('serviceWorker' in navigator)A(self,'load',()=>N.serviceWorker.register('sw.js').catch(()=>{}));
+A(self,'online',()=>{net();flush()});A(self,'offline',net);
+if(N.connection)A(N.connection,'change',net);
+A(D,'visibilitychange',()=>{if(D.visibilityState==='visible'&&N.onLine){flush();startPoll()}else stopPoll()});
+if('serviceWorker' in N){
+  A(self,'load',()=>N.serviceWorker.register('sw.js').catch(()=>{}));
+  A(N.serviceWorker,'message',e=>{if(e.data&&e.data.k==='flush')flush()});
+}
+(async()=>{await renderQ();await renderT();if(N.onLine){flush();startPoll()}})();
 })();
 </script></body></html>
