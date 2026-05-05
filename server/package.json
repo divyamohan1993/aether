@@ -1,0 +1,17 @@
+{
+  "name": "aether-server",
+  "version": "1.0.0",
+  "description": "Aether · stateless SOS triage Cloud Run service in front of Vertex AI Gemini 2.5 Flash.",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "google-auth-library": "^10.6.2"
+  }
+}

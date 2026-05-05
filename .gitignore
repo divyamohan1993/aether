@@ -1,0 +1,66 @@
+# Secrets and confidential briefs (kept local only)
+email.md
+idea.md
+SHARED_SPEC.md
+
+# Local agent / tooling state
+.claude/
+.cursor/
+.aider*
+CLAUDE.md
+GEMINI.md
+AGENTS.md
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.npm/
+.yarn/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs and runtime
+logs/
+*.log
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Editors
+.vscode/
+.idea/
+
+# Build artefacts
+dist/
+build/
+coverage/
+.cache/
+.parcel-cache/
+.next/
+.turbo/
+
+# gcloud / docker scratch
+.gcloud/
+.docker/
+gcloud-creds.json
+service-account*.json
+*.pem
+*.key
+
+# Local test scratch
+/tmp/
+*.tmp
+*.bak

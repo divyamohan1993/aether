@@ -1,0 +1,19 @@
+{
+  "name": "Aether SOS",
+  "short_name": "Aether",
+  "description": "One-button voice SOS for disaster zones. Works on 2G.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "lang": "en-IN",
+  "dir": "ltr",
+  "categories": ["utilities", "health"],
+  "icons": [
+    { "src": "favicon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any maskable" },
+    { "src": "icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable" }
+  ]
+}
