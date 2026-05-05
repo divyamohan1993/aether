@@ -71,3 +71,7 @@ TM_SPEC.md
 firestore-indexes.json
 deploy/firestore-indexes.json
 /tmp/aether-ndma/
+
+# Playwright E2E scratch (kept locally for proof, not in repo)
+.playwright-mcp/
+e2e-*.png
