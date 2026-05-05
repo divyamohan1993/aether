@@ -66,12 +66,17 @@ export async function list(actor, filters) {
     { field: 'scope_path', op: '>=', value: actor.scope_path },
     { field: 'scope_path', op: '<=', value: upper }
   ];
-  if (filters?.project) fs.push({ field: 'project_id', op: '==', value: String(filters.project) });
-  if (filters?.assignee) fs.push({ field: 'assignee_uid', op: '==', value: String(filters.assignee) });
+  // Apply project / assignee / status filters in memory rather than via
+  // Firestore inequality+equality combos that would require a composite
+  // index per filter combination. The dataset per scope is bounded by
+  // `cap`, so this is cheap and side-steps cold-start index gaps.
+  const projectFilter = filters?.project ? String(filters.project) : null;
+  const assigneeFilter = filters?.assignee ? String(filters.assignee) : null;
+  let statusFilter = null;
   if (filters?.status) {
     const s = String(filters.status);
     if (!STATUS_VALUES.has(s)) throw new ApiError('bad_status', 'Invalid status.', 400);
-    fs.push({ field: 'status', op: '==', value: s });
+    statusFilter = s;
   }
   const rows = await queryDocs('tm_tasks', fs, { orderBy: 'scope_path', limit: cap });
   const overdueCutoff = new Date().toISOString();
@@ -80,6 +85,9 @@ export async function list(actor, filters) {
   for (const r of rows) {
     const sp = r.data.scope_path;
     if (sp !== actor.scope_path && !sp.startsWith(actor.scope_path + '/')) continue;
+    if (projectFilter && r.data.project_id !== projectFilter) continue;
+    if (assigneeFilter && r.data.assignee_uid !== assigneeFilter) continue;
+    if (statusFilter && r.data.status !== statusFilter) continue;
     if (overdueOnly) {
       const dd = r.data.due_date;
       if (!dd || dd >= overdueCutoff) continue;

@@ -1,0 +1,100 @@
+- generic [ref=e1]:
+  - link "Skip to content" [ref=e2] [cursor=pointer]:
+    - /url: "#main"
+  - banner [ref=e3]:
+    - link "Aether Task Manager home" [ref=e4] [cursor=pointer]:
+      - /url: "#/"
+      - text: Aether
+      - generic [ref=e13]: TM
+    - navigation "Primary" [ref=e5]:
+      - link "Dashboard" [ref=e6] [cursor=pointer]:
+        - /url: "#/"
+      - link "Projects" [ref=e7] [cursor=pointer]:
+        - /url: "#/projects"
+      - link "Tasks" [ref=e8] [cursor=pointer]:
+        - /url: "#/tasks"
+      - link "Users" [active] [ref=e9] [cursor=pointer]:
+        - /url: "#/users"
+      - button "Log out" [ref=e10] [cursor=pointer]
+  - main [ref=e11]:
+    - region "Users" [ref=e87]:
+      - heading "Users" [level=1] [ref=e88]
+      - table [ref=e91]:
+        - rowgroup [ref=e92]:
+          - row "Name Email Tier Scope" [ref=e93]:
+            - columnheader "Name" [ref=e94]
+            - columnheader "Email" [ref=e95]
+            - columnheader "Tier" [ref=e96]
+            - columnheader "Scope" [ref=e97]
+            - columnheader [ref=e98]
+        - rowgroup [ref=e99]:
+          - row "Demo NDMA Coordinator demo.ndma@aether.dmj.one NDMA NDMA demo Apply tier change" [ref=e100]:
+            - cell "Demo NDMA Coordinator" [ref=e101]
+            - cell "demo.ndma@aether.dmj.one" [ref=e102]
+            - cell "NDMA NDMA" [ref=e103]:
+              - generic [ref=e104]: NDMA
+              - combobox "Tier" [ref=e105]:
+                - option "NDMA" [selected]
+                - option "State"
+                - option "District"
+                - option "Responder"
+                - option "Volunteer"
+            - cell "demo" [ref=e106]
+            - cell "Apply tier change" [ref=e107]:
+              - button "Apply tier change" [ref=e108] [cursor=pointer]
+          - row "Demo State Officer demo.state@aether.dmj.one State State demo/HP Apply tier change" [ref=e109]:
+            - cell "Demo State Officer" [ref=e110]
+            - cell "demo.state@aether.dmj.one" [ref=e111]
+            - cell "State State" [ref=e112]:
+              - generic [ref=e113]: State
+              - combobox "Tier" [ref=e114]:
+                - option "NDMA"
+                - option "State" [selected]
+                - option "District"
+                - option "Responder"
+                - option "Volunteer"
+            - cell "demo/HP" [ref=e115]
+            - cell "Apply tier change" [ref=e116]:
+              - button "Apply tier change" [ref=e117] [cursor=pointer]
+          - row "Demo District Magistrate demo.district@aether.dmj.one District District demo/HP/Shimla Apply tier change" [ref=e118]:
+            - cell "Demo District Magistrate" [ref=e119]
+            - cell "demo.district@aether.dmj.one" [ref=e120]
+            - cell "District District" [ref=e121]:
+              - generic [ref=e122]: District
+              - combobox "Tier" [ref=e123]:
+                - option "NDMA"
+                - option "State"
+                - option "District" [selected]
+                - option "Responder"
+                - option "Volunteer"
+            - cell "demo/HP/Shimla" [ref=e124]
+            - cell "Apply tier change" [ref=e125]:
+              - button "Apply tier change" [ref=e126] [cursor=pointer]
+          - row "Demo Field Responder demo.responder@aether.dmj.one Responder Responder demo/HP/Shimla/responder1 Apply tier change" [ref=e127]:
+            - cell "Demo Field Responder" [ref=e128]
+            - cell "demo.responder@aether.dmj.one" [ref=e129]
+            - cell "Responder Responder" [ref=e130]:
+              - generic [ref=e131]: Responder
+              - combobox "Tier" [ref=e132]:
+                - option "NDMA"
+                - option "State"
+                - option "District"
+                - option "Responder" [selected]
+                - option "Volunteer"
+            - cell "demo/HP/Shimla/responder1" [ref=e133]
+            - cell "Apply tier change" [ref=e134]:
+              - button "Apply tier change" [ref=e135] [cursor=pointer]
+          - row "Demo Volunteer demo.volunteer@aether.dmj.one Volunteer Volunteer demo/HP/Shimla/responder1/vol1 Apply tier change" [ref=e136]:
+            - cell "Demo Volunteer" [ref=e137]
+            - cell "demo.volunteer@aether.dmj.one" [ref=e138]
+            - cell "Volunteer Volunteer" [ref=e139]:
+              - generic [ref=e140]: Volunteer
+              - combobox "Tier" [ref=e141]:
+                - option "NDMA"
+                - option "State"
+                - option "District"
+                - option "Responder"
+                - option "Volunteer" [selected]
+            - cell "demo/HP/Shimla/responder1/vol1" [ref=e142]
+            - cell "Apply tier change" [ref=e143]:
+              - button "Apply tier change" [ref=e144] [cursor=pointer]

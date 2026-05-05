@@ -34,7 +34,7 @@ export function isValidTier(t) {
   return Number.isInteger(t) && TIER_VALUES.has(t);
 }
 
-const SCOPE_RE = /^ndma(\/[A-Za-z0-9_\-.]+){0,8}$/;
+const SCOPE_RE = /^(ndma|demo)(\/[A-Za-z0-9_\-.]+){0,8}$/;
 
 export function isValidScope(s) {
   return typeof s === 'string' && s.length > 0 && s.length <= 256 && SCOPE_RE.test(s);

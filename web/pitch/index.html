@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<title>Aether · Pitch · Divya Mohan · dmj.one</title>
+<meta name="description" content="Aether: a 40 KB SOS payload, zero Speech-to-Text, Gemini hears the panic, SDRF receives a structured dispatch brief in under two seconds. Pitch deck for Ethara.AI Round 1.">
+<meta name="author" content="Divya Mohan, dmj.one">
+<meta property="og:title" content="Aether · Pitch · Divya Mohan">
+<meta property="og:description" content="A 40 KB SOS payload. Zero STT. Gemini hears the panic. SDRF gets a structured dispatch brief in under two seconds.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://aether.dmj.one/pitch">
+<link rel="canonical" href="https://aether.dmj.one/pitch">
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23000'/><circle cx='32' cy='32' r='14' fill='%23d8631a'/></svg>">
+<style>
+/* ============================================================
+   Aether pitch deck
+   Verified contrast pairs (sRGB, WCAG 2.2 AAA):
+     #f8efe5 on #000000 = 19.5 : 1   (AAA body text, ≥ 7)
+     #ffffff on #000000 = 21   : 1   (AAA headlines)
+     #ffb47a on #000000 = 11.4 : 1   (AAA accent text, ≥ 7)
+     #ffe3a8 on #000000 = 16.0 : 1   (AAA focus ring text/edge)
+     #a6c1ff on #000000 = 11.7 : 1   (AAA indigo accent text)
+     #7dd3c0 on #000000 = 12.8 : 1   (AAA teal accent text)
+     #9ad580 on #000000 = 13.6 : 1   (AAA forest accent text)
+     #e6c065 on #000000 = 11.3 : 1   (AAA gold accent text)
+     #ff7a85 on #000000 = 10.0 : 1   (AAA rescue accent text)
+     #d8631a on #000000 =  4.2 : 1   (≥ 3:1, non-text UI ONLY: borders, dots, bars)
+     #c8c8c8 on #000000 = 14.7 : 1   (AAA muted body)
+   For print: black-on-white via @media print, AAA preserved at 21:1.
+   ============================================================ */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ink:#f8efe5;
+  --ink-mute:#c8c8c8;
+  --bg:#000;
+  --ac:#ffb47a;
+  --ac-edge:#d8631a;
+  --focus:#ffe3a8;
+}
+html,body{background:var(--bg);color:var(--ink);font:16px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+html{scroll-behavior:smooth}
+body{min-height:100dvh;overflow:hidden}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}
+
+a{color:var(--ac);text-underline-offset:3px;text-decoration-thickness:1px}
+a:hover{color:#fff}
+a:focus-visible,button:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--focus);outline-offset:3px;border-radius:2px}
+
+.skip{position:fixed;left:.6rem;top:-100px;z-index:1000;background:var(--focus);color:#000;padding:.6rem 1rem;font-weight:700;border-radius:6px;text-decoration:none}
+.skip:focus{top:.6rem}
+
+main{display:grid;grid-auto-flow:column;grid-auto-columns:100vw;overflow-x:auto;overflow-y:hidden;height:100dvh;scroll-snap-type:x mandatory;scrollbar-width:none}
+main::-webkit-scrollbar{display:none}
+
+section.slide{width:100vw;height:100dvh;overflow-y:auto;scroll-snap-align:start;padding:clamp(1.6rem,3.5vw,3rem) clamp(1.4rem,5vw,5rem) 5.5rem;display:flex;align-items:flex-start;justify-content:center;position:relative;border-right:1px solid #1a1a1a}
+section.slide::before{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(120% 80% at 100% -10%, color-mix(in srgb, var(--ac-edge) 12%, transparent), transparent 60%)}
+section.slide > .frame{position:relative;width:100%;max-width:80rem;margin:0 auto}
+
+/* slide-specific accent (one accent per slide, not a rainbow within) */
+.s1{--ac:#ffb47a;--ac-edge:#d8631a}
+.s2{--ac:#ff7a85;--ac-edge:#b94851}
+.s3{--ac:#ffb47a;--ac-edge:#d8631a}
+.s4{--ac:#ffe3a8;--ac-edge:#d8631a}
+.s5{--ac:#7dd3c0;--ac-edge:#3a8a78}
+.s6{--ac:#9ad580;--ac-edge:#4d8a3a}
+.s7{--ac:#a6c1ff;--ac-edge:#4a6db3}
+.s8{--ac:#e6c065;--ac-edge:#9a7c2a}
+.s9{--ac:#ffb47a;--ac-edge:#d8631a}
+.s10{--ac:#ffe3a8;--ac-edge:#d8631a}
+
+.eyebrow{display:inline-flex;align-items:center;gap:.55rem;font:700 .72rem/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.18em;text-transform:uppercase;color:var(--ac);padding:.4rem .7rem;border:1px solid var(--ac-edge);background:color-mix(in srgb,var(--ac) 8%,transparent);border-radius:2px}
+.eyebrow::before{content:"";width:.55rem;height:.55rem;border-radius:50%;background:var(--ac-edge);box-shadow:0 0 0 3px color-mix(in srgb,var(--ac-edge) 30%,transparent);animation:p 2s ease-in-out infinite}
+@keyframes p{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--ac-edge) 12%,transparent)}}
+
+h1,h2,h3,h4{font-weight:600;letter-spacing:-.02em;line-height:1.05;color:#fff}
+h1{font-size:clamp(2.6rem,7vw,5.4rem);font-weight:300;letter-spacing:-.04em;line-height:.95}
+h1 em{font-style:normal;color:var(--ac)}
+h2{font-size:clamp(2rem,4.6vw,3.6rem);font-weight:300;margin:1rem 0 1.4rem;max-width:24ch}
+h2 em{font-style:normal;color:var(--ac)}
+h3{font-size:clamp(1.05rem,1.6vw,1.25rem);font-weight:600;color:#fff;margin:0 0 .35rem}
+p{max-width:64ch}
+.lead{font-size:clamp(1.05rem,1.5vw,1.25rem);color:var(--ink);max-width:60ch;margin:0 0 1.6rem;line-height:1.5}
+.mute{color:var(--ink-mute)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.deva{font-family:Tiro Devanagari Hindi,Noto Sans Devanagari,Mangal,serif}
+
+/* slide 1 title */
+.title-grid{display:grid;gap:2rem;grid-template-columns:1fr;align-items:end}
+@media (min-width:920px){.title-grid{grid-template-columns:1.5fr 1fr;gap:4rem}}
+.wordmark{font-size:clamp(4.6rem,12vw,9.5rem);font-weight:200;letter-spacing:-.05em;line-height:.85;color:#fff}
+.wordmark em{font-style:normal;color:var(--ac)}
+.dot{display:inline-block;width:.45em;height:.45em;border-radius:50%;background:var(--ac);vertical-align:.05em;margin:0 .05em;animation:p 2.5s ease-in-out infinite}
+.deva-quote{font-size:clamp(1.6rem,3vw,2.4rem);color:var(--ac);margin-top:1rem;font-weight:400;line-height:1.2}
+.byline{margin-top:2.4rem;font:700 .85rem/1.4 ui-monospace,monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-mute)}
+.byline strong{color:#fff;font-weight:700}
+.spectro{display:grid;grid-template-columns:repeat(24,1fr);gap:3px;height:7rem;align-items:end}
+.spectro span{display:block;background:var(--ac-edge);border-radius:1px;width:100%}
+.spectro span.h{background:var(--ac)}
+
+/* stat tiles */
+.stats{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-top:1.4rem}
+.stat{padding:1.2rem 1.3rem;border:1px solid var(--ac-edge);background:color-mix(in srgb, var(--ac) 5%, transparent)}
+.stat .num{font:600 clamp(2rem,4vw,3.2rem)/.95 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:-.03em;color:var(--ac);display:block}
+.stat .num .u{font-size:.4em;color:var(--ink-mute);font-weight:400;letter-spacing:.05em;margin-left:.25em;text-transform:uppercase}
+.stat .lbl{display:block;margin-top:.55rem;font:700 .75rem/1.4 ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:#fff}
+
+/* problem points */
+.pp{display:grid;gap:1rem;grid-template-columns:1fr;margin-top:.6rem}
+@media (min-width:760px){.pp{grid-template-columns:1fr 1fr}}
+.pp li{list-style:none;display:grid;grid-template-columns:2.6rem 1fr;gap:.9rem;padding:1rem 1rem 1rem .2rem;border-top:1px solid var(--ac-edge)}
+.pp li .pn{font:700 1rem/1 ui-monospace,monospace;color:var(--ac);letter-spacing:.05em}
+.pp li p{margin:.3rem 0 0;color:var(--ink-mute);font-size:.95rem}
+
+/* big stat trio for value prop */
+.trio{display:grid;gap:1rem;grid-template-columns:1fr;margin-top:1.6rem}
+@media (min-width:760px){.trio{grid-template-columns:repeat(3,1fr)}}
+.trio .stat{padding:1.4rem 1.4rem 1.6rem}
+.trio .stat .num{font-size:clamp(2.4rem,5vw,4rem)}
+
+/* timeline (slide 4) */
+.tl{display:grid;gap:0;grid-template-columns:1fr;margin-top:1.6rem;border:1px solid var(--ac-edge)}
+@media (min-width:880px){.tl{grid-template-columns:repeat(4,1fr)}}
+.tl li{list-style:none;padding:1.1rem 1.1rem 1.2rem;position:relative;border-top:1px solid var(--ac-edge);background:color-mix(in srgb, var(--ac) 4%, transparent)}
+@media (min-width:880px){.tl li{border-top:0;border-left:1px solid var(--ac-edge)}.tl li:first-child{border-left:0}.tl li:not(:last-child)::after{content:"";position:absolute;right:-9px;top:50%;transform:translateY(-50%);width:0;height:0;border-left:9px solid var(--ac);border-top:7px solid transparent;border-bottom:7px solid transparent;z-index:2}}
+.tl li .pn{font:700 .72rem/1 ui-monospace,monospace;letter-spacing:.18em;text-transform:uppercase;color:var(--ac);display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}
+.tl li .pn::before{content:"";width:.5rem;height:.5rem;border-radius:50%;background:var(--ac-edge)}
+.tl li .meta{font:600 .75rem/1.3 ui-monospace,monospace;color:var(--ac);margin:.3rem 0 .5rem}
+.tl li p{font-size:.9rem;color:var(--ink-mute);margin:0}
+
+/* tier rows (slide 5) */
+.tier{display:grid;gap:1rem;grid-template-columns:1fr;margin-top:1.4rem}
+@media (min-width:760px){.tier{grid-template-columns:1fr 1fr}}
+.tier > div{padding:1.4rem;border:1px solid var(--ac-edge);background:color-mix(in srgb, var(--ac) 4%, transparent)}
+.tier h3{color:var(--ac)}
+.tier p{font-size:.95rem;color:var(--ink-mute);margin-top:.4rem}
+.cost{margin-top:1.2rem;padding:1rem 1.2rem;border-left:3px solid var(--ac);background:color-mix(in srgb, var(--ac) 6%, transparent);font-size:.95rem}
+
+/* GTM list (slide 6) */
+.gtm{display:grid;gap:.9rem;grid-template-columns:1fr;margin-top:1.4rem}
+@media (min-width:760px){.gtm{grid-template-columns:repeat(3,1fr)}}
+.gtm > li{list-style:none;padding:1.2rem;border:1px solid var(--ac-edge);background:color-mix(in srgb, var(--ac) 4%, transparent)}
+.gtm li .pn{font:700 .72rem/1 ui-monospace,monospace;letter-spacing:.18em;text-transform:uppercase;color:var(--ac);margin-bottom:.55rem}
+.gtm li h3{color:#fff}
+.gtm li p{font-size:.92rem;color:var(--ink-mute);margin-top:.3rem}
+.compliance{margin-top:1.2rem;font:700 .8rem/1.4 ui-monospace,monospace;letter-spacing:.12em;color:var(--ink-mute);text-transform:uppercase}
+.compliance span{color:var(--ac)}
+
+/* table (slide 7) */
+.cmp-wrap{overflow-x:auto;margin-top:1.2rem}
+table.cmp{width:100%;border-collapse:collapse;font-size:.92rem}
+.cmp caption{text-align:left;font:700 .75rem/1 ui-monospace,monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--ac);padding:0 0 .6rem}
+.cmp th,.cmp td{padding:.7rem .85rem;text-align:left;border-bottom:1px solid #1f1f1f;vertical-align:top}
+.cmp thead th{font:700 .72rem/1.3 ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mute);border-bottom:1px solid var(--ac-edge)}
+.cmp thead th.us{color:var(--ac);background:color-mix(in srgb, var(--ac) 8%, transparent)}
+.cmp tbody th{color:#fff;font-weight:600;background:#080808}
+.cmp td.us{color:#fff;background:color-mix(in srgb, var(--ac) 6%, transparent);font-weight:600}
+.cmp .y{color:var(--ac);font-weight:700}
+.cmp .n{color:var(--ink-mute)}
+.cmp .p{color:#e6c065}
+
+/* team (slide 8) */
+.team-grid{display:grid;gap:1.4rem;grid-template-columns:1fr;margin-top:1.2rem;align-items:start}
+@media (min-width:760px){.team-grid{grid-template-columns:auto 1fr;gap:2rem}}
+.avatar{width:9rem;height:9rem;border:2px solid var(--ac);background:#000;display:grid;place-items:center;font:300 4.2rem/1 ui-sans-serif,system-ui;color:var(--ac);letter-spacing:-.05em;border-radius:50%}
+.team-grid p{font-size:1.05rem;color:var(--ink);max-width:60ch}
+.team-grid p strong{color:var(--ac)}
+
+/* roadmap (slide 9) */
+.road{display:grid;gap:1rem;grid-template-columns:1fr;margin-top:1.2rem}
+@media (min-width:880px){.road{grid-template-columns:repeat(4,1fr)}}
+.road > div{padding:1.2rem;border:1px solid var(--ac-edge);background:color-mix(in srgb, var(--ac) 4%, transparent)}
+.road h3{color:var(--ac);font:700 .72rem/1 ui-monospace,monospace;letter-spacing:.18em;text-transform:uppercase;margin-bottom:.6rem}
+.road ul{list-style:none}
+.road ul li{font-size:.9rem;color:var(--ink-mute);margin-bottom:.55rem;padding-left:.9rem;position:relative;line-height:1.4}
+.road ul li::before{content:"";position:absolute;left:0;top:.55em;width:.4rem;height:1px;background:var(--ac)}
+.road .live h3{color:#fff}
+.road .live{border-color:var(--ac);background:color-mix(in srgb, var(--ac) 10%, transparent)}
+
+/* ask (slide 10) */
+.ask{display:grid;gap:1rem;grid-template-columns:1fr;margin-top:1.4rem}
+@media (min-width:760px){.ask{grid-template-columns:1.4fr 1fr}}
+.ask .primary{padding:1.6rem 1.8rem;border:2px solid var(--ac);background:color-mix(in srgb, var(--ac) 12%, transparent)}
+.ask .primary h3{color:var(--ac);font-size:1.4rem;margin-bottom:.5rem}
+.ask .primary p{color:#fff;font-size:1rem;line-height:1.5}
+.ask .secondary{padding:1.4rem 1.6rem;border:1px solid var(--ac-edge);background:color-mix(in srgb, var(--ac) 4%, transparent)}
+.ask .secondary h3{color:#fff;font-size:1.05rem;margin-bottom:.4rem}
+.ask .secondary p{color:var(--ink-mute);font-size:.92rem}
+.urls{margin-top:1.4rem;padding:1.2rem 1.4rem;border:1px dashed var(--ac-edge)}
+.urls h3{color:var(--ink-mute);font:700 .72rem/1 ui-monospace,monospace;letter-spacing:.16em;text-transform:uppercase;margin-bottom:.7rem}
+.urls ul{list-style:none}
+.urls li{margin-bottom:.4rem;font-family:ui-monospace,monospace;font-size:.95rem}
+.urls li a{color:var(--ac);text-decoration:underline}
+.tag{margin-top:1.6rem;font:300 1.2rem/1.4 ui-sans-serif,system-ui;color:var(--ink-mute);font-style:italic;max-width:50ch}
+
+/* HUD ============================================================ */
+.hud{position:fixed;left:0;right:0;bottom:0;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:1rem;padding:.7rem clamp(1rem,3vw,2rem);background:linear-gradient(to top, rgba(0,0,0,.96), rgba(0,0,0,.78));backdrop-filter:blur(6px);z-index:50;border-top:1px solid #1a1a1a}
+.hud-num{font:700 .85rem/1 ui-monospace,monospace;color:#fff;letter-spacing:.06em;white-space:nowrap}
+.hud-num span{color:var(--ac)}
+.hud-bar{display:flex;gap:4px;flex:1;max-width:36rem}
+.hud-bar button{flex:1;height:8px;border:0;background:#262626;cursor:pointer;padding:0;border-radius:1px;min-height:8px;position:relative}
+.hud-bar button::after{content:"";position:absolute;inset:-12px 0;cursor:pointer}
+.hud-bar button[aria-current="true"]{background:var(--ac)}
+.hud-bar button.done{background:var(--ac-edge)}
+.hud-bar button:focus-visible{outline:3px solid var(--focus);outline-offset:3px;z-index:10}
+.hud-hint{font:700 .72rem/1 ui-monospace,monospace;color:var(--ink-mute);letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
+.hud-nav{display:flex;gap:.4rem}
+.hud-nav button{background:transparent;border:1px solid #2a2a2a;color:var(--ink);font:700 .8rem/1 ui-monospace,monospace;padding:.5rem .7rem;cursor:pointer;border-radius:2px;min-width:44px;min-height:36px}
+.hud-nav button:hover{border-color:var(--ac);color:var(--ac)}
+.hud-nav button:disabled{opacity:.4;cursor:not-allowed}
+
+@media (max-width:640px){.hud-hint{display:none}.hud{grid-template-columns:auto 1fr auto}}
+
+/* =========== forced-colors / high-contrast ===================== */
+@media (forced-colors: active){
+  :root{--ink:CanvasText;--ink-mute:CanvasText;--ac:Highlight;--ac-edge:Highlight;--focus:Highlight}
+  body,section.slide{background:Canvas;color:CanvasText}
+  section.slide::before{background:none}
+  .stat,.tier > div,.gtm > li,.tl li,.road > div,.ask .primary,.ask .secondary{border:1px solid CanvasText;background:Canvas;forced-color-adjust:none}
+  .spectro span,.dot,.eyebrow::before{background:CanvasText;forced-color-adjust:none}
+  .hud{background:Canvas;border-top:1px solid CanvasText}
+  .hud-bar button{background:Canvas;border:1px solid CanvasText}
+  .hud-bar button[aria-current="true"]{background:Highlight}
+}
+
+/* =========== print =============================================
+   Each slide on its own landscape page, black on white,
+   readable in greyscale.
+   ============================================================ */
+@page{size:landscape;margin:1cm}
+@media print{
+  html,body{background:#fff!important;color:#000!important;height:auto;overflow:visible}
+  main{display:block;height:auto;overflow:visible}
+  section.slide{width:100%;height:auto;page-break-after:always;break-after:page;border:1px solid #000;padding:1.5cm;color:#000;background:#fff}
+  section.slide::before{display:none}
+  h1,h2,h3,h4,p,li,td,th{color:#000!important}
+  h1 em,h2 em,.eyebrow,.eyebrow::before,.stat .num,.tier h3,.gtm li .pn,.cmp .y,.cmp thead th.us,.cmp td.us,.road h3,.urls li a,.byline strong,.deva-quote,.tl li .pn,.tl li .meta{color:#000!important;background:transparent!important}
+  .stat,.tier > div,.gtm > li,.tl li,.road > div,.ask .primary,.ask .secondary,.urls{border:1.5pt solid #000!important;background:#fff!important}
+  .cmp .y::after{content:" (yes)"}
+  .cmp .n::after{content:" (no)"}
+  .cmp .p::after{content:" (partial)"}
+  .hud,.skip{display:none!important}
+  a[href]::after{content:" [" attr(href) "]";font-size:.8em;color:#444}
+  .deva-quote,.eyebrow{font-weight:700!important}
+  .stat .num,.wordmark{font-weight:700!important}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to deck</a>
+
+<main id="main" tabindex="-1" role="main" aria-label="Aether pitch deck, 10 slides">
+
+<!-- ========== SLIDE 1 · TITLE ========== -->
+<section class="slide s1" id="slide-1" role="region" aria-labelledby="t1" aria-current="true">
+  <div class="frame">
+    <span class="eyebrow">Pitch · Project Aether · Edge AI for Disaster Response</span>
+    <div class="title-grid">
+      <div>
+        <h1 id="t1" class="wordmark">Aether<em class="dot" aria-hidden="true"></em></h1>
+        <p class="lead" style="font-size:clamp(1.2rem,2vw,1.6rem);max-width:30ch;margin-top:1.4rem">Help that survives <em style="color:var(--ac);font-style:normal">bad weather.</em></p>
+        <p class="deva-quote deva" lang="hi" aria-label="Madad aa rahi hai. Help is on the way.">मदद आ रही है</p>
+        <p class="byline"><strong>Divya Mohan</strong> · dmj.one · 5 May 2026<br><span style="color:var(--ac)">Ethara.AI · AI/LLM Operations · Round 1</span></p>
+      </div>
+      <div class="spectro" aria-hidden="true">
+        <span style="height:18%"></span><span style="height:42%"></span><span class="h" style="height:65%"></span><span style="height:30%"></span>
+        <span style="height:80%"></span><span class="h" style="height:55%"></span><span style="height:90%"></span><span style="height:35%"></span>
+        <span class="h" style="height:72%"></span><span style="height:45%"></span><span style="height:88%"></span><span class="h" style="height:25%"></span>
+        <span style="height:60%"></span><span style="height:95%"></span><span class="h" style="height:40%"></span><span style="height:78%"></span>
+        <span style="height:30%"></span><span class="h" style="height:68%"></span><span style="height:50%"></span><span style="height:85%"></span>
+        <span class="h" style="height:38%"></span><span style="height:72%"></span><span style="height:55%"></span><span style="height:20%"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== SLIDE 2 · PROBLEM ========== -->
+<section class="slide s2" id="slide-2" role="region" aria-labelledby="t2" hidden>
+  <div class="frame">
+    <span class="eyebrow">Slide 2 · Problem</span>
+    <h2 id="t2">The tower <em>fell.</em> The dispatcher drowned.</h2>
+    <p class="lead">First 24 hours of a Himalayan flood or landslide. Optical fibre snaps. Cell towers drop. Survivors fall back to crackly 2G voice notes. Standard Speech-to-Text hears static. One SDRF dispatcher takes a hundred calls an hour with a paper notepad.</p>
+    <div class="stats">
+      <div class="stat"><span class="num">254<span class="u">dead</span></span><span class="lbl">Wayanad · July 2024 · one landslide night</span></div>
+      <div class="stat"><span class="num">868<span class="u">cracked</span></span><span class="lbl">Joshimath · January 2023 · buildings evacuated</span></div>
+      <div class="stat"><span class="num">12 h<span class="u">battery</span></span><span class="lbl">A radio chasing signal eats it in two</span></div>
+    </div>
+    <ol class="pp">
+      <li><span class="pn">i</span><div><h3>Cell tower is the first casualty.</h3><p>One bar of 2G EDGE, on and off. Streaming voice is impossible. Open connections die mid-syllable.</p></div></li>
+      <li><span class="pn">ii</span><div><h3>STT shatters under stress.</h3><p>Wind, rain, sirens. A grandmother switching between Malayalam and broken Hindi. Standard pipelines return garbage.</p></div></li>
+      <li><span class="pn">iii</span><div><h3>The phone is dying.</h3><p>Survivors reach hour ten on a battery that started at 50%. Local AI on the device finishes the job.</p></div></li>
+      <li><span class="pn">iv</span><div><h3>Triage is a notebook.</h3><p>One human dispatcher. No structured fields. The most critical caller waits behind a wrong number.</p></div></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ========== SLIDE 3 · VALUE PROPOSITION ========== -->
+<section class="slide s3" id="slide-3" role="region" aria-labelledby="t3" hidden>
+  <div class="frame">
+    <span class="eyebrow">Slide 3 · Value Proposition</span>
+    <h2 id="t3">A 40 KB cry for help. <em>A two second answer.</em></h2>
+    <p class="lead" style="font-size:clamp(1.2rem,2.1vw,1.7rem);max-width:62ch">A 40 KB SOS payload. Zero Speech-to-Text. Gemini 2.5 Flash hears the panic. SDRF receives a structured dispatch brief in under two seconds.</p>
+    <div class="trio">
+      <div class="stat"><span class="num">40<span class="u">KB</span></span><span class="lbl">Fifteen seconds of voice · Opus 12 kbps · slips through one 2G burst</span></div>
+      <div class="stat"><span class="num">&lt; 2<span class="u">sec</span></span><span class="lbl">End-to-end · capture to dispatch JSON on SDRF screen</span></div>
+      <div class="stat"><span class="num">$0<span class="u">idle</span></span><span class="lbl">Cloud Run scales to zero between events · pay per token only when invoked</span></div>
+    </div>
+    <p class="lead mute" style="margin-top:1.6rem">Nothing streams. Nothing waits open. Nothing transcribes in the middle. The brittle four-stage pipeline (denoise, STT, translate, LLM) collapses to one resilient call.</p>
+  </div>
+</section>
+
+<!-- ========== SLIDE 4 · UNDERLYING MAGIC ========== -->
+<section class="slide s4" id="slide-4" role="region" aria-labelledby="t4" hidden>
+  <div class="frame">
+    <span class="eyebrow">Slide 4 · Underlying Magic</span>
+    <h2 id="t4">Four moves. <em>One rescue brief.</em></h2>
+    <p class="lead">Capture is local. Queue is offline. Burst is opportunistic. Triage is server-side. The phone never holds a Vertex AI key.</p>
+    <ol class="tl" aria-label="Pipeline steps">
+      <li><p class="pn">01 · Capture</p><h3>Press to record. Black screen.</h3><p class="meta">MediaRecorder · Opus · 12 kbps</p><p>Pure black OLED UI. Pixels off. Volume key starts the recording so the screen never lights up.</p></li>
+      <li><p class="pn">02 · Queue</p><h3>Save first. Connect later.</h3><p class="meta">IndexedDB · ServiceWorker</p><p>Clip lands in encrypted local storage before any radio wakes up. The payload outlives the connection.</p></li>
+      <li><p class="pn">03 · 2G Burst</p><h3>One handshake. One POST.</h3><p class="meta">HTTP · auto-retry · backoff</p><p>OS reports a single bar. Aether fires the 40 KB POST, closes the socket, and returns to sleep.</p></li>
+      <li><p class="pn">04 · Triage</p><h3>Gemini hears the room.</h3><p class="meta">Vertex · 2.5 Flash · thinkingBudget 0</p><p>Strict <span class="mono">responseSchema</span> returns a typed dispatch JSON. SDRF webhook fires within one second.</p></li>
+    </ol>
+    <p class="deva-quote deva" lang="hi" style="margin-top:1.6rem;text-align:center" aria-label="Madad aa rahi hai. Help is on the way.">मदद आ रही है</p>
+    <p class="mute" style="text-align:center;margin:.4rem auto 0;font-style:italic">A line a dispatcher can finally answer.</p>
+  </div>
+</section>
+
+<!-- ========== SLIDE 5 · BUSINESS MODEL ========== -->
+<section class="slide s5" id="slide-5" role="region" aria-labelledby="t5" hidden>
+  <div class="frame">
+    <span class="eyebrow">Slide 5 · Business Model</span>
+    <h2 id="t5">Public good first. <em>Paid SLA second.</em></h2>
+    <p class="lead">Aether ships humanitarian by default. Public agencies pay subsidised rates or nothing. Enterprises pay for guaranteed response time on the same pipeline.</p>
+    <div class="tier">
+      <div>
+        <h3>Tier 1 · Public good</h3>
+        <p><strong style="color:#fff">NDMA, SDMA, district authorities.</strong> Subsidised public-good deployment. Cost-recovery only. Pre-emptive deployment in high-risk districts.</p>
+      </div>
+      <div>
+        <h3>Tier 2 · Enterprise SLA</h3>
+        <p><strong style="color:#fff">Business continuity, field-ops, mining, pipelines.</strong> Paid SLA tier with response-time guarantee, custom webhooks, dedicated regions, signed audit trail.</p>
+      </div>
+    </div>
+    <div class="cost">
+      <strong style="color:var(--ac)">Cost shape · </strong> Cloud Run scale-to-zero. Free-tier idle. Pay-per-token only when a survivor speaks. A district sitting quiet for a year costs zero rupees of compute.
+    </div>
+  </div>
+</section>
+
+<!-- ========== SLIDE 6 · GO-TO-MARKET ========== -->
+<section class="slide s6" id="slide-6" role="region" aria-labelledby="t6" hidden>
+  <div class="frame">
+    <span class="eyebrow">Slide 6 · Go-to-Market</span>
+    <h2 id="t6">Three motions. <em>One country.</em></h2>
+    <p class="lead">India-first. Bharat-first. Distribution rides on existing public-safety chains, not on app-store discovery.</p>
+    <ol class="gtm">
+      <li><p class="pn">Motion A</p><h3>NDMA Himalayan pilot</h3><p>One district in Uttarakhand or Himachal. Pre-monsoon. Field-tested with SDRF dispatchers. Outcome data feeds the next district.</p></li>
+      <li><p class="pn">Motion B</p><h3>SDRF dispatcher console</h3><p>Web console at <span class="mono">aether.dmj.one/tm</span>. Hierarchical task tracker for the chain of command. Post-quantum auth from line one.</p></li>
+      <li><p class="pn">Motion C</p><h3>NCC + civil defence</h3><p>Volunteer-network distribution. PWA, no install. Pre-loaded on training devices. Spreads through cadets, not ad spend.</p></li>
+    </ol>
+    <p class="compliance">Aligned <span>·</span> DPDP Act 2023 <span>·</span> GDPR <span>·</span> India data stays in India</p>
+  </div>
+</section>
+
+<!-- ========== SLIDE 7 · COMPETITIVE ANALYSIS ========== -->
+<section class="slide s7" id="slide-7" role="region" aria-labelledby="t7" hidden>
+  <div class="frame">
+    <span class="eyebrow">Slide 7 · Competitive Analysis</span>
+    <h2 id="t7">Where the others <em>crack.</em></h2>
+    <div class="cmp-wrap">
+      <table class="cmp">
+        <caption>Aether against the closest categories on the seven dimensions a disaster forces</caption>
+        <thead><tr><th scope="col">Capability</th><th scope="col" class="us">Aether</th><th scope="col">Whisper-pipeline SOS apps</th><th scope="col">Generic SaaS task-trackers</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">2G survival</th><td class="us"><span class="y">Yes</span> · 40 KB Opus, store-and-forward</td><td><span class="n">No</span> · streams or fails</td><td><span class="n">No</span> · assumes broadband</td></tr>
+          <tr><th scope="row">Multilingual native audio</th><td class="us"><span class="y">Yes</span> · Gemini hears dialect, no STT</td><td><span class="p">Partial</span> · STT-bound, English bias</td><td><span class="n">No</span> · text-only</td></tr>
+          <tr><th scope="row">Post-quantum auth</th><td class="us"><span class="y">Yes</span> · ML-DSA-65, FIPS 204</td><td><span class="n">No</span> · password or OAuth</td><td><span class="n">No</span> · password or OAuth</td></tr>
+          <tr><th scope="row">$0 idle cost</th><td class="us"><span class="y">Yes</span> · scale-to-zero, free-tier datastore</td><td><span class="p">Sometimes</span> · per-seat licensing</td><td><span class="n">No</span> · per-seat licensing</td></tr>
+          <tr><th scope="row">Scope hierarchy (NDMA tree)</th><td class="us"><span class="y">Yes</span> · five tiers, prefix authority</td><td><span class="n">No</span> · flat user list</td><td><span class="p">Partial</span> · roles, no public-safety tree</td></tr>
+          <tr><th scope="row">End-to-end response time</th><td class="us"><span class="y">&lt; 2 s</span></td><td>5 to 15 s</td><td>Not applicable</td></tr>
+          <tr><th scope="row">Signed audit trail</th><td class="us"><span class="y">Yes</span> · per-action ML-DSA signature</td><td><span class="p">Partial</span> · server-only logs</td><td><span class="y">Yes</span> · server-only logs</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ========== SLIDE 8 · TEAM ========== -->
+<section class="slide s8" id="slide-8" role="region" aria-labelledby="t8" hidden>
+  <div class="frame">
+    <span class="eyebrow">Slide 8 · Team</span>
+    <h2 id="t8">Built by one. <em>Architected for many.</em></h2>
+    <div class="team-grid">
+      <div class="avatar" aria-hidden="true">DM</div>
+      <p>
+        <strong>Divya Mohan</strong>, dmj.one. Founder and sole engineer. Sixty products shipped since August 2022, Bharat-first, public-good and enterprise tooling. Track record across AI/LLM operations, GCP architecture, edge constraints, and security at the boundary. Aether is the latest piece of a portfolio that ships end-to-end systems, not demos. Contact: <a href="mailto:contact@dmj.one">contact@dmj.one</a>. Portfolio: <a href="https://dmj.one">dmj.one</a>.
+      </p>
+    </div>
+    <p class="lead mute" style="margin-top:1.6rem">The thesis is the resume. The hardest problem in enterprise AI operations today is collapsing brittle multi-stage pipelines into one resilient call. Aether is that argument, in code, in production.</p>
+  </div>
+</section>
+
+<!-- ========== SLIDE 9 · ROADMAP ========== -->
+<section class="slide s9" id="slide-9" role="region" aria-labelledby="t9" hidden>
+  <div class="frame">
+    <span class="eyebrow">Slide 9 · Roadmap and Milestones</span>
+    <h2 id="t9">Shipped today. <em>Federated tomorrow.</em></h2>
+    <div class="road">
+      <div class="live">
+        <h3>Shipped · Today</h3>
+        <ul>
+          <li>Live SOS endpoint at aether.dmj.one</li>
+          <li>Post-quantum task manager at /tm</li>
+          <li>One-shot Cloud Run deploy script</li>
+          <li>Smoke test, audit log, strict schema</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Day 30 · Adapt</h3>
+        <ul>
+          <li>Federated SDRF webhook adaptors</li>
+          <li>Per-state response shape mapping</li>
+          <li>Dispatcher console map overlay</li>
+          <li>Multi-region failover (asia-south1, asia-south2)</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Day 60 · Pilot</h3>
+        <ul>
+          <li>Himalayan district field pilot</li>
+          <li>Telemetry on dispatcher acceptance</li>
+          <li>Outcome metric: time-to-first-rescue</li>
+          <li>NCC volunteer rollout in one circle</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Day 90 · Harden</h3>
+        <ul>
+          <li>On-device Whisper fallback for triage validation</li>
+          <li>Threat-modelled penetration test</li>
+          <li>Independent accessibility audit</li>
+          <li>DPDP DPIA filed with the regulator</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== SLIDE 10 · ASK ========== -->
+<section class="slide s10" id="slide-10" role="region" aria-labelledby="t10" hidden>
+  <div class="frame">
+    <span class="eyebrow">Slide 10 · Ask and Status</span>
+    <h2 id="t10">Hire me. <em>Pilot us.</em></h2>
+    <div class="ask">
+      <div class="primary">
+        <h3>Primary ask</h3>
+        <p>Hire into <strong>Ethara.AI · AI/LLM Operations · Round 1</strong>. The 24-hour assessment is shipped, deployed, and answering on production traffic. Submission ID, source, and live endpoint below.</p>
+      </div>
+      <div class="secondary">
+        <h3>Secondary ask</h3>
+        <p>NDMA partnership conversation. One Himalayan district. One pre-monsoon pilot. Outcome data, not slides.</p>
+      </div>
+    </div>
+    <div class="urls">
+      <h3>Live now</h3>
+      <ul>
+        <li>Live SOS · <a href="https://aether.dmj.one" rel="noopener">aether.dmj.one</a></li>
+        <li>Task manager · <a href="https://aether.dmj.one/tm/" rel="noopener">aether.dmj.one/tm</a></li>
+        <li>Source · <a href="https://github.com/divyamohan1993/aether" rel="noopener">github.com/divyamohan1993/aether</a></li>
+        <li>Pitch · <a href="https://aether.dmj.one/pitch" rel="noopener">aether.dmj.one/pitch</a></li>
+        <li>Email · <a href="mailto:contact@dmj.one">contact@dmj.one</a></li>
+      </ul>
+    </div>
+    <p class="tag">Dream, Manifest and Journey, Together as One. dmj<span style="color:var(--ac)">.</span>one</p>
+  </div>
+</section>
+
+</main>
+
+<nav class="hud" role="navigation" aria-label="Slide navigation">
+  <p class="hud-num" aria-live="polite" aria-atomic="true"><span id="cur">1</span> / 10</p>
+  <div class="hud-bar" role="tablist" aria-label="Jump to slide">
+    <button type="button" data-go="1" aria-label="Go to slide 1, Title" aria-current="true"></button>
+    <button type="button" data-go="2" aria-label="Go to slide 2, Problem"></button>
+    <button type="button" data-go="3" aria-label="Go to slide 3, Value Proposition"></button>
+    <button type="button" data-go="4" aria-label="Go to slide 4, Underlying Magic"></button>
+    <button type="button" data-go="5" aria-label="Go to slide 5, Business Model"></button>
+    <button type="button" data-go="6" aria-label="Go to slide 6, Go-to-Market"></button>
+    <button type="button" data-go="7" aria-label="Go to slide 7, Competitive Analysis"></button>
+    <button type="button" data-go="8" aria-label="Go to slide 8, Team"></button>
+    <button type="button" data-go="9" aria-label="Go to slide 9, Roadmap"></button>
+    <button type="button" data-go="10" aria-label="Go to slide 10, Ask"></button>
+  </div>
+  <p class="hud-hint" aria-hidden="true">Press &rarr; for next</p>
+  <div class="hud-nav">
+    <button type="button" id="prev" aria-label="Previous slide">&larr;</button>
+    <button type="button" id="next" aria-label="Next slide">&rarr;</button>
+  </div>
+</nav>
+
+<script>
+(()=>{
+  "use strict";
+  const D=document,W=window;
+  const slides=Array.from(D.querySelectorAll("section.slide"));
+  const total=slides.length;
+  const dots=Array.from(D.querySelectorAll(".hud-bar [data-go]"));
+  const cur=D.getElementById("cur");
+  const prev=D.getElementById("prev");
+  const next=D.getElementById("next");
+  const main=D.getElementById("main");
+  const reduced=W.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let idx=0,scrolling=false;
+
+  const announce=i=>{
+    cur.textContent=String(i+1);
+    slides.forEach((s,n)=>{
+      const active=n===i;
+      s.removeAttribute("hidden");
+      if(active){s.setAttribute("aria-current","true");s.setAttribute("tabindex","0");}
+      else{s.removeAttribute("aria-current");s.removeAttribute("tabindex");}
+    });
+    dots.forEach((d,n)=>{
+      d.setAttribute("aria-current",n===i?"true":"false");
+      d.classList.toggle("done",n<i);
+    });
+    prev.disabled=i===0;
+    next.disabled=i===total-1;
+    try{history.replaceState(null,"",`#slide-${i+1}`);}catch(e){}
+  };
+
+  const goto=(i,smooth)=>{
+    if(i<0)i=0;if(i>=total)i=total-1;
+    idx=i;
+    scrolling=true;
+    main.scrollTo({left:i*W.innerWidth,behavior:(smooth&&!reduced)?"smooth":"auto"});
+    announce(i);
+    setTimeout(()=>scrolling=false,reduced?20:420);
+  };
+
+  // initial: read hash
+  const h=(location.hash.match(/slide-(\d+)/)||[])[1];
+  if(h){idx=Math.min(Math.max(parseInt(h,10)-1,0),total-1);}
+  goto(idx,false);
+
+  // keyboard
+  D.addEventListener("keydown",e=>{
+    const t=e.target;
+    if(t&&(t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.isContentEditable))return;
+    let h=null;
+    switch(e.key){
+      case"ArrowRight":case"PageDown":case" ":case"Spacebar":h=idx+1;break;
+      case"ArrowLeft":case"PageUp":h=idx-1;break;
+      case"Home":h=0;break;
+      case"End":h=total-1;break;
+    }
+    if(h===null && /^[0-9]$/.test(e.key)){
+      const n=e.key==="0"?9:(parseInt(e.key,10)-1);
+      h=Math.min(n,total-1);
+    }
+    if(h!==null){e.preventDefault();goto(h,true);}
+  });
+
+  // scroll-driven sync (snap)
+  let raf=0;
+  main.addEventListener("scroll",()=>{
+    if(scrolling)return;
+    cancelAnimationFrame(raf);
+    raf=requestAnimationFrame(()=>{
+      const i=Math.round(main.scrollLeft/W.innerWidth);
+      if(i!==idx){idx=i;announce(i);}
+    });
+  },{passive:true});
+
+  // resize: re-anchor
+  let rt=0;
+  W.addEventListener("resize",()=>{
+    clearTimeout(rt);
+    rt=setTimeout(()=>{main.scrollTo({left:idx*W.innerWidth,behavior:"auto"});},120);
+  });
+
+  // dot buttons
+  dots.forEach((d,n)=>d.addEventListener("click",()=>goto(n,true)));
+  prev.addEventListener("click",()=>goto(idx-1,true));
+  next.addEventListener("click",()=>goto(idx+1,true));
+
+  // half-click navigation: only when target is the slide background (not a child)
+  const skipSel="a,button,input,textarea,select,details,summary,[role=button],[tabindex],[data-noclick]";
+  slides.forEach(s=>{
+    s.addEventListener("click",e=>{
+      if(e.target!==s && e.target.closest(skipSel))return;
+      if(e.target!==s && e.target!==s.firstElementChild)return;
+      const r=s.getBoundingClientRect();
+      const x=e.clientX-r.left;
+      goto(x<r.width/2?idx-1:idx+1,true);
+    });
+  });
+
+  // pointer swipe (horizontal only). does NOT preventDefault on move,
+  // so vertical scroll inside a slide is preserved.
+  let p0=null,px=0,py=0,pid=0,t0=0;
+  main.addEventListener("pointerdown",e=>{
+    if(e.pointerType==="mouse"&&e.button!==0)return;
+    p0=e;px=e.clientX;py=e.clientY;pid=e.pointerId;t0=Date.now();
+  });
+  main.addEventListener("pointerup",e=>{
+    if(!p0||e.pointerId!==pid)return;
+    const dx=e.clientX-px,dy=e.clientY-py,dt=Date.now()-t0;
+    p0=null;
+    if(Math.abs(dx)<60||Math.abs(dx)<Math.abs(dy)*1.4||dt>700)return;
+    goto(idx+(dx<0?1:-1),true);
+  });
+  main.addEventListener("pointercancel",()=>{p0=null;});
+
+  // mediaSession (presenter remote / bluetooth clicker)
+  if("mediaSession" in navigator){try{
+    navigator.mediaSession.setActionHandler("nexttrack",()=>goto(idx+1,true));
+    navigator.mediaSession.setActionHandler("previoustrack",()=>goto(idx-1,true));
+  }catch(e){}}
+})();
+</script>
+</body>
+</html>

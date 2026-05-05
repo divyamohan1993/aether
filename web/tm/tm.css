@@ -79,3 +79,5 @@ dialog form{gap:.75rem}
 @media(max-width:480px){.tbl th,.tbl td{padding:.45rem .35rem;font-size:.88rem}h1{font-size:1.25rem}nav a,nav button{padding:.35rem .55rem}}
 body[data-route=login] header nav,body[data-route=register] header nav,body[data-route=loading] header nav{display:none}
 body:not([data-route=login]):not([data-route=register]):not([data-route=loading]) #btnLogout{display:inline-flex}
+.demoBanner{margin:0 0 .9rem;padding:.7rem .85rem;border-left:4px solid var(--ac);background:#1a0d00;color:#fff;border-radius:0 8px 8px 0;font-size:.9rem;line-height:1.45}
+.demoBanner b{color:var(--ac)}

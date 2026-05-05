@@ -24,7 +24,8 @@ en:{
  err_creds:'Wrong email or passphrase.',err_net:'Network error. Try again.',err_pass:'Could not decrypt key. Wrong passphrase.',err_match:'Passphrases do not match.',err_token:'Invite token is not valid.',err_pwlen:'Passphrase must be 10 characters or more.',err_nokey:'No keys for this email on this device.',
  ok_saved:'Saved.',working:'Working.',
  lbl_unassigned:'Unassigned',lbl_none:'Nothing here yet.',lbl_back:'Back',
- tier_ndma:'NDMA',tier_state:'State',tier_district:'District',tier_resp:'Responder',tier_vol:'Volunteer'
+ tier_ndma:'NDMA',tier_state:'State',tier_district:'District',tier_resp:'Responder',tier_vol:'Volunteer',
+ demo_banner:'Demo mode. The passphrase below is published on the demo portal. Do not reuse this account in production.'
 },
 hi:{
  nav_dash:'डैशबोर्ड',nav_proj:'परियोजनाएँ',nav_task:'कार्य',nav_user:'सदस्य',btn_logout:'बाहर निकलें',
@@ -43,7 +44,8 @@ hi:{
  err_creds:'गलत ईमेल या पासफ़्रेज़.',err_net:'संजाल त्रुटि. फिर कोशिश करें.',err_pass:'कुंजी नहीं खुली. पासफ़्रेज़ गलत.',err_match:'पासफ़्रेज़ मेल नहीं खाते.',err_token:'निमंत्रण टोकन सही नहीं.',err_pwlen:'पासफ़्रेज़ कम से कम 10 अक्षर.',err_nokey:'इस ईमेल की कुंजी इस फ़ोन पर नहीं.',
  ok_saved:'सहेज लिया.',working:'चल रहा है.',
  lbl_unassigned:'अनिर्दिष्ट',lbl_none:'अभी कुछ नहीं.',lbl_back:'वापस',
- tier_ndma:'NDMA',tier_state:'राज्य',tier_district:'ज़िला',tier_resp:'उत्तरदाता',tier_vol:'स्वयंसेवक'
+ tier_ndma:'NDMA',tier_state:'राज्य',tier_district:'ज़िला',tier_resp:'उत्तरदाता',tier_vol:'स्वयंसेवक',
+ demo_banner:'डेमो मोड. नीचे का पासफ़्रेज़ डेमो पोर्टल पर सार्वजनिक है. इस खाते को असली काम में दोबारा उपयोग न करें.'
 }};
 const lang=(navigator.language||'en').slice(0,2);
 const T=L[lang]||L.en;
@@ -183,7 +185,7 @@ let usersCache=null;
 async function getUsers(force){
  if(usersCache&&!force)return usersCache;
  const r=await api('/users');
- usersCache=r.items||[];
+ usersCache=r.users||r.items||[];
  return usersCache;
 }
 function userOpts(sel){
@@ -195,10 +197,15 @@ function flash(node,msg,cls){node.innerHTML=`<p class="${cls||'muted'}" role=sta
 
 function viewLogin(){
  main.removeAttribute('aria-busy');
+ const qs=new URLSearchParams((location.hash.split('?')[1])||'');
+ const qEmail=(qs.get('email')||'').trim().toLowerCase();
+ const isDemo=qs.get('demo')==='1';
+ const banner=isDemo?`<p class=demoBanner role=note><b>${esc(T.demo_banner.split('.')[0])}.</b> ${esc(T.demo_banner.split('.').slice(1).join('.').trim())}</p>`:'';
  main.innerHTML=`<section class=card aria-labelledby=hLogin>
   <h1 id=hLogin>${esc(T.login_title)}</h1>
+  ${banner}
   <form id=fLogin novalidate>
-   <label for=lEmail>${esc(T.login_email)}<input type=email id=lEmail name=email autocomplete=username required></label>
+   <label for=lEmail>${esc(T.login_email)}<input type=email id=lEmail name=email autocomplete=username required value="${esc(qEmail)}"></label>
    <label for=lPass>${esc(T.login_pass)}<input type=password id=lPass name=pass autocomplete=current-password required></label>
    <p id=lErr role=alert class=err></p>
    <button type=submit>${esc(T.login_btn)}</button>
@@ -206,6 +213,7 @@ function viewLogin(){
   <p class=help>${esc(T.login_help)} <a href="#/register">${esc(T.reg_link)}</a></p>
  </section>`;
  const f=$('#fLogin'),er=$('#lErr');
+ if(isDemo)$('#lPass').value='aether-demo-2026';
  f.addEventListener('submit',async e=>{
   e.preventDefault();er.textContent='';
   const btn=f.querySelector('button[type=submit]');btn.disabled=true;btn.textContent=T.working;
@@ -215,7 +223,7 @@ function viewLogin(){
    location.hash='#/';
   }catch(err){er.textContent=err.message||T.err_creds;btn.disabled=false;btn.textContent=T.login_btn}
  });
- $('#lEmail').focus();
+ if(qEmail)$('#lPass').focus();else $('#lEmail').focus();
 }
 
 function viewRegister(){
@@ -306,11 +314,11 @@ async function viewProjects(){
  });
  try{
   const r=await api('/projects');
-  const items=r.items||[];
+  const items=r.projects||r.items||[];
   if(!items.length){$('#plist').innerHTML=`<p class=empty>${esc(T.lbl_none)}</p>`}
   else{
    $('#plist').innerHTML=`<div class=tblwrap><table class=tbl><thead><tr><th>${esc(T.proj_name)}</th><th>${esc(T.proj_desc)}</th><th></th></tr></thead><tbody>${
-    items.map(p=>`<tr><td><a href="#/projects/${esc(encodeURIComponent(p.id))}">${esc(p.name)}</a></td><td>${esc(p.description||'')}</td><td><button type=button class=arch data-p="${esc(p.id)}">${esc(T.proj_archive)}</button></td></tr>`).join('')
+    items.map(p=>`<tr><td><a href="#/projects/${esc(encodeURIComponent(p.pid||p.id))}">${esc(p.name)}</a></td><td>${esc(p.description||'')}</td><td><button type=button class=arch data-p="${esc(p.pid||p.id)}">${esc(T.proj_archive)}</button></td></tr>`).join('')
    }</tbody></table></div>`;
    $$('#plist .arch').forEach(b=>b.addEventListener('click',async()=>{
     const pid=b.dataset.p;
@@ -340,7 +348,7 @@ async function viewProject(id){
    catch(err){alert(err.message||T.err_net)}
   });
   const t=await api('/tasks?project='+encodeURIComponent(id));
-  renderTaskTable($('#ptasks'),t.items||[],()=>viewProject(id));
+  renderTaskTable($('#ptasks'),t.tasks||t.items||[],()=>viewProject(id));
  }catch(err){flash(main,err.message||T.err_net,'err')}
  main.removeAttribute('aria-busy');
 }
@@ -398,7 +406,7 @@ async function viewTasks(){
   if(q.status)tqs.set('status',q.status);
   if(q.overdue)tqs.set('overdue','1');
   const t=await api('/tasks'+(tqs.toString()?'?'+tqs:''));
-  renderTaskTable($('#taskList'),t.items||[],()=>viewTasks());
+  renderTaskTable($('#taskList'),t.tasks||t.items||[],()=>viewTasks());
  }catch(err){flash($('#taskList'),err.message||T.err_net,'err')}
  main.removeAttribute('aria-busy');
 }
@@ -410,8 +418,8 @@ function renderTaskTable(host,items,reload){
    const od=x.due_date&&new Date(x.due_date)<new Date()&&x.status!=='done';
    return `<tr${od?' class=over':''}>
     <td>${esc(x.title)}</td>
-    <td><select class=sStatus data-t="${esc(x.id)}" aria-label="${esc(T.task_status)}">${STATUS_KEYS.map(s=>`<option value="${s}"${s===x.status?' selected':''}>${esc(STATUS_LABEL[s]||s)}</option>`).join('')}</select></td>
-    <td><select class=sAssign data-t="${esc(x.id)}" data-prev="${esc(x.assignee_uid||'')}" aria-label="${esc(T.task_assign)}">${userOpts(x.assignee_uid)}</select></td>
+    <td><select class=sStatus data-t="${esc(x.tid||x.id)}" aria-label="${esc(T.task_status)}">${STATUS_KEYS.map(s=>`<option value="${s}"${s===x.status?' selected':''}>${esc(STATUS_LABEL[s]||s)}</option>`).join('')}</select></td>
+    <td><select class=sAssign data-t="${esc(x.tid||x.id)}" data-prev="${esc(x.assignee_uid||'')}" aria-label="${esc(T.task_assign)}">${userOpts(x.assignee_uid)}</select></td>
     <td>${x.due_date?esc(String(x.due_date).slice(0,10)):''}</td>
    </tr>`;
   }).join('')

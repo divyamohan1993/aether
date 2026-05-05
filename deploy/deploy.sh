@@ -105,5 +105,20 @@ gcloud run deploy "${SERVICE}" \
 URL="$(gcloud run services describe "${SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)')"
 
 log "Deployed: ${URL}"
+
+# Idle cost discipline: delete superseded Cloud Run revisions so we never
+# accumulate billable references to old container images. Cloud Run does
+# not bill inactive revisions, but they pin Artifact Registry image
+# digests and prevent the cleanup policy from collecting them.
+ACTIVE_REV="$(gcloud run services describe "${SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.traffic[0].revisionName)')"
+log "Active revision: ${ACTIVE_REV}; cleaning up older revisions"
+gcloud run revisions list --service="${SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" --format='value(metadata.name)' \
+  | grep -v "^${ACTIVE_REV}$" \
+  | while read -r rev; do
+      [[ -n "${rev}" ]] || continue
+      gcloud run revisions delete "${rev}" --project="${PROJECT_ID}" --region="${REGION}" --quiet >/dev/null 2>&1 \
+        && log "  deleted ${rev}" || true
+    done
+
 log "Smoke test: bash test/smoke.sh ${URL}"
 echo "${URL}"

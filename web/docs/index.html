@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="Project Aether documentation. Survivor SOS, Task Manager, post-quantum auth, scope hierarchy, full API reference.">
+<meta name="robots" content="index,follow">
+<title>Aether Docs</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="canonical" href="https://aether.dmj.one/docs/">
+<style>
+:root{--bg:#000;--fg:#f5f0e6;--mu:#c4b8a4;--ac:#d8631a;--ac2:#ffb070;--bd:#1f1f1f;--bd2:#2a2a2a;--cd:#0a0a0a;--ok:#3aa655;--wn:#ffd400;--er:#ff4242}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:1rem}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+a{color:var(--ac2);text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px}
+a:hover{color:#fff}
+:focus-visible{outline:3px solid var(--wn);outline-offset:3px;border-radius:3px}
+.skip{position:absolute;left:-9999px;top:0;background:var(--wn);color:#000;padding:.6rem 1rem;font-weight:700;z-index:99}
+.skip:focus{left:.5rem;top:.5rem}
+header.top{position:sticky;top:0;z-index:10;background:#000;border-bottom:1px solid var(--bd);padding:.7rem 1rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+.logo{font:800 1.05rem/1 ui-monospace,monospace;letter-spacing:.04em;color:var(--fg);text-decoration:none;display:inline-flex;align-items:center;gap:.5rem}
+.logo b{color:var(--ac)}
+.crumb{color:var(--mu);font-size:.85rem}
+.crumb b{color:var(--fg)}
+.search{margin-left:auto;display:flex;gap:.5rem;align-items:center}
+.search input{background:var(--cd);color:var(--fg);border:1px solid var(--bd2);border-radius:8px;padding:.5rem .8rem;font:inherit;min-width:14rem}
+.search input::placeholder{color:#7a7264}
+.layout{display:grid;grid-template-columns:18rem 1fr;gap:0;max-width:78rem;margin:0 auto}
+nav.toc{position:sticky;top:3.6rem;align-self:start;height:calc(100vh - 3.6rem);overflow-y:auto;padding:1rem 1rem 2rem;border-right:1px solid var(--bd)}
+nav.toc h2{font:700 .72rem/1 ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--mu);margin:.4rem 0 .6rem}
+nav.toc ol{list-style:none;display:grid;gap:.1rem}
+nav.toc a{display:block;padding:.45rem .6rem;border-radius:6px;color:var(--mu);text-decoration:none;font-size:.9rem;border-left:2px solid transparent}
+nav.toc a:hover{background:#0d0d0d;color:var(--fg)}
+nav.toc a[aria-current="location"]{background:#140a04;color:var(--ac2);border-left-color:var(--ac)}
+nav.toc ul{list-style:none;margin:.1rem 0 .3rem .8rem;display:grid;gap:.05rem}
+nav.toc ul a{font-size:.82rem;padding:.3rem .55rem}
+main{padding:1.5rem clamp(1rem,3vw,2.4rem) 4rem;min-width:0}
+h1{font:800 clamp(1.7rem,4vw,2.4rem)/1.15 inherit;letter-spacing:-.01em;margin:.4rem 0 .6rem}
+h1 .acc{color:var(--ac)}
+.lede{color:var(--mu);font-size:1.05rem;max-width:48rem;margin:0 0 1.4rem}
+section{padding:1.4rem 0;border-top:1px solid var(--bd);scroll-margin-top:4rem}
+section:first-of-type{border-top:0}
+section.hidden{display:none}
+h2{font:700 1.5rem/1.2 inherit;margin:.2rem 0 .5rem;color:var(--fg)}
+h2 .num{color:var(--mu);font:700 .85rem/1 ui-monospace,monospace;display:inline-block;margin-right:.5rem;vertical-align:.2em}
+h3{font:700 1.1rem/1.3 inherit;margin:1.2rem 0 .4rem;color:var(--fg)}
+h4{font:700 .95rem/1.3 inherit;margin:.9rem 0 .3rem;color:var(--ac2)}
+p{margin:.5rem 0;max-width:48rem}
+ul,ol{margin:.4rem 0 .6rem 1.3rem}
+li{margin:.2rem 0;max-width:48rem}
+li ul{margin-top:.2rem}
+code{font:.88em/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--cd);color:#ffd9b3;padding:.08em .35em;border-radius:4px;border:1px solid var(--bd)}
+pre{background:var(--cd);border:1px solid var(--bd);border-radius:8px;padding:.85rem 1rem;overflow-x:auto;font:.82rem/1.5 ui-monospace,monospace;color:#e8dccb;margin:.5rem 0}
+pre code{background:transparent;border:0;padding:0;color:inherit}
+.skipa{display:inline-block;font-size:.78rem;color:var(--mu);text-decoration:none;border:1px solid var(--bd);padding:.2rem .55rem;border-radius:4px;margin-left:.4rem}
+.skipa:hover{color:var(--fg);border-color:var(--ac)}
+.tag{display:inline-block;font:700 .68rem/1 ui-monospace,monospace;letter-spacing:.05em;padding:.3rem .5rem;border-radius:4px;text-transform:uppercase}
+.tag.get{background:#0a3d0e;color:#9ff0aa}
+.tag.post{background:#0a2952;color:#a4c5ff}
+.tag.patch{background:#3d2a05;color:#ffd083}
+.tag.delete{background:#4a0d0d;color:#ffa0a0}
+.tag.auth{background:#1a1a1a;color:var(--ac2);border:1px solid var(--ac)}
+.tag.pub{background:#1a1a1a;color:var(--mu);border:1px solid var(--bd2)}
+.tag.fresh{background:#3d1004;color:#ffc7a8;border:1px solid var(--ac)}
+.api{border:1px solid var(--bd);border-radius:8px;margin:.6rem 0;background:#050505}
+.api summary{list-style:none;cursor:pointer;padding:.7rem .9rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;font:.9rem ui-monospace,monospace}
+.api summary::-webkit-details-marker{display:none}
+.api summary::after{content:"+";margin-left:auto;color:var(--mu);font:700 1.1rem/1 ui-monospace,monospace}
+.api[open] summary::after{content:"-"}
+.api summary:hover{background:#0a0a0a}
+.api .body{padding:.2rem .9rem 1rem;border-top:1px solid var(--bd)}
+.api .body p:first-child{margin-top:.6rem}
+table{border-collapse:collapse;width:100%;max-width:48rem;margin:.5rem 0;font-size:.92rem}
+th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--bd);vertical-align:top}
+th{color:var(--mu);font:700 .78rem/1.2 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;background:#050505}
+tr:last-child td{border-bottom:0}
+.tier{font:700 .78rem/1 ui-monospace,monospace;color:var(--ac2)}
+.matrix th:first-child,.matrix td:first-child{color:var(--ac2);white-space:nowrap}
+.callout{border-left:3px solid var(--ac);background:#0a0604;padding:.7rem 1rem;border-radius:0 6px 6px 0;margin:.7rem 0;font-size:.95rem;max-width:48rem}
+.callout.warn{border-color:var(--wn);background:#0a0904}
+.diagram{background:#050505;border:1px solid var(--bd);border-radius:8px;padding:1rem;margin:.6rem 0;overflow-x:auto}
+.diagram svg{display:block;max-width:100%;height:auto}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:.3rem 1rem;font-size:.92rem;margin:.4rem 0}
+.kv dt{color:var(--mu);font:700 .78rem/1.4 ui-monospace,monospace;letter-spacing:.04em;text-transform:uppercase}
+.kv dd{color:var(--fg)}
+.faq dt{font-weight:700;color:var(--ac2);margin-top:.9rem}
+.faq dd{margin:.2rem 0 .8rem}
+footer{border-top:1px solid var(--bd);padding:2rem 1rem;text-align:center;color:var(--mu);font-size:.85rem;margin-top:2rem}
+footer a{color:var(--ac2)}
+.cta{display:inline-flex;gap:.4rem;align-items:center;background:var(--ac);color:#000;text-decoration:none;font-weight:700;padding:.55rem 1rem;border-radius:6px;margin:.3rem .3rem .3rem 0}
+.cta.alt{background:transparent;color:var(--ac2);border:1px solid var(--ac)}
+.cta:hover{filter:brightness(1.1);color:#000}
+.cta.alt:hover{color:#fff;background:#1a0a04}
+.notice{background:var(--cd);border:1px solid var(--bd);border-radius:8px;padding:.8rem 1rem;margin:1rem 0;font-size:.9rem;color:var(--mu)}
+.kbd{display:inline-block;font:700 .78rem/1 ui-monospace,monospace;border:1px solid var(--bd2);background:#0a0a0a;color:var(--fg);padding:.18rem .42rem;border-radius:4px}
+.searchnone{display:none;color:var(--wn);padding:.6rem 0}
+.searchnone.show{display:block}
+@media (max-width:780px){
+.layout{grid-template-columns:1fr}
+nav.toc{position:static;height:auto;border-right:0;border-bottom:1px solid var(--bd);padding:.6rem .8rem 1rem}
+nav.toc ol{display:flex;flex-wrap:wrap;gap:.2rem}
+nav.toc ul{display:none}
+nav.toc a{font-size:.82rem;padding:.4rem .55rem;border:1px solid var(--bd2);border-radius:999px;border-left-width:1px}
+nav.toc a[aria-current="location"]{border-color:var(--ac);background:#140a04}
+.search input{min-width:0;width:100%}
+.search{width:100%;order:3}
+header.top{padding:.6rem .8rem}
+}
+@media print{header.top,nav.toc,.search,.skipa,.cta{display:none}body{color:#000;background:#fff}a{color:#000}}
+</style></head>
+<body>
+<a href="#main" class="skip">Skip to content</a>
+<header class="top" role="banner">
+ <a class="logo" href="#overview"><b>AETHER</b><span class="crumb">/ docs</span></a>
+ <span class="crumb">Edge AI for disaster response</span>
+ <form class="search" role="search" onsubmit="return false">
+  <label for="q" class="crumb">Find</label>
+  <input id="q" type="search" placeholder="Search docs (e.g. delegate, opus, scope)" autocomplete="off" aria-controls="main">
+ </form>
+</header>
+<div class="layout">
+ <nav class="toc" id="toc" aria-label="On this page">
+  <h2>Sections</h2>
+  <ol>
+   <li><a href="#overview">1. Overview</a></li>
+   <li><a href="#survivor">2. Survivor portal</a></li>
+   <li><a href="#tm">3. Task Manager</a>
+    <ul>
+     <li><a href="#tm-login">Login</a></li>
+     <li><a href="#tm-register">Register</a></li>
+     <li><a href="#tm-dashboard">Dashboard</a></li>
+     <li><a href="#tm-projects">Projects</a></li>
+     <li><a href="#tm-tasks">Tasks</a></li>
+     <li><a href="#tm-users">Users</a></li>
+     <li><a href="#tm-logout">Logout</a></li>
+    </ul></li>
+   <li><a href="#scopes">4. Hierarchy and scopes</a></li>
+   <li><a href="#api">5. API reference</a></li>
+   <li><a href="#security">6. Security model</a></li>
+   <li><a href="#ops">7. Operations</a></li>
+   <li><a href="#demo">8. Demo and pitch</a></li>
+   <li><a href="#faq">9. FAQ</a></li>
+   <li><a href="#changelog">10. Changelog and roadmap</a></li>
+  </ol>
+ </nav>
+ <main id="main" role="main" tabindex="-1">
+  <p class="searchnone" id="snone" role="status" aria-live="polite">No section matches that query. Clear the search box to see everything.</p>
+
+  <section id="overview" aria-labelledby="h-overview">
+   <h1 id="h-overview"><span class="acc">Aether</span> Documentation</h1>
+   <p class="lede">Edge AI for disaster response. A 40 KB SOS payload, no Speech-to-Text, Gemini 2.5 Flash hearing the panic, the dialect, and the river behind the door, returning a strict-schema dispatch brief in under two seconds.</p>
+   <p>This portal explains every public-facing surface of Project Aether: the Survivor PWA at <code>/</code>, the Task Manager at <code>/tm/</code>, the scope hierarchy that runs from a national NDMA seat down to a single field volunteer, the post-quantum auth that makes user impersonation impossible, and every HTTP endpoint the service speaks.</p>
+   <p>Pick a role below to jump straight to the part you need.</p>
+   <h3>Who uses what</h3>
+   <table class="matrix">
+    <thead><tr><th>Role</th><th>Tier</th><th>Where</th><th>What they do</th></tr></thead>
+    <tbody>
+     <tr><td>Survivor</td><td>none</td><td><a href="/">/</a></td><td>Holds the SOS button, speaks for up to thirty seconds, sees a recovery message.</td></tr>
+     <tr><td>NDMA officer</td><td><span class="tier">100</span></td><td><a href="/tm/">/tm/</a></td><td>Reads the whole tree. Delegates state-level seats. Owns top-line dashboards.</td></tr>
+     <tr><td>SDMA officer</td><td><span class="tier">80</span></td><td><a href="/tm/">/tm/</a></td><td>One state. Creates districts, projects, and tasks within that state.</td></tr>
+     <tr><td>DDMO officer</td><td><span class="tier">60</span></td><td><a href="/tm/">/tm/</a></td><td>One district. Assigns tasks to responders. Tracks overdue items.</td></tr>
+     <tr><td>Responder</td><td><span class="tier">40</span></td><td><a href="/tm/">/tm/</a></td><td>Field staff. Owns assigned tasks. Updates status from the field.</td></tr>
+     <tr><td>Volunteer</td><td><span class="tier">20</span></td><td><a href="/tm/">/tm/</a></td><td>Reads assigned tasks. Status-only updates. No edits to scope or assignment.</td></tr>
+    </tbody>
+   </table>
+   <h3>System diagram</h3>
+   <div class="diagram" role="img" aria-labelledby="diag-cap">
+    <svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+     <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+       <path d="M0,0 L10,5 L0,10 z" fill="#d8631a"/>
+      </marker>
+     </defs>
+     <g font-family="ui-monospace,monospace" font-size="12" fill="#f5f0e6">
+      <rect x="10" y="20" width="150" height="56" rx="6" fill="#0a0a0a" stroke="#d8631a"/>
+      <text x="85" y="42" text-anchor="middle" font-weight="700">Survivor PWA</text>
+      <text x="85" y="60" text-anchor="middle" fill="#c4b8a4">12 KB raw</text>
+      <rect x="200" y="20" width="150" height="56" rx="6" fill="#0a0a0a" stroke="#2a2a2a"/>
+      <text x="275" y="42" text-anchor="middle" font-weight="700">2G burst</text>
+      <text x="275" y="60" text-anchor="middle" fill="#c4b8a4">~40 KB Opus</text>
+      <rect x="390" y="20" width="150" height="56" rx="6" fill="#0a0a0a" stroke="#2a2a2a"/>
+      <text x="465" y="42" text-anchor="middle" font-weight="700">Cloud Run</text>
+      <text x="465" y="60" text-anchor="middle" fill="#c4b8a4">stateless, scale-to-zero</text>
+      <rect x="560" y="20" width="150" height="56" rx="6" fill="#0a0a0a" stroke="#d8631a"/>
+      <text x="635" y="42" text-anchor="middle" font-weight="700">Vertex AI</text>
+      <text x="635" y="60" text-anchor="middle" fill="#c4b8a4">Gemini 2.5 Flash</text>
+      <rect x="200" y="170" width="150" height="56" rx="6" fill="#0a0a0a" stroke="#2a2a2a"/>
+      <text x="275" y="192" text-anchor="middle" font-weight="700">Triage JSON</text>
+      <text x="275" y="210" text-anchor="middle" fill="#c4b8a4">strict schema</text>
+      <rect x="390" y="170" width="150" height="56" rx="6" fill="#0a0a0a" stroke="#d8631a"/>
+      <text x="465" y="192" text-anchor="middle" font-weight="700">SDRF dispatch</text>
+      <text x="465" y="210" text-anchor="middle" fill="#c4b8a4">+ TM tasks</text>
+      <line x1="160" y1="48" x2="200" y2="48" stroke="#d8631a" stroke-width="2" marker-end="url(#ar)"/>
+      <line x1="350" y1="48" x2="390" y2="48" stroke="#d8631a" stroke-width="2" marker-end="url(#ar)"/>
+      <line x1="540" y1="48" x2="560" y2="48" stroke="#d8631a" stroke-width="2" marker-end="url(#ar)"/>
+      <line x1="465" y1="76" x2="465" y2="170" stroke="#d8631a" stroke-width="2" marker-end="url(#ar)"/>
+      <line x1="390" y1="198" x2="350" y2="198" stroke="#d8631a" stroke-width="2" marker-end="url(#ar)"/>
+     </g>
+    </svg>
+    <p id="diag-cap" class="crumb">Audio leaves the survivor's phone in one 1.5 s burst, lands on a stateless Cloud Run container, gets routed to Vertex AI Gemini 2.5 Flash, and returns as strict triage JSON for the State Disaster Response Force.</p>
+   </div>
+   <p>
+    <a class="cta" href="/">Open survivor PWA</a>
+    <a class="cta alt" href="/tm/">Open Task Manager</a>
+    <a class="cta alt" href="/demo">Run the demo</a>
+   </p>
+   <a class="skipa" href="#survivor">Skip to next section</a>
+  </section>
+
+  <section id="survivor" aria-labelledby="h-survivor">
+   <h2 id="h-survivor"><span class="num">02</span>Survivor portal</h2>
+   <p>A pure-black, hold-to-record SOS button. Built for a phone with one battery bar and one signal bar. The whole page is 12 KB raw, 4.5 KB brotli, served once and cached by the service worker.</p>
+   <h3>What happens when the button is pressed</h3>
+   <ol>
+    <li>The browser asks for microphone access. The mic icon is the only permission this page ever asks for.</li>
+    <li><code>MediaRecorder</code> records Opus audio at 12 kbps mono, 16 kHz. Fifteen seconds of speech compresses to roughly 40 KB.</li>
+    <li>If the device is offline, the clip goes into IndexedDB. A queue badge in the top bar shows how many clips are waiting.</li>
+    <li>The next time the OS reports a network handshake, the queue flushes. Background Sync is registered when supported.</li>
+    <li>The clip is POSTed to <code>/api/v1/triage</code> with optional headers for language, geo, battery, and effective network type.</li>
+    <li>The Cloud Run server forwards the audio to Vertex AI Gemini 2.5 Flash with a strict <code>responseSchema</code>.</li>
+    <li>Gemini hears the audio natively. No Speech-to-Text in the middle. It returns urgency, native and English transcription, casualties, needs, location clues, ambient cues, summary, confidence.</li>
+    <li>The PWA renders an urgency badge and a one-line dispatch summary. The survivor sees a calm message: help is on the way, stay where you are.</li>
+   </ol>
+   <h3>Languages</h3>
+   <p>Auto-detected from <code>navigator.language</code>. Native-script strings ship for:</p>
+   <ul>
+    <li><code>en-IN</code> English (India)</li>
+    <li><code>hi-IN</code> Hindi</li>
+    <li><code>ta-IN</code> Tamil</li>
+    <li><code>bn-IN</code> Bengali</li>
+   </ul>
+   <p>Gemini detects the spoken language from the audio itself. The browser hint is a tie-breaker, never a hard constraint.</p>
+   <h3>Battery and network awareness</h3>
+   <ul>
+    <li>Background is <code>#000000</code>. On OLED screens, those pixels are physically off and draw zero current.</li>
+    <li>The top bar shows battery percentage (orange below 15%), the connection effective type from <code>navigator.connection</code>, queue depth, and language.</li>
+    <li>No polling. The page reacts to <code>online</code>, <code>offline</code>, and <code>connectionchange</code> events. The service worker uses background sync where the platform supports it, otherwise an exponential retry loop.</li>
+    <li>The record button works from the keyboard (<span class="kbd">Space</span> or <span class="kbd">Enter</span>) and from media-session keys.</li>
+   </ul>
+   <h3>Privacy</h3>
+   <ul>
+    <li>What is sent: the Opus clip, a UUIDv4 client ID stored in <code>localStorage</code>, language hint, optional rough geolocation, optional battery and network type, an ISO 8601 timestamp.</li>
+    <li>What is stored locally: just the queue and the client ID. Nothing else.</li>
+    <li>Retention: server-side audio is processed in memory by Cloud Run, sent to Vertex AI, and discarded. No durable copy of the audio is kept by Aether. Triage JSON is logged with request ID, urgency, and confidence for operations.</li>
+    <li>SDRF webhook delivery shape: the same JSON document the API returns, signed with the service's HMAC and forwarded to the configured webhook URL. The webhook is opt-in per state.</li>
+   </ul>
+   <a class="skipa" href="#tm">Skip to next section</a>
+  </section>
+
+  <section id="tm" aria-labelledby="h-tm">
+   <h2 id="h-tm"><span class="num">03</span>Task Manager portal</h2>
+   <p>A post-quantum-authenticated task tracker for the NDMA chain of command. Every privileged action carries an ML-DSA-65 signature. The server cannot impersonate a user, even with full database access.</p>
+   <p>Mounted at <a href="/tm/">/tm/</a>. Single-page app, hash-routed, four sections: dashboard, projects, tasks, users.</p>
+
+   <h3 id="tm-login">Login flow <a class="skipa" href="#tm-register">Skip</a></h3>
+   <p>Two fields: email and passphrase.</p>
+   <ol>
+    <li>You type your email and click <b>Continue</b>. The browser POSTs <code>{ email }</code> to <code>/api/v1/tm/auth/challenge</code>. The server returns a 32-byte random challenge, even if the email is unknown (so an attacker cannot enumerate accounts).</li>
+    <li>You type your passphrase. The browser pulls the encrypted private key from IndexedDB, derives a 32-byte key with Argon2id, and decrypts it with AES-256-GCM. The passphrase never leaves the device.</li>
+    <li>The browser signs the challenge with your ML-DSA-65 private key and POSTs <code>{ email, ch_id, signature_b64 }</code> to <code>/api/v1/tm/auth/verify</code>.</li>
+    <li>The server fetches your stored public key, runs <code>ml_dsa65.verify</code>, and on success returns a session token signed by its own ML-DSA-65 keypair.</li>
+    <li>The token lives in <code>sessionStorage</code> for thirty minutes. Privileged actions still need a fresh per-action signature on top of the bearer.</li>
+   </ol>
+
+   <h3 id="tm-register">Register flow <a class="skipa" href="#tm-dashboard">Skip</a></h3>
+   <ol>
+    <li>An admin one tier above you mints an invite. You receive an invite link with an opaque <code>invite_id</code>.</li>
+    <li>You open the link, type your name, and choose a passphrase. The browser generates a fresh ML-DSA-65 keypair locally.</li>
+    <li>The private key is encrypted with Argon2id + AES-256-GCM and written to IndexedDB.</li>
+    <li>The browser sends <code>{ invite_id, name, pubkey_b64 }</code> to <code>/api/v1/tm/auth/register</code>.</li>
+    <li>The server checks the invite signature, marks it used in a Firestore transaction, writes your user record, and returns your fresh session token.</li>
+   </ol>
+   <div class="callout warn"><b>Lose the passphrase, lose the seat.</b> The server never sees your passphrase or your private key. Recovery is by re-invitation from your parent in the hierarchy.</div>
+
+   <h3 id="tm-dashboard">Dashboard <a class="skipa" href="#tm-projects">Skip</a></h3>
+   <p>Tile counts at the top, scoped to your subtree:</p>
+   <ul>
+    <li>Open, In progress, Blocked, Done, Overdue, Cancelled.</li>
+    <li>Priority breakdown: low, medium, high, critical.</li>
+    <li>Top assignees, ranked by open task count.</li>
+    <li>Projects active.</li>
+   </ul>
+   <p>Backed by <code>GET /api/v1/tm/dashboard</code>. Counts are filtered by your <code>scope_path</code>, so an SDMA officer in Himachal Pradesh sees Himachal numbers only.</p>
+
+   <h3 id="tm-projects">Projects <a class="skipa" href="#tm-tasks">Skip</a></h3>
+   <ul>
+    <li><b>List</b>. Scope-filtered. <code>?include_archived=true</code> to see archived ones.</li>
+    <li><b>Create</b>. Name, description, owner, scope. The scope must sit inside your own.</li>
+    <li><b>Drill-down</b>. Click a project to see its tasks, assignees, and progress.</li>
+    <li><b>Archive</b>. Requires a fresh ML-DSA signature. The browser pops the passphrase dialog. Archive is reversible only by editing the document directly.</li>
+   </ul>
+
+   <h3 id="tm-tasks">Tasks <a class="skipa" href="#tm-users">Skip</a></h3>
+   <ul>
+    <li><b>Create</b>. Project, title, assignee, priority, due date.</li>
+    <li><b>Assign</b>. Reassignment requires a fresh signature on the canonical message <code>task.assign|&lt;tid&gt;|&lt;assignee_uid&gt;</code>.</li>
+    <li><b>Status transitions</b>: open, in progress, blocked, done, cancelled. The server validates legal transitions.</li>
+    <li><b>Priority</b>: low, medium, high, critical.</li>
+    <li><b>Due dates</b>. The dashboard counts a task as overdue when due date is past and status is not done or cancelled.</li>
+    <li><b>Volunteer rule</b>: status-only updates on tasks they are assigned to. Anything else returns 403.</li>
+    <li><b>Responder rule</b>: full edits on tasks they are assigned to.</li>
+    <li><b>District and above</b>: edit any task whose <code>scope_path</code> sits inside their own.</li>
+   </ul>
+
+   <h3 id="tm-users">Users <a class="skipa" href="#tm-logout">Skip</a></h3>
+   <ul>
+    <li>Hierarchy table, sorted by tier and email. Each row shows tier, scope, parent, and active state.</li>
+    <li><b>Two-click delegation.</b> Click a user, click a new tier. The dialog reads back the change in plain language. Submit triggers the passphrase prompt for a fresh signature.</li>
+    <li>The server validates: the new tier is at or below the caller's tier, the target's <code>scope_path</code> sits inside the caller's, the target is currently below the caller. Rejected delegations write a warning to the audit log too.</li>
+    <li><b>Suspend</b>. Disables a user without deleting them. They can be reactivated by the same parent.</li>
+    <li>Every mutation appends to <code>tm_audit</code> with the canonical message and the signature, so post-incident review can replay who did what.</li>
+   </ul>
+
+   <h3 id="tm-logout">Logout</h3>
+   <p>Clicking <b>Log out</b> clears the session token from <code>sessionStorage</code>. The encrypted private key stays in IndexedDB so the next login on the same device only needs the passphrase. To wipe the device, clear site data from the browser settings.</p>
+   <a class="skipa" href="#scopes">Skip to next section</a>
+  </section>
+
+  <section id="scopes" aria-labelledby="h-scopes">
+   <h2 id="h-scopes"><span class="num">04</span>Hierarchy and scopes</h2>
+   <p>Every user, project, and task carries a <code>scope_path</code>. Scope is a slash-separated lineage, and authority flows down the path. A user can act on any record whose scope starts with their own.</p>
+   <table class="matrix">
+    <thead><tr><th>Tier</th><th>Code</th><th>Scope shape</th><th>Authority</th></tr></thead>
+    <tbody>
+     <tr><td>ndma</td><td><span class="tier">100</span></td><td><code>ndma</code></td><td>National. Reads everything. Delegates to anyone.</td></tr>
+     <tr><td>state</td><td><span class="tier">80</span></td><td><code>ndma/&lt;state&gt;</code></td><td>One state's subtree.</td></tr>
+     <tr><td>district</td><td><span class="tier">60</span></td><td><code>ndma/&lt;state&gt;/&lt;district&gt;</code></td><td>One district's subtree.</td></tr>
+     <tr><td>responder</td><td><span class="tier">40</span></td><td><code>.../&lt;responder&gt;</code></td><td>Field staff. Owns assigned tasks.</td></tr>
+     <tr><td>volunteer</td><td><span class="tier">20</span></td><td><code>.../&lt;volunteer&gt;</code></td><td>Read-only on assigned tasks. Status-only updates.</td></tr>
+    </tbody>
+   </table>
+   <h3>Worked examples</h3>
+   <ul>
+    <li>An NDMA officer at <code>ndma</code> can read every user, every project, every task. Their queries are unfiltered.</li>
+    <li>An SDMA officer at <code>ndma/HP</code> can read users with scope <code>ndma/HP</code>, <code>ndma/HP/Shimla</code>, <code>ndma/HP/Kullu/responder1</code>, but not <code>ndma/UK</code>.</li>
+    <li>A responder at <code>ndma/HP/Shimla/responder7</code> can update only the tasks where they are the assignee. They cannot read other responders' tasks even within Shimla.</li>
+    <li>A volunteer at <code>ndma/HP/Shimla/responder7/volunteer3</code> can flip the status of an assigned task from <i>open</i> to <i>in progress</i> to <i>done</i>. They cannot change priority, assignee, or due date.</li>
+   </ul>
+   <h3>Two-click delegation, walked through</h3>
+   <ol>
+    <li>You are SDMA Himachal at <code>ndma/HP</code>. You open <a href="/tm/#/users">the users page</a>.</li>
+    <li>You click a row for a district officer at <code>ndma/HP/Mandi</code>. Their current tier reads as 60.</li>
+    <li>You pick a new tier (say 40, demoting them to responder during a leave). The dialog reads: "Set Mandi DDMO to tier 40 (responder)?".</li>
+    <li>You confirm. The browser asks for your passphrase, signs the canonical message <code>delegate|&lt;uid&gt;|40</code>, and posts it.</li>
+    <li>The server checks: 40 is at or below your tier (true), the target sits in your subtree (true). It writes the change inside a Firestore transaction along with an entry in <code>tm_audit</code>.</li>
+    <li>The user list refreshes. The change is visible to anyone in scope within seconds.</li>
+   </ol>
+   <a class="skipa" href="#api">Skip to next section</a>
+  </section>
+
+  <section id="api" aria-labelledby="h-api">
+   <h2 id="h-api"><span class="num">05</span>API reference</h2>
+   <p>Every endpoint speaks JSON. Errors share one shape: <code>{ "error": { "code": "...", "message": "..." } }</code>. Every response carries a request ID in the <code>X-Request-Id</code> header.</p>
+
+   <h3>Group 1. SOS Triage</h3>
+
+   <details class="api"><summary><span class="tag post">POST</span> <code>/api/v1/triage</code> <span class="tag pub">public</span></summary>
+   <div class="body">
+    <p>Accepts an audio body up to 512 KB. The first bytes are sniffed; only Opus/Ogg, WebM, MP4, and WAV are accepted.</p>
+    <h4>Request headers</h4>
+    <dl class="kv">
+     <dt>Content-Type</dt><dd><code>audio/webm</code>, <code>audio/ogg</code>, <code>audio/mp4</code>, or <code>audio/wav</code>.</dd>
+     <dt>X-Client-Id</dt><dd>UUIDv4 persisted on the device. Optional.</dd>
+     <dt>X-Client-Lang</dt><dd>BCP-47 hint such as <code>hi-IN</code>. Optional.</dd>
+     <dt>X-Client-Geo</dt><dd>Best-effort <code>lat,lng</code>. Optional.</dd>
+     <dt>X-Client-Battery</dt><dd>Integer 0 to 100. Optional.</dd>
+     <dt>X-Client-Network</dt><dd><code>2g</code>, <code>3g</code>, <code>4g</code>, or <code>wifi</code>. Optional.</dd>
+     <dt>X-Client-Timestamp</dt><dd>ISO 8601 from the device. Optional.</dd>
+    </dl>
+    <h4>Success response</h4>
+    <pre><code>{
+  "id": "&lt;uuid&gt;",
+  "received_at": "2026-05-05T11:13:55.603Z",
+  "model": "gemini-2.5-flash",
+  "latency_ms": 1777,
+  "triage": {
+    "urgency": "CRITICAL|HIGH|MEDIUM|LOW|UNCLEAR",
+    "language_detected": "hi-IN",
+    "transcription_native": "...",
+    "transcription_english": "...",
+    "people_affected": 3,
+    "injuries": ["blunt trauma"],
+    "needs": ["medical_evacuation","search_and_rescue"],
+    "location_clues": ["near Devi temple"],
+    "ambient_audio": ["rushing water","wind"],
+    "summary_for_dispatch": "Three people trapped near Devi temple after landslide.",
+    "confidence": 0.82,
+    "caller_state": "panicked",
+    "incident_type": "landslide"
+  }
+}</code></pre>
+    <h4>Errors</h4>
+    <ul>
+     <li><code>400 empty_body</code>, <code>400 bad_request</code></li>
+     <li><code>405 method_not_allowed</code></li>
+     <li><code>413 payload_too_large</code> (over 512 KB)</li>
+     <li><code>415 unsupported_media_type</code> (not Opus/Ogg, WebM, MP4, or WAV)</li>
+     <li><code>429 rate_limited</code> with <code>Retry-After</code></li>
+     <li><code>502 upstream_error</code> (Vertex AI unavailable)</li>
+    </ul>
+    <h4>Curl</h4>
+    <pre><code>curl -X POST https://aether.dmj.one/api/v1/triage \
+  -H "Content-Type: audio/webm" -H "X-Client-Lang: hi-IN" \
+  --data-binary @clip.webm</code></pre>
+   </div></details>
+
+   <details class="api"><summary><span class="tag get">GET</span> <code>/api/healthz</code> <span class="tag pub">public</span></summary>
+   <div class="body">
+    <p>Returns <code>{ "ok": true }</code> with status 200. Used by Cloud Run health checks and uptime probes.</p>
+    <pre><code>curl -s https://aether.dmj.one/api/healthz</code></pre>
+   </div></details>
+
+   <details class="api"><summary><span class="tag get">GET</span> <code>/</code>, <code>/sw.js</code>, <code>/manifest.webmanifest</code>, <code>/favicon.svg</code> <span class="tag pub">public</span></summary>
+   <div class="body">
+    <p>Static assets for the Survivor PWA. Served with strong ETag, brotli or gzip when the client accepts it, and a five-minute <code>Cache-Control</code>. The HTML carries a strict CSP that blocks all external origins.</p>
+   </div></details>
+
+   <h3>Group 2. Task Manager</h3>
+
+   <details class="api"><summary><span class="tag get">GET</span> <code>/api/v1/tm/server-pubkey</code> <span class="tag pub">public</span></summary>
+   <div class="body">
+    <p>Returns the server's ML-DSA-65 public key in base64, plus the algorithm name. Used by the browser to verify session tokens offline.</p>
+    <pre><code>{ "pubkey_b64": "...", "alg": "ML-DSA-65" }</code></pre>
+    <pre><code>curl -s https://aether.dmj.one/api/v1/tm/server-pubkey</code></pre>
+   </div></details>
+
+   <details class="api"><summary><span class="tag post">POST</span> <code>/api/v1/tm/auth/challenge</code> <span class="tag pub">public</span></summary>
+   <div class="body">
+    <p>Body: <code>{ "email": "..." }</code>. Returns a 32-byte challenge bound to the email and a one-minute TTL.</p>
+    <pre><code>{ "ch_id": "...", "challenge_b64": "...", "expires_at": "..." }</code></pre>
+    <p>Errors: <code>400 bad_request</code>, <code>429 rate_limited</code>.</p>
+    <pre><code>curl -X POST https://aether.dmj.one/api/v1/tm/auth/challenge \
+  -H "Content-Type: application/json" -d '{"email":"ops@example.com"}'</code></pre>
+   </div></details>
+
+   <details class="api"><summary><span class="tag post">POST</span> <code>/api/v1/tm/auth/verify</code> <span class="tag pub">public</span></summary>
+   <div class="body">
+    <p>Body: <code>{ "email", "ch_id", "signature_b64" }</code>. Consumes the challenge in a Firestore transaction so it cannot be replayed.</p>
+    <pre><code>{ "token": "&lt;ML-DSA session token&gt;", "exp": "...", "user": { ... } }</code></pre>
+    <p>Errors: <code>400 bad_request</code>, <code>401 invalid_signature</code>, <code>403 user_suspended</code>, <code>410 challenge_expired</code>, <code>429 rate_limited</code>.</p>
+   </div></details>
+
+   <details class="api"><summary><span class="tag post">POST</span> <code>/api/v1/tm/auth/register</code> <span class="tag pub">public</span></summary>
+   <div class="body">
+    <p>Body: <code>{ "invite_id", "name", "pubkey_b64" }</code>. Server verifies the issuer's signature on the invite, then creates the user atomically with the invite-used flag flip.</p>
+    <p>Errors: <code>400 bad_request</code>, <code>404 invite_not_found</code>, <code>409 invite_used</code>, <code>410 invite_expired</code>.</p>
+   </div></details>
+
+   <details class="api"><summary><span class="tag post">POST</span> <code>/api/v1/tm/auth/bootstrap</code> <span class="tag pub">public</span> <span class="tag fresh">env-gated</span></summary>
+   <div class="body">
+    <p>One-time NDMA root creation. Active only when <code>TM_BOOTSTRAP_ALLOW=1</code> and a matching <code>TM_BOOTSTRAP_TOKEN</code> is present. See <a href="#ops">Operations</a> for the procedure.</p>
+   </div></details>
+
+   <details class="api"><summary><span class="tag get">GET</span> <code>/api/v1/tm/me</code> <span class="tag auth">bearer</span></summary>
+   <div class="body">
+    <p>Returns the actor record: <code>uid</code>, <code>email</code>, <code>tier</code>, <code>tier_name</code>, <code>scope_path</code>, <code>parent_uid</code>, <code>active</code>.</p>
+    <pre><code>curl -H "Authorization: Bearer $TOKEN" https://aether.dmj.one/api/v1/tm/me</code></pre>
+   </div></details>
+
+   <details class="api"><summary><span class="tag get">GET</span> <code>/api/v1/tm/users</code> <span class="tag auth">bearer</span></summary>
+   <div class="body">
+    <p>Scope-filtered list. Query: <code>?scope=&lt;scope_path&gt;&amp;limit=100</code>. Defaults to the actor's own scope.</p>
+    <p>Errors: <code>400 bad_scope</code>, <code>403 out_of_scope</code>.</p>
+   </div></details>
+
+   <details class="api"><summary><span class="tag get">GET</span> <code>/api/v1/tm/users/:uid</code> <span class="tag auth">bearer</span></summary>
+   <div class="body">
+    <p>Single user. Returns 403 if the target sits outside the caller's scope.</p>
+   </div></details>
+
+   <details class="api"><summary><span class="tag post">POST</span> <code>/api/v1/tm/users/invite</code> <span class="tag fresh">bearer + fresh sig</span></summary>
+   <div class="body">
+    <p>Body: <code>{ "email", "tier", "parent_uid", "scope_path", "signature_b64" }</code>. Caller's signature must cover <code>invite|&lt;email&gt;|&lt;tier&gt;|&lt;parent_uid&gt;|&lt;scope_path&gt;</code>.</p>
+    <p>Errors: <code>400 bad_tier</code>, <code>400 bad_scope</code>, <code>403 tier_too_high</code>, <code>403 out_of_scope</code>, <code>409 already_invited</code>.</p>
+   </div></details>
+
+   <details class="api"><summary><span class="tag post">POST</span> <code>/api/v1/tm/users/:uid/delegate</code> <span class="tag fresh">bearer + fresh sig</span></summary>
+   <div class="body">
+    <p>Body: <code>{ "new_tier", "signature_b64" }</code>. Signature covers <code>delegate|&lt;uid&gt;|&lt;new_tier&gt;</code>.</p>
+    <p>Errors: <code>400 bad_tier</code>, <code>403 tier_too_high</code>, <code>403 out_of_scope</code>, <code>403 tier_at_or_above_actor</code>.</p>
+   </div></details>
+
+   <details class="api"><summary><span class="tag post">POST</span> <code>/api/v1/tm/users/:uid/suspend</code> <span class="tag auth">bearer</span></summary>
+   <div class="body">
+    <p>Body: <code>{ "suspend": true|false }</code>. Disables or reactivates a user.</p>
+   </div></details>
+
+   <details class="api"><summary><span class="tag get">GET</span> <span class="tag post">POST</span> <code>/api/v1/tm/projects</code> <span class="tag auth">bearer</span></summary>
+   <div class="body">
+    <p>List or create. <code>GET</code> takes <code>?include_archived=true&amp;limit=100</code>. <code>POST</code> body: <code>{ "name", "description", "scope_path" }</code>.</p>
+   </div></details>
+
+   <details class="api"><summary><span class="tag get">GET</span> <span class="tag patch">PATCH</span> <span class="tag delete">DELETE</span> <code>/api/v1/tm/projects/:pid</code> <span class="tag auth">bearer</span></summary>
+   <div class="body">
+    <p><code>GET</code> returns the project. <code>PATCH</code> updates name, description, or status. <code>DELETE</code> archives the project and requires a fresh signature on <code>project.archive|&lt;pid&gt;</code>.</p>
+   </div></details>
+
+   <details class="api"><summary><span class="tag get">GET</span> <span class="tag post">POST</span> <code>/api/v1/tm/tasks</code> <span class="tag auth">bearer</span></summary>
+   <div class="body">
+    <p><code>GET</code> filters: <code>?project=&lt;pid&gt;&amp;assignee=&lt;uid&gt;&amp;status=open&amp;overdue=true&amp;limit=100</code>. <code>POST</code> body: <code>{ "project_id", "title", "assignee_uid", "priority", "due_at" }</code>.</p>
+   </div></details>
+
+   <details class="api"><summary><span class="tag get">GET</span> <span class="tag patch">PATCH</span> <span class="tag delete">DELETE</span> <code>/api/v1/tm/tasks/:tid</code> <span class="tag auth">bearer</span></summary>
+   <div class="body">
+    <p>Volunteers can only PATCH <code>{ "status" }</code> on tasks they are assigned to. Reassigning the task (<code>{ "assignee_uid", "signature_b64" }</code>) requires a fresh signature on <code>task.assign|&lt;tid&gt;|&lt;assignee_uid&gt;</code>.</p>
+   </div></details>
+
+   <details class="api"><summary><span class="tag get">GET</span> <code>/api/v1/tm/dashboard</code> <span class="tag auth">bearer</span></summary>
+   <div class="body">
+    <p>Aggregates by status, priority, top assignees, projects active, scoped to the caller. Cached server-side per actor for ten seconds.</p>
+    <pre><code>curl -H "Authorization: Bearer $TOKEN" https://aether.dmj.one/api/v1/tm/dashboard</code></pre>
+   </div></details>
+
+   <a class="skipa" href="#security">Skip to next section</a>
+  </section>
+
+  <section id="security" aria-labelledby="h-security">
+   <h2 id="h-security"><span class="num">06</span>Security model</h2>
+   <h3>Why post-quantum, why now</h3>
+   <p>ML-DSA-65 is the digital signature scheme standardised by NIST as FIPS 204. It is built on lattice problems that resist both classical and quantum attacks. A 2030-era adversary recording today's session traffic gains nothing from breaking it later, because no recovery secret ever leaves the user's device.</p>
+   <p>Each TM user has their own keypair, generated in the browser at registration. The server never sees the private key. Login is challenge-response. Privileged actions carry a per-action signature whose canonical message names the action and target, so it cannot be replayed against a different record.</p>
+   <h3>Private key custody</h3>
+   <ul>
+    <li>Generated in the browser via <code>@noble/post-quantum</code>.</li>
+    <li>Encrypted at rest in IndexedDB using AES-256-GCM. Key derivation is Argon2id with <code>t=3</code>, <code>m=64 MiB</code>, <code>p=1</code>, <code>dkLen=32</code>.</li>
+    <li>The passphrase is the only thing held in human memory. The server cannot brute-force it because it never sees the encrypted blob.</li>
+   </ul>
+   <h3>Server keypair custody</h3>
+   <ul>
+    <li>The server's ML-DSA-65 keypair lives in Google Secret Manager.</li>
+    <li>Cloud Run mounts the secret via a least-privilege binding to the runtime service account.</li>
+    <li>Rotation is a swap of the secret version plus a redeploy. Old session tokens are invalidated within their thirty-minute TTL.</li>
+   </ul>
+   <h3>Transport and headers</h3>
+   <ul>
+    <li><b>HSTS preload</b>: <code>max-age=63072000; includeSubDomains; preload</code>.</li>
+    <li><b>Strict CSP</b>: <code>default-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'</code>. No third-party scripts, no inline frames.</li>
+    <li><b>Permissions-Policy</b>: locked to first-party microphone and geolocation only. Camera, USB, payment, MIDI, and friends are off.</li>
+    <li><code>X-Content-Type-Options: nosniff</code>, <code>Referrer-Policy: no-referrer</code>, <code>Cross-Origin-Opener-Policy: same-origin</code>, <code>Cross-Origin-Resource-Policy: same-origin</code>.</li>
+   </ul>
+   <h3>Rate limits</h3>
+   <ul>
+    <li><b>Triage</b>: 10 requests per minute, 200 per day, per IP. Token-bucket, in-memory, resets on cold start.</li>
+    <li><b>TM auth</b>: 30 requests per minute, 200 per day, per IP. Same shape.</li>
+    <li>Both return <code>429 rate_limited</code> with a <code>Retry-After</code> header.</li>
+   </ul>
+   <h3>Compliance</h3>
+   <ul>
+    <li>DPDP Act 2023 alignment: explicit consent for microphone use, granular and revocable from the device's site settings, audio retained only for processing, no PII in logs.</li>
+    <li>GDPR alignment: data subject access via <code>GET /api/v1/tm/me</code>, deletion via the parent in the hierarchy, data minimisation by design.</li>
+    <li>India region pinning: Firestore database is Indian-region (<code>asia-south2</code>); Cloud Run can be re-deployed to <code>asia-south1</code> for production.</li>
+   </ul>
+   <a class="skipa" href="#ops">Skip to next section</a>
+  </section>
+
+  <section id="ops" aria-labelledby="h-ops">
+   <h2 id="h-ops"><span class="num">07</span>Operations</h2>
+   <h3>Cost shape</h3>
+   <p>$0 idle by design. The whole stack scales to zero when no one is using it.</p>
+   <ul>
+    <li><b>Cloud Run</b>: <code>min-instances=0</code>. Charged only for in-flight request seconds.</li>
+    <li><b>Vertex AI</b>: pay-per-token; idle cost is zero.</li>
+    <li><b>Firestore Native</b>: free tier covers 1 GB stored, 50K reads, 20K writes per day, more than enough for an MVP.</li>
+    <li><b>Secret Manager</b>: two secret versions, well inside the six-version free tier.</li>
+    <li><b>Artifact Registry</b>: image well under the 0.5 GB free tier.</li>
+    <li><b>Cloud Build</b>: under the 120 build-minute daily free tier.</li>
+   </ul>
+   <h3>Bootstrap procedure (NDMA root)</h3>
+   <ol>
+    <li>Generate the operator's ML-DSA-65 keypair locally with the script in the repo. Save <code>pub.b64</code> and <code>priv.b64</code>.</li>
+    <li>Set the gate flag: <code>gcloud run services update aether --update-env-vars=TM_BOOTSTRAP_ALLOW=1</code>.</li>
+    <li>POST <code>{ email, name, pubkey_b64 }</code> to <code>/api/v1/tm/auth/bootstrap</code>.</li>
+    <li>Unset the flag: <code>--update-env-vars=TM_BOOTSTRAP_ALLOW=0</code>.</li>
+    <li>Keep <code>priv.b64</code> offline. Lose it and the root account is unrecoverable by design.</li>
+   </ol>
+   <h3>Adding the first user at each tier</h3>
+   <ol>
+    <li>The NDMA root signs in and opens <a href="/tm/#/users">/tm/#/users</a>.</li>
+    <li><b>Invite</b> a state officer with their email, tier 80, scope <code>ndma/&lt;state&gt;</code>, parent set to the NDMA root. Share the invite link.</li>
+    <li>The state officer signs up. Repeat the invite step for a district at tier 60, scope <code>ndma/&lt;state&gt;/&lt;district&gt;</code>.</li>
+    <li>Repeat down the chain to responder (40) and volunteer (20).</li>
+   </ol>
+   <h3>Logs and observability</h3>
+   <ul>
+    <li>Every request emits structured JSON to Cloud Run stdout. Each line carries a timestamp, severity, function, request ID, IP, and the action-specific fields.</li>
+    <li>Cloud Logging is the search surface. Filter by <code>jsonPayload.requestId</code> to follow a request across the triage and TM modules.</li>
+    <li>Audit log <code>tm_audit</code> is append-only and stores the canonical signed message for every privileged action.</li>
+    <li><code>X-Request-Id</code> is echoed on every HTTP response.</li>
+   </ul>
+   <h3>Backup and restore</h3>
+   <ul>
+    <li>Firestore export to a Cloud Storage bucket via <code>gcloud firestore export</code>. Schedule daily.</li>
+    <li>Secret Manager versions are immutable. A rotation creates a new version; old ones can be disabled but kept for forensic recovery.</li>
+    <li>The Survivor PWA is a static bundle. Restore is a redeploy; no client state to recover.</li>
+   </ul>
+   <a class="skipa" href="#demo">Skip to next section</a>
+  </section>
+
+  <section id="demo" aria-labelledby="h-demo">
+   <h2 id="h-demo"><span class="num">08</span>Demo and pitch</h2>
+   <p>For evaluators and pilot partners.</p>
+   <ul>
+    <li><a href="/demo">Interactive demo</a>: seeded accounts at every tier, a sample disaster scenario, and click-through walk-through of triage to dispatch to TM tasks.</li>
+    <li><a href="/pitch">Pitch deck</a>: ten slides covering the why, the design choices, the cost shape, and the roadmap.</li>
+   </ul>
+   <p>Both pages cross-link back to this documentation for any term you want to dig into.</p>
+   <a class="skipa" href="#faq">Skip to next section</a>
+  </section>
+
+  <section id="faq" aria-labelledby="h-faq">
+   <h2 id="h-faq"><span class="num">09</span>FAQ</h2>
+   <dl class="faq">
+    <dt>Why no passwords?</dt>
+    <dd>Passwords have to be sent to a server, hashed, compared, and stored. Each step is a place to leak them. ML-DSA-65 challenge-response means the server never sees a secret. Compromising the database does not compromise the users.</dd>
+
+    <dt>Can I lose my account if I forget my passphrase?</dt>
+    <dd>Yes. The passphrase decrypts your private key in the browser. Without it the key is unrecoverable. Recovery is by re-invitation from your parent in the hierarchy. This is on purpose: it means an operator with database access still cannot impersonate you.</dd>
+
+    <dt>How is this 2G-friendly?</dt>
+    <dd>The Survivor PWA is 12 KB raw, 4.5 KB brotli. The audio is Opus at 12 kbps, around 40 KB for a 15-second clip. A 1.5-second window of usable signal is enough to ship the whole payload.</dd>
+
+    <dt>Why Gemini and not Whisper?</dt>
+    <dd>Whisper transcribes speech. In a panicked, multilingual, wind-and-static scenario it tends to drop or mangle words. Gemini's native audio modality reads tone, dialect mix, and ambient cues directly, then outputs JSON in one call. Fewer stages, fewer places to fail.</dd>
+
+    <dt>Why post-quantum already?</dt>
+    <dd>Disaster-response audit trails outlive the device that signed them. A signature today must still be trustworthy in 2040. ML-DSA-65 is the NIST-standardised choice that meets that bar without exotic primitives.</dd>
+
+    <dt>What if Cloud Run cold-starts during a disaster?</dt>
+    <dd>Cold start for the Aether image is around 800 ms on a free-tier instance. The PWA's IndexedDB queue covers any failed POSTs and retries on reconnect. For a paid pilot, set <code>min-instances=1</code> in the affected region for sub-100 ms p99 first response.</dd>
+
+    <dt>How do I add a state-level user?</dt>
+    <dd>NDMA root signs in, opens the users page, invites the state officer with tier 80 and scope <code>ndma/&lt;state&gt;</code>. The state officer signs up using the invite link. See <a href="#ops">Operations</a> for the full chain.</dd>
+
+    <dt>Where does my voice recording go?</dt>
+    <dd>From the browser, encrypted in transit by TLS 1.3, into the Cloud Run process memory, then into Vertex AI for Gemini to listen to. The Cloud Run container does not persist audio. After the response is sent, the buffer is freed. Triage JSON is logged with request ID, urgency, and confidence; not the audio, not the transcript.</dd>
+
+    <dt>What runs offline?</dt>
+    <dd>The Survivor PWA shell, the queue, the language strings, the privacy notice. The triage call itself needs network, but the queue waits for it without losing the clip.</dd>
+
+    <dt>Is it production-ready?</dt>
+    <dd>It is a 24-hour assessment build: end-to-end working, hardened headers, rate limits, scope checks, audit log. Production hardening for a state pilot would add a webhook signing key, Firestore backups, an in-region pin to <code>asia-south1</code>, and a synthetic uptime probe.</dd>
+   </dl>
+   <a class="skipa" href="#changelog">Skip to next section</a>
+  </section>
+
+  <section id="changelog" aria-labelledby="h-changelog">
+   <h2 id="h-changelog"><span class="num">10</span>Changelog and roadmap</h2>
+   <h3>Initial release. 2026-05-05</h3>
+   <ul>
+    <li>Survivor PWA at <code>/</code>: hold-to-record, four languages, IndexedDB queue, OLED-friendly black UI.</li>
+    <li>Triage pipeline: <code>POST /api/v1/triage</code>, Vertex AI Gemini 2.5 Flash, strict response schema, rate limits, MIME sniff, header sanitiser.</li>
+    <li>Task Manager at <code>/tm/</code>: ML-DSA-65 auth, Argon2id-encrypted private keys, dashboard, projects, tasks, users, two-click delegation, audit log.</li>
+    <li>Documentation portal at <code>/docs/</code>, demo at <code>/demo/</code>, pitch deck at <code>/pitch/</code>.</li>
+    <li>Hardened response headers: HSTS preload, strict CSP, locked Permissions-Policy, X-Content-Type-Options, Referrer-Policy.</li>
+    <li>Cost: $0 idle, free-tier-friendly across Cloud Run, Vertex AI, Firestore, Secret Manager, Artifact Registry, Cloud Build.</li>
+   </ul>
+   <h3>30 days</h3>
+   <ul>
+    <li>Federated SDRF webhook delivery with HMAC and per-state signing keys.</li>
+    <li>Synthetic uptime probe and a public status page.</li>
+    <li>In-region pin to <code>asia-south1</code> with daily Firestore export.</li>
+   </ul>
+   <h3>60 days</h3>
+   <ul>
+    <li>District pilot with a single SDMA partner. Real-traffic shadow run beside the existing channel.</li>
+    <li>On-device Whisper fallback for completely-offline post-incident replay (best-effort transcript only).</li>
+    <li>Webhook idempotency keys and at-least-once delivery semantics.</li>
+   </ul>
+   <h3>90 days</h3>
+   <ul>
+    <li>Threat-modelled penetration test by an external partner.</li>
+    <li>SOC2 readiness checklist closed against current controls.</li>
+    <li>Survivor PWA accessibility audit refresh against WCAG 2.2 AAA.</li>
+   </ul>
+  </section>
+
+  <footer>
+   <p>Project Aether. Built end-to-end for Ethara.AI Round 1, 2026-05-05. Apache 2.0. Copyright 2026 Divya Mohan, dmj.one.</p>
+   <p><a href="/">Survivor PWA</a> · <a href="/tm/">Task Manager</a> · <a href="/demo">Demo</a> · <a href="/pitch">Pitch</a> · <a href="/api/healthz">Health</a></p>
+  </footer>
+ </main>
+</div>
+<script>
+(function(){
+ var sections=document.querySelectorAll('main>section');
+ var tocLinks=document.querySelectorAll('nav.toc a[href^="#"]');
+ var idToLink={};
+ tocLinks.forEach(function(a){var h=a.getAttribute('href');idToLink[h.slice(1)]=a;});
+ function setCurrent(id){
+  tocLinks.forEach(function(a){a.removeAttribute('aria-current');});
+  var t=idToLink[id];
+  if(t)t.setAttribute('aria-current','location');
+ }
+ function fromHash(){
+  var h=(location.hash||'').slice(1);
+  if(!h){setCurrent('overview');return;}
+  var top=h.split('-')[0];
+  if(idToLink[h])setCurrent(h);
+  else if(idToLink['tm-'+h])setCurrent('tm-'+h);
+  else if(idToLink[top])setCurrent(top);
+ }
+ window.addEventListener('hashchange',fromHash);
+ fromHash();
+ var io='IntersectionObserver' in window?new IntersectionObserver(function(es){
+  var best=null;
+  es.forEach(function(e){if(e.isIntersecting&&(best===null||e.intersectionRatio>best.intersectionRatio))best=e;});
+  if(best&&best.target&&best.target.id&&!location.hash)setCurrent(best.target.id);
+ },{rootMargin:'-20% 0px -70% 0px',threshold:[0,0.25,0.5,0.75,1]}):null;
+ if(io)sections.forEach(function(s){io.observe(s);});
+ var q=document.getElementById('q');
+ var none=document.getElementById('snone');
+ function filter(){
+  var v=(q.value||'').trim().toLowerCase();
+  var any=false;
+  sections.forEach(function(s){
+   if(!v){s.classList.remove('hidden');any=true;return;}
+   var t=s.textContent.toLowerCase();
+   if(t.indexOf(v)>=0){s.classList.remove('hidden');any=true;}
+   else s.classList.add('hidden');
+  });
+  if(!v||any)none.classList.remove('show');
+  else none.classList.add('show');
+ }
+ if(q){q.addEventListener('input',filter);q.addEventListener('search',filter);}
+ document.addEventListener('keydown',function(e){
+  if(e.key==='/'&&document.activeElement!==q&&!e.metaKey&&!e.ctrlKey&&!e.altKey){
+   e.preventDefault();q.focus();q.select();
+  }
+ });
+})();
+</script>
+</body></html>

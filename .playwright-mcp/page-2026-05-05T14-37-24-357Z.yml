@@ -1,0 +1,872 @@
+- generic [active] [ref=e1]:
+  - link "Skip to content" [ref=e2] [cursor=pointer]:
+    - /url: "#main"
+  - banner [ref=e3]:
+    - link "AETHER / docs" [ref=e4] [cursor=pointer]:
+      - /url: "#overview"
+      - generic [ref=e5]: AETHER
+      - generic [ref=e6]: / docs
+    - generic [ref=e7]: Edge AI for disaster response
+    - search [ref=e8]:
+      - generic [ref=e9]: Find
+      - searchbox "Find" [ref=e10]
+  - generic [ref=e11]:
+    - navigation "On this page" [ref=e12]:
+      - heading "Sections" [level=2] [ref=e13]
+      - list [ref=e14]:
+        - listitem [ref=e15]:
+          - link "1. Overview" [ref=e16] [cursor=pointer]:
+            - /url: "#overview"
+        - listitem [ref=e17]:
+          - link "2. Survivor portal" [ref=e18] [cursor=pointer]:
+            - /url: "#survivor"
+        - listitem [ref=e19]:
+          - link "3. Task Manager" [ref=e20] [cursor=pointer]:
+            - /url: "#tm"
+          - list [ref=e21]:
+            - listitem [ref=e22]:
+              - link "Login" [ref=e23] [cursor=pointer]:
+                - /url: "#tm-login"
+            - listitem [ref=e24]:
+              - link "Register" [ref=e25] [cursor=pointer]:
+                - /url: "#tm-register"
+            - listitem [ref=e26]:
+              - link "Dashboard" [ref=e27] [cursor=pointer]:
+                - /url: "#tm-dashboard"
+            - listitem [ref=e28]:
+              - link "Projects" [ref=e29] [cursor=pointer]:
+                - /url: "#tm-projects"
+            - listitem [ref=e30]:
+              - link "Tasks" [ref=e31] [cursor=pointer]:
+                - /url: "#tm-tasks"
+            - listitem [ref=e32]:
+              - link "Users" [ref=e33] [cursor=pointer]:
+                - /url: "#tm-users"
+            - listitem [ref=e34]:
+              - link "Logout" [ref=e35] [cursor=pointer]:
+                - /url: "#tm-logout"
+        - listitem [ref=e36]:
+          - link "4. Hierarchy and scopes" [ref=e37] [cursor=pointer]:
+            - /url: "#scopes"
+        - listitem [ref=e38]:
+          - link "5. API reference" [ref=e39] [cursor=pointer]:
+            - /url: "#api"
+        - listitem [ref=e40]:
+          - link "6. Security model" [ref=e41] [cursor=pointer]:
+            - /url: "#security"
+        - listitem [ref=e42]:
+          - link "7. Operations" [ref=e43] [cursor=pointer]:
+            - /url: "#ops"
+        - listitem [ref=e44]:
+          - link "8. Demo and pitch" [ref=e45] [cursor=pointer]:
+            - /url: "#demo"
+        - listitem [ref=e46]:
+          - link "9. FAQ" [ref=e47] [cursor=pointer]:
+            - /url: "#faq"
+        - listitem [ref=e48]:
+          - link "10. Changelog and roadmap" [ref=e49] [cursor=pointer]:
+            - /url: "#changelog"
+    - main [ref=e50]:
+      - region "Aether Documentation" [ref=e51]:
+        - heading "Aether Documentation" [level=1] [ref=e52]
+        - paragraph [ref=e53]: Edge AI for disaster response. A 40 KB SOS payload, no Speech-to-Text, Gemini 2.5 Flash hearing the panic, the dialect, and the river behind the door, returning a strict-schema dispatch brief in under two seconds.
+        - paragraph [ref=e54]:
+          - text: "This portal explains every public-facing surface of Project Aether: the Survivor PWA at"
+          - code [ref=e55]: /
+          - text: ", the Task Manager at"
+          - code [ref=e56]: /tm/
+          - text: ", the scope hierarchy that runs from a national NDMA seat down to a single field volunteer, the post-quantum auth that makes user impersonation impossible, and every HTTP endpoint the service speaks."
+        - paragraph [ref=e57]: Pick a role below to jump straight to the part you need.
+        - heading "Who uses what" [level=3] [ref=e58]
+        - table [ref=e59]:
+          - rowgroup [ref=e60]:
+            - row "Role Tier Where What they do" [ref=e61]:
+              - columnheader "Role" [ref=e62]
+              - columnheader "Tier" [ref=e63]
+              - columnheader "Where" [ref=e64]
+              - columnheader "What they do" [ref=e65]
+          - rowgroup [ref=e66]:
+            - row "Survivor none / Holds the SOS button, speaks for up to thirty seconds, sees a recovery message." [ref=e67]:
+              - cell "Survivor" [ref=e68]
+              - cell "none" [ref=e69]
+              - cell / [ref=e70]:
+                - link / [ref=e71] [cursor=pointer]:
+                  - /url: /
+              - cell "Holds the SOS button, speaks for up to thirty seconds, sees a recovery message." [ref=e72]
+            - row "NDMA officer 100 /tm/ Reads the whole tree. Delegates state-level seats. Owns top-line dashboards." [ref=e73]:
+              - cell "NDMA officer" [ref=e74]
+              - cell "100" [ref=e75]
+              - cell /tm/ [ref=e76]:
+                - link /tm/ [ref=e77] [cursor=pointer]:
+                  - /url: /tm/
+              - cell "Reads the whole tree. Delegates state-level seats. Owns top-line dashboards." [ref=e78]
+            - row "SDMA officer 80 /tm/ One state. Creates districts, projects, and tasks within that state." [ref=e79]:
+              - cell "SDMA officer" [ref=e80]
+              - cell "80" [ref=e81]
+              - cell /tm/ [ref=e82]:
+                - link /tm/ [ref=e83] [cursor=pointer]:
+                  - /url: /tm/
+              - cell "One state. Creates districts, projects, and tasks within that state." [ref=e84]
+            - row "DDMO officer 60 /tm/ One district. Assigns tasks to responders. Tracks overdue items." [ref=e85]:
+              - cell "DDMO officer" [ref=e86]
+              - cell "60" [ref=e87]
+              - cell /tm/ [ref=e88]:
+                - link /tm/ [ref=e89] [cursor=pointer]:
+                  - /url: /tm/
+              - cell "One district. Assigns tasks to responders. Tracks overdue items." [ref=e90]
+            - row "Responder 40 /tm/ Field staff. Owns assigned tasks. Updates status from the field." [ref=e91]:
+              - cell "Responder" [ref=e92]
+              - cell "40" [ref=e93]
+              - cell /tm/ [ref=e94]:
+                - link /tm/ [ref=e95] [cursor=pointer]:
+                  - /url: /tm/
+              - cell "Field staff. Owns assigned tasks. Updates status from the field." [ref=e96]
+            - row "Volunteer 20 /tm/ Reads assigned tasks. Status-only updates. No edits to scope or assignment." [ref=e97]:
+              - cell "Volunteer" [ref=e98]
+              - cell "20" [ref=e99]
+              - cell /tm/ [ref=e100]:
+                - link /tm/ [ref=e101] [cursor=pointer]:
+                  - /url: /tm/
+              - cell "Reads assigned tasks. Status-only updates. No edits to scope or assignment." [ref=e102]
+        - heading "System diagram" [level=3] [ref=e103]
+        - img "Audio leaves the survivor's phone in one 1.5 s burst, lands on a stateless Cloud Run container, gets routed to Vertex AI Gemini 2.5 Flash, and returns as strict triage JSON for the State Disaster Response Force." [ref=e104]:
+          - img [ref=e105]:
+            - generic [ref=e106]:
+              - generic [ref=e108]: Survivor PWA
+              - generic [ref=e109]: 12 KB raw
+              - generic [ref=e111]: 2G burst
+              - generic [ref=e112]: ~40 KB Opus
+              - generic [ref=e114]: Cloud Run
+              - generic [ref=e115]: stateless, scale-to-zero
+              - generic [ref=e117]: Vertex AI
+              - generic [ref=e118]: Gemini 2.5 Flash
+              - generic [ref=e120]: Triage JSON
+              - generic [ref=e121]: strict schema
+              - generic [ref=e123]: SDRF dispatch
+              - generic [ref=e124]: + TM tasks
+          - paragraph [ref=e125]: Audio leaves the survivor's phone in one 1.5 s burst, lands on a stateless Cloud Run container, gets routed to Vertex AI Gemini 2.5 Flash, and returns as strict triage JSON for the State Disaster Response Force.
+        - paragraph [ref=e126]:
+          - link "Open survivor PWA" [ref=e127] [cursor=pointer]:
+            - /url: /
+          - link "Open Task Manager" [ref=e128] [cursor=pointer]:
+            - /url: /tm/
+          - link "Run the demo" [ref=e129] [cursor=pointer]:
+            - /url: /demo
+        - link "Skip to next section" [ref=e130] [cursor=pointer]:
+          - /url: "#survivor"
+      - region "02 Survivor portal" [ref=e131]:
+        - heading "02 Survivor portal" [level=2] [ref=e132]:
+          - generic [ref=e133]: "02"
+          - text: Survivor portal
+        - paragraph [ref=e134]: A pure-black, hold-to-record SOS button. Built for a phone with one battery bar and one signal bar. The whole page is 12 KB raw, 4.5 KB brotli, served once and cached by the service worker.
+        - heading "What happens when the button is pressed" [level=3] [ref=e135]
+        - list [ref=e136]:
+          - listitem [ref=e137]: The browser asks for microphone access. The mic icon is the only permission this page ever asks for.
+          - listitem [ref=e138]:
+            - code [ref=e139]: MediaRecorder
+            - text: records Opus audio at 12 kbps mono, 16 kHz. Fifteen seconds of speech compresses to roughly 40 KB.
+          - listitem [ref=e140]: If the device is offline, the clip goes into IndexedDB. A queue badge in the top bar shows how many clips are waiting.
+          - listitem [ref=e141]: The next time the OS reports a network handshake, the queue flushes. Background Sync is registered when supported.
+          - listitem [ref=e142]:
+            - text: The clip is POSTed to
+            - code [ref=e143]: /api/v1/triage
+            - text: with optional headers for language, geo, battery, and effective network type.
+          - listitem [ref=e144]:
+            - text: The Cloud Run server forwards the audio to Vertex AI Gemini 2.5 Flash with a strict
+            - code [ref=e145]: responseSchema
+            - text: .
+          - listitem [ref=e146]: Gemini hears the audio natively. No Speech-to-Text in the middle. It returns urgency, native and English transcription, casualties, needs, location clues, ambient cues, summary, confidence.
+          - listitem [ref=e147]: "The PWA renders an urgency badge and a one-line dispatch summary. The survivor sees a calm message: help is on the way, stay where you are."
+        - heading "Languages" [level=3] [ref=e148]
+        - paragraph [ref=e149]:
+          - text: Auto-detected from
+          - code [ref=e150]: navigator.language
+          - text: ". Native-script strings ship for:"
+        - list [ref=e151]:
+          - listitem [ref=e152]:
+            - code [ref=e153]: en-IN
+            - text: English (India)
+          - listitem [ref=e154]:
+            - code [ref=e155]: hi-IN
+            - text: Hindi
+          - listitem [ref=e156]:
+            - code [ref=e157]: ta-IN
+            - text: Tamil
+          - listitem [ref=e158]:
+            - code [ref=e159]: bn-IN
+            - text: Bengali
+        - paragraph [ref=e160]: Gemini detects the spoken language from the audio itself. The browser hint is a tie-breaker, never a hard constraint.
+        - heading "Battery and network awareness" [level=3] [ref=e161]
+        - list [ref=e162]:
+          - listitem [ref=e163]:
+            - text: Background is
+            - code [ref=e164]: "#000000"
+            - text: . On OLED screens, those pixels are physically off and draw zero current.
+          - listitem [ref=e165]:
+            - text: The top bar shows battery percentage (orange below 15%), the connection effective type from
+            - code [ref=e166]: navigator.connection
+            - text: ", queue depth, and language."
+          - listitem [ref=e167]:
+            - text: No polling. The page reacts to
+            - code [ref=e168]: online
+            - text: ","
+            - code [ref=e169]: offline
+            - text: ", and"
+            - code [ref=e170]: connectionchange
+            - text: events. The service worker uses background sync where the platform supports it, otherwise an exponential retry loop.
+          - listitem [ref=e171]:
+            - text: The record button works from the keyboard (
+            - generic [ref=e172]: Space
+            - text: or
+            - generic [ref=e173]: Enter
+            - text: ) and from media-session keys.
+        - heading "Privacy" [level=3] [ref=e174]
+        - list [ref=e175]:
+          - listitem [ref=e176]:
+            - text: "What is sent: the Opus clip, a UUIDv4 client ID stored in"
+            - code [ref=e177]: localStorage
+            - text: ", language hint, optional rough geolocation, optional battery and network type, an ISO 8601 timestamp."
+          - listitem [ref=e178]: "What is stored locally: just the queue and the client ID. Nothing else."
+          - listitem [ref=e179]: "Retention: server-side audio is processed in memory by Cloud Run, sent to Vertex AI, and discarded. No durable copy of the audio is kept by Aether. Triage JSON is logged with request ID, urgency, and confidence for operations."
+          - listitem [ref=e180]: "SDRF webhook delivery shape: the same JSON document the API returns, signed with the service's HMAC and forwarded to the configured webhook URL. The webhook is opt-in per state."
+        - link "Skip to next section" [ref=e181] [cursor=pointer]:
+          - /url: "#tm"
+      - region "03 Task Manager portal" [ref=e182]:
+        - heading "03 Task Manager portal" [level=2] [ref=e183]:
+          - generic [ref=e184]: "03"
+          - text: Task Manager portal
+        - paragraph [ref=e185]: A post-quantum-authenticated task tracker for the NDMA chain of command. Every privileged action carries an ML-DSA-65 signature. The server cannot impersonate a user, even with full database access.
+        - paragraph [ref=e186]:
+          - text: Mounted at
+          - link /tm/ [ref=e187] [cursor=pointer]:
+            - /url: /tm/
+          - text: ". Single-page app, hash-routed, four sections: dashboard, projects, tasks, users."
+        - heading "Login flow Skip" [level=3] [ref=e188]:
+          - text: Login flow
+          - link "Skip" [ref=e189] [cursor=pointer]:
+            - /url: "#tm-register"
+        - paragraph [ref=e190]: "Two fields: email and passphrase."
+        - list [ref=e191]:
+          - listitem [ref=e192]:
+            - text: You type your email and click Continue. The browser POSTs
+            - code [ref=e193]: "{ email }"
+            - text: to
+            - code [ref=e194]: /api/v1/tm/auth/challenge
+            - text: . The server returns a 32-byte random challenge, even if the email is unknown (so an attacker cannot enumerate accounts).
+          - listitem [ref=e195]: You type your passphrase. The browser pulls the encrypted private key from IndexedDB, derives a 32-byte key with Argon2id, and decrypts it with AES-256-GCM. The passphrase never leaves the device.
+          - listitem [ref=e196]:
+            - text: The browser signs the challenge with your ML-DSA-65 private key and POSTs
+            - code [ref=e197]: "{ email, ch_id, signature_b64 }"
+            - text: to
+            - code [ref=e198]: /api/v1/tm/auth/verify
+            - text: .
+          - listitem [ref=e199]:
+            - text: The server fetches your stored public key, runs
+            - code [ref=e200]: ml_dsa65.verify
+            - text: ", and on success returns a session token signed by its own ML-DSA-65 keypair."
+          - listitem [ref=e201]:
+            - text: The token lives in
+            - code [ref=e202]: sessionStorage
+            - text: for thirty minutes. Privileged actions still need a fresh per-action signature on top of the bearer.
+        - heading "Register flow Skip" [level=3] [ref=e203]:
+          - text: Register flow
+          - link "Skip" [ref=e204] [cursor=pointer]:
+            - /url: "#tm-dashboard"
+        - list [ref=e205]:
+          - listitem [ref=e206]:
+            - text: An admin one tier above you mints an invite. You receive an invite link with an opaque
+            - code [ref=e207]: invite_id
+            - text: .
+          - listitem [ref=e208]: You open the link, type your name, and choose a passphrase. The browser generates a fresh ML-DSA-65 keypair locally.
+          - listitem [ref=e209]: The private key is encrypted with Argon2id + AES-256-GCM and written to IndexedDB.
+          - listitem [ref=e210]:
+            - text: The browser sends
+            - code [ref=e211]: "{ invite_id, name, pubkey_b64 }"
+            - text: to
+            - code [ref=e212]: /api/v1/tm/auth/register
+            - text: .
+          - listitem [ref=e213]: The server checks the invite signature, marks it used in a Firestore transaction, writes your user record, and returns your fresh session token.
+        - generic [ref=e214]: Lose the passphrase, lose the seat. The server never sees your passphrase or your private key. Recovery is by re-invitation from your parent in the hierarchy.
+        - heading "Dashboard Skip" [level=3] [ref=e215]:
+          - text: Dashboard
+          - link "Skip" [ref=e216] [cursor=pointer]:
+            - /url: "#tm-projects"
+        - paragraph [ref=e217]: "Tile counts at the top, scoped to your subtree:"
+        - list [ref=e218]:
+          - listitem [ref=e219]: Open, In progress, Blocked, Done, Overdue, Cancelled.
+          - listitem [ref=e220]: "Priority breakdown: low, medium, high, critical."
+          - listitem [ref=e221]: Top assignees, ranked by open task count.
+          - listitem [ref=e222]: Projects active.
+        - paragraph [ref=e223]:
+          - text: Backed by
+          - code [ref=e224]: GET /api/v1/tm/dashboard
+          - text: . Counts are filtered by your
+          - code [ref=e225]: scope_path
+          - text: ", so an SDMA officer in Himachal Pradesh sees Himachal numbers only."
+        - heading "Projects Skip" [level=3] [ref=e226]:
+          - text: Projects
+          - link "Skip" [ref=e227] [cursor=pointer]:
+            - /url: "#tm-tasks"
+        - list [ref=e228]:
+          - listitem [ref=e229]:
+            - text: List. Scope-filtered.
+            - code [ref=e230]: "?include_archived=true"
+            - text: to see archived ones.
+          - listitem [ref=e231]: Create. Name, description, owner, scope. The scope must sit inside your own.
+          - listitem [ref=e232]: Drill-down. Click a project to see its tasks, assignees, and progress.
+          - listitem [ref=e233]: Archive. Requires a fresh ML-DSA signature. The browser pops the passphrase dialog. Archive is reversible only by editing the document directly.
+        - heading "Tasks Skip" [level=3] [ref=e234]:
+          - text: Tasks
+          - link "Skip" [ref=e235] [cursor=pointer]:
+            - /url: "#tm-users"
+        - list [ref=e236]:
+          - listitem [ref=e237]: Create. Project, title, assignee, priority, due date.
+          - listitem [ref=e238]:
+            - text: Assign. Reassignment requires a fresh signature on the canonical message
+            - code [ref=e239]: task.assign|<tid>|<assignee_uid>
+            - text: .
+          - listitem [ref=e240]: "Status transitions: open, in progress, blocked, done, cancelled. The server validates legal transitions."
+          - listitem [ref=e241]: "Priority: low, medium, high, critical."
+          - listitem [ref=e242]: Due dates. The dashboard counts a task as overdue when due date is past and status is not done or cancelled.
+          - listitem [ref=e243]: "Volunteer rule: status-only updates on tasks they are assigned to. Anything else returns 403."
+          - listitem [ref=e244]: "Responder rule: full edits on tasks they are assigned to."
+          - listitem [ref=e245]:
+            - text: "District and above: edit any task whose"
+            - code [ref=e246]: scope_path
+            - text: sits inside their own.
+        - heading "Users Skip" [level=3] [ref=e247]:
+          - text: Users
+          - link "Skip" [ref=e248] [cursor=pointer]:
+            - /url: "#tm-logout"
+        - list [ref=e249]:
+          - listitem [ref=e250]: Hierarchy table, sorted by tier and email. Each row shows tier, scope, parent, and active state.
+          - listitem [ref=e251]: Two-click delegation. Click a user, click a new tier. The dialog reads back the change in plain language. Submit triggers the passphrase prompt for a fresh signature.
+          - listitem [ref=e252]:
+            - text: "The server validates: the new tier is at or below the caller's tier, the target's"
+            - code [ref=e253]: scope_path
+            - text: sits inside the caller's, the target is currently below the caller. Rejected delegations write a warning to the audit log too.
+          - listitem [ref=e254]: Suspend. Disables a user without deleting them. They can be reactivated by the same parent.
+          - listitem [ref=e255]:
+            - text: Every mutation appends to
+            - code [ref=e256]: tm_audit
+            - text: with the canonical message and the signature, so post-incident review can replay who did what.
+        - heading "Logout" [level=3] [ref=e257]
+        - paragraph [ref=e258]:
+          - text: Clicking Log out clears the session token from
+          - code [ref=e259]: sessionStorage
+          - text: . The encrypted private key stays in IndexedDB so the next login on the same device only needs the passphrase. To wipe the device, clear site data from the browser settings.
+        - link "Skip to next section" [ref=e260] [cursor=pointer]:
+          - /url: "#scopes"
+      - region "04 Hierarchy and scopes" [ref=e261]:
+        - heading "04 Hierarchy and scopes" [level=2] [ref=e262]:
+          - generic [ref=e263]: "04"
+          - text: Hierarchy and scopes
+        - paragraph [ref=e264]:
+          - text: Every user, project, and task carries a
+          - code [ref=e265]: scope_path
+          - text: . Scope is a slash-separated lineage, and authority flows down the path. A user can act on any record whose scope starts with their own.
+        - table [ref=e266]:
+          - rowgroup [ref=e267]:
+            - row "Tier Code Scope shape Authority" [ref=e268]:
+              - columnheader "Tier" [ref=e269]
+              - columnheader "Code" [ref=e270]
+              - columnheader "Scope shape" [ref=e271]
+              - columnheader "Authority" [ref=e272]
+          - rowgroup [ref=e273]:
+            - row "ndma 100 ndma National. Reads everything. Delegates to anyone." [ref=e274]:
+              - cell "ndma" [ref=e275]
+              - cell "100" [ref=e276]
+              - cell "ndma" [ref=e277]:
+                - code [ref=e278]: ndma
+              - cell "National. Reads everything. Delegates to anyone." [ref=e279]
+            - row "state 80 ndma/<state> One state's subtree." [ref=e280]:
+              - cell "state" [ref=e281]
+              - cell "80" [ref=e282]
+              - cell "ndma/<state>" [ref=e283]:
+                - code [ref=e284]: ndma/<state>
+              - cell "One state's subtree." [ref=e285]
+            - row "district 60 ndma/<state>/<district> One district's subtree." [ref=e286]:
+              - cell "district" [ref=e287]
+              - cell "60" [ref=e288]
+              - cell "ndma/<state>/<district>" [ref=e289]:
+                - code [ref=e290]: ndma/<state>/<district>
+              - cell "One district's subtree." [ref=e291]
+            - row "responder 40 .../<responder> Field staff. Owns assigned tasks." [ref=e292]:
+              - cell "responder" [ref=e293]
+              - cell "40" [ref=e294]
+              - cell ".../<responder>" [ref=e295]:
+                - code [ref=e296]: .../<responder>
+              - cell "Field staff. Owns assigned tasks." [ref=e297]
+            - row "volunteer 20 .../<volunteer> Read-only on assigned tasks. Status-only updates." [ref=e298]:
+              - cell "volunteer" [ref=e299]
+              - cell "20" [ref=e300]
+              - cell ".../<volunteer>" [ref=e301]:
+                - code [ref=e302]: .../<volunteer>
+              - cell "Read-only on assigned tasks. Status-only updates." [ref=e303]
+        - heading "Worked examples" [level=3] [ref=e304]
+        - list [ref=e305]:
+          - listitem [ref=e306]:
+            - text: An NDMA officer at
+            - code [ref=e307]: ndma
+            - text: can read every user, every project, every task. Their queries are unfiltered.
+          - listitem [ref=e308]:
+            - text: An SDMA officer at
+            - code [ref=e309]: ndma/HP
+            - text: can read users with scope
+            - code [ref=e310]: ndma/HP
+            - text: ","
+            - code [ref=e311]: ndma/HP/Shimla
+            - text: ","
+            - code [ref=e312]: ndma/HP/Kullu/responder1
+            - text: ", but not"
+            - code [ref=e313]: ndma/UK
+            - text: .
+          - listitem [ref=e314]:
+            - text: A responder at
+            - code [ref=e315]: ndma/HP/Shimla/responder7
+            - text: can update only the tasks where they are the assignee. They cannot read other responders' tasks even within Shimla.
+          - listitem [ref=e316]:
+            - text: A volunteer at
+            - code [ref=e317]: ndma/HP/Shimla/responder7/volunteer3
+            - text: can flip the status of an assigned task from open to in progress to done. They cannot change priority, assignee, or due date.
+        - heading "Two-click delegation, walked through" [level=3] [ref=e318]
+        - list [ref=e319]:
+          - listitem [ref=e320]:
+            - text: You are SDMA Himachal at
+            - code [ref=e321]: ndma/HP
+            - text: . You open
+            - link "the users page" [ref=e322] [cursor=pointer]:
+              - /url: /tm/#/users
+            - text: .
+          - listitem [ref=e323]:
+            - text: You click a row for a district officer at
+            - code [ref=e324]: ndma/HP/Mandi
+            - text: . Their current tier reads as 60.
+          - listitem [ref=e325]: "You pick a new tier (say 40, demoting them to responder during a leave). The dialog reads: \"Set Mandi DDMO to tier 40 (responder)?\"."
+          - listitem [ref=e326]:
+            - text: You confirm. The browser asks for your passphrase, signs the canonical message
+            - code [ref=e327]: delegate|<uid>|40
+            - text: ", and posts it."
+          - listitem [ref=e328]:
+            - text: "The server checks: 40 is at or below your tier (true), the target sits in your subtree (true). It writes the change inside a Firestore transaction along with an entry in"
+            - code [ref=e329]: tm_audit
+            - text: .
+          - listitem [ref=e330]: The user list refreshes. The change is visible to anyone in scope within seconds.
+        - link "Skip to next section" [ref=e331] [cursor=pointer]:
+          - /url: "#api"
+      - region "05 API reference" [ref=e332]:
+        - heading "05 API reference" [level=2] [ref=e333]:
+          - generic [ref=e334]: "05"
+          - text: API reference
+        - paragraph [ref=e335]:
+          - text: "Every endpoint speaks JSON. Errors share one shape:"
+          - code [ref=e336]: "{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }"
+          - text: . Every response carries a request ID in the
+          - code [ref=e337]: X-Request-Id
+          - text: header.
+        - heading "Group 1. SOS Triage" [level=3] [ref=e338]
+        - group [ref=e339]:
+          - generic "POST /api/v1/triage public +" [ref=e340] [cursor=pointer]:
+            - generic [ref=e341]: POST
+            - code [ref=e342]: /api/v1/triage
+            - generic [ref=e343]: public
+            - text: +
+        - group [ref=e344]:
+          - generic "GET /api/healthz public +" [ref=e345] [cursor=pointer]:
+            - generic [ref=e346]: GET
+            - code [ref=e347]: /api/healthz
+            - generic [ref=e348]: public
+            - text: +
+        - group [ref=e349]:
+          - generic "GET / , /sw.js , /manifest.webmanifest , /favicon.svg public +" [ref=e350] [cursor=pointer]:
+            - generic [ref=e351]: GET
+            - code [ref=e352]: /
+            - text: ","
+            - code [ref=e353]: /sw.js
+            - text: ","
+            - code [ref=e354]: /manifest.webmanifest
+            - text: ","
+            - code [ref=e355]: /favicon.svg
+            - generic [ref=e356]: public
+            - text: +
+        - heading "Group 2. Task Manager" [level=3] [ref=e357]
+        - group [ref=e358]:
+          - generic "GET /api/v1/tm/server-pubkey public +" [ref=e359] [cursor=pointer]:
+            - generic [ref=e360]: GET
+            - code [ref=e361]: /api/v1/tm/server-pubkey
+            - generic [ref=e362]: public
+            - text: +
+        - group [ref=e363]:
+          - generic "POST /api/v1/tm/auth/challenge public +" [ref=e364] [cursor=pointer]:
+            - generic [ref=e365]: POST
+            - code [ref=e366]: /api/v1/tm/auth/challenge
+            - generic [ref=e367]: public
+            - text: +
+        - group [ref=e368]:
+          - generic "POST /api/v1/tm/auth/verify public +" [ref=e369] [cursor=pointer]:
+            - generic [ref=e370]: POST
+            - code [ref=e371]: /api/v1/tm/auth/verify
+            - generic [ref=e372]: public
+            - text: +
+        - group [ref=e373]:
+          - generic "POST /api/v1/tm/auth/register public +" [ref=e374] [cursor=pointer]:
+            - generic [ref=e375]: POST
+            - code [ref=e376]: /api/v1/tm/auth/register
+            - generic [ref=e377]: public
+            - text: +
+        - group [ref=e378]:
+          - generic "POST /api/v1/tm/auth/bootstrap public env-gated +" [ref=e379] [cursor=pointer]:
+            - generic [ref=e380]: POST
+            - code [ref=e381]: /api/v1/tm/auth/bootstrap
+            - generic [ref=e382]: public
+            - generic [ref=e383]: env-gated
+            - text: +
+        - group [ref=e384]:
+          - generic "GET /api/v1/tm/me bearer +" [ref=e385] [cursor=pointer]:
+            - generic [ref=e386]: GET
+            - code [ref=e387]: /api/v1/tm/me
+            - generic [ref=e388]: bearer
+            - text: +
+        - group [ref=e389]:
+          - generic "GET /api/v1/tm/users bearer +" [ref=e390] [cursor=pointer]:
+            - generic [ref=e391]: GET
+            - code [ref=e392]: /api/v1/tm/users
+            - generic [ref=e393]: bearer
+            - text: +
+        - group [ref=e394]:
+          - generic "GET /api/v1/tm/users/:uid bearer +" [ref=e395] [cursor=pointer]:
+            - generic [ref=e396]: GET
+            - code [ref=e397]: /api/v1/tm/users/:uid
+            - generic [ref=e398]: bearer
+            - text: +
+        - group [ref=e399]:
+          - generic "POST /api/v1/tm/users/invite bearer + fresh sig +" [ref=e400] [cursor=pointer]:
+            - generic [ref=e401]: POST
+            - code [ref=e402]: /api/v1/tm/users/invite
+            - generic [ref=e403]: bearer + fresh sig
+            - text: +
+        - group [ref=e404]:
+          - generic "POST /api/v1/tm/users/:uid/delegate bearer + fresh sig +" [ref=e405] [cursor=pointer]:
+            - generic [ref=e406]: POST
+            - code [ref=e407]: /api/v1/tm/users/:uid/delegate
+            - generic [ref=e408]: bearer + fresh sig
+            - text: +
+        - group [ref=e409]:
+          - generic "POST /api/v1/tm/users/:uid/suspend bearer +" [ref=e410] [cursor=pointer]:
+            - generic [ref=e411]: POST
+            - code [ref=e412]: /api/v1/tm/users/:uid/suspend
+            - generic [ref=e413]: bearer
+            - text: +
+        - group [ref=e414]:
+          - generic "GET POST /api/v1/tm/projects bearer +" [ref=e415] [cursor=pointer]:
+            - generic [ref=e416]: GET
+            - generic [ref=e417]: POST
+            - code [ref=e418]: /api/v1/tm/projects
+            - generic [ref=e419]: bearer
+            - text: +
+        - group [ref=e420]:
+          - generic "GET PATCH DELETE /api/v1/tm/projects/:pid bearer +" [ref=e421] [cursor=pointer]:
+            - generic [ref=e422]: GET
+            - generic [ref=e423]: PATCH
+            - generic [ref=e424]: DELETE
+            - code [ref=e425]: /api/v1/tm/projects/:pid
+            - generic [ref=e426]: bearer
+            - text: +
+        - group [ref=e427]:
+          - generic "GET POST /api/v1/tm/tasks bearer +" [ref=e428] [cursor=pointer]:
+            - generic [ref=e429]: GET
+            - generic [ref=e430]: POST
+            - code [ref=e431]: /api/v1/tm/tasks
+            - generic [ref=e432]: bearer
+            - text: +
+        - group [ref=e433]:
+          - generic "GET PATCH DELETE /api/v1/tm/tasks/:tid bearer +" [ref=e434] [cursor=pointer]:
+            - generic [ref=e435]: GET
+            - generic [ref=e436]: PATCH
+            - generic [ref=e437]: DELETE
+            - code [ref=e438]: /api/v1/tm/tasks/:tid
+            - generic [ref=e439]: bearer
+            - text: +
+        - group [ref=e440]:
+          - generic "GET /api/v1/tm/dashboard bearer +" [ref=e441] [cursor=pointer]:
+            - generic [ref=e442]: GET
+            - code [ref=e443]: /api/v1/tm/dashboard
+            - generic [ref=e444]: bearer
+            - text: +
+        - link "Skip to next section" [ref=e445] [cursor=pointer]:
+          - /url: "#security"
+      - region "06 Security model" [ref=e446]:
+        - heading "06 Security model" [level=2] [ref=e447]:
+          - generic [ref=e448]: "06"
+          - text: Security model
+        - heading "Why post-quantum, why now" [level=3] [ref=e449]
+        - paragraph [ref=e450]: ML-DSA-65 is the digital signature scheme standardised by NIST as FIPS 204. It is built on lattice problems that resist both classical and quantum attacks. A 2030-era adversary recording today's session traffic gains nothing from breaking it later, because no recovery secret ever leaves the user's device.
+        - paragraph [ref=e451]: Each TM user has their own keypair, generated in the browser at registration. The server never sees the private key. Login is challenge-response. Privileged actions carry a per-action signature whose canonical message names the action and target, so it cannot be replayed against a different record.
+        - heading "Private key custody" [level=3] [ref=e452]
+        - list [ref=e453]:
+          - listitem [ref=e454]:
+            - text: Generated in the browser via
+            - code [ref=e455]: "@noble/post-quantum"
+            - text: .
+          - listitem [ref=e456]:
+            - text: Encrypted at rest in IndexedDB using AES-256-GCM. Key derivation is Argon2id with
+            - code [ref=e457]: t=3
+            - text: ","
+            - code [ref=e458]: m=64 MiB
+            - text: ","
+            - code [ref=e459]: p=1
+            - text: ","
+            - code [ref=e460]: dkLen=32
+            - text: .
+          - listitem [ref=e461]: The passphrase is the only thing held in human memory. The server cannot brute-force it because it never sees the encrypted blob.
+        - heading "Server keypair custody" [level=3] [ref=e462]
+        - list [ref=e463]:
+          - listitem [ref=e464]: The server's ML-DSA-65 keypair lives in Google Secret Manager.
+          - listitem [ref=e465]: Cloud Run mounts the secret via a least-privilege binding to the runtime service account.
+          - listitem [ref=e466]: Rotation is a swap of the secret version plus a redeploy. Old session tokens are invalidated within their thirty-minute TTL.
+        - heading "Transport and headers" [level=3] [ref=e467]
+        - list [ref=e468]:
+          - listitem [ref=e469]:
+            - text: "HSTS preload:"
+            - code [ref=e470]: max-age=63072000; includeSubDomains; preload
+            - text: .
+          - listitem [ref=e471]:
+            - text: "Strict CSP:"
+            - code [ref=e472]: default-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'
+            - text: . No third-party scripts, no inline frames.
+          - listitem [ref=e473]: "Permissions-Policy: locked to first-party microphone and geolocation only. Camera, USB, payment, MIDI, and friends are off."
+          - listitem [ref=e474]:
+            - code [ref=e475]: "X-Content-Type-Options: nosniff"
+            - text: ","
+            - code [ref=e476]: "Referrer-Policy: no-referrer"
+            - text: ","
+            - code [ref=e477]: "Cross-Origin-Opener-Policy: same-origin"
+            - text: ","
+            - code [ref=e478]: "Cross-Origin-Resource-Policy: same-origin"
+            - text: .
+        - heading "Rate limits" [level=3] [ref=e479]
+        - list [ref=e480]:
+          - listitem [ref=e481]: "Triage: 10 requests per minute, 200 per day, per IP. Token-bucket, in-memory, resets on cold start."
+          - listitem [ref=e482]: "TM auth: 30 requests per minute, 200 per day, per IP. Same shape."
+          - listitem [ref=e483]:
+            - text: Both return
+            - code [ref=e484]: 429 rate_limited
+            - text: with a
+            - code [ref=e485]: Retry-After
+            - text: header.
+        - heading "Compliance" [level=3] [ref=e486]
+        - list [ref=e487]:
+          - listitem [ref=e488]: "DPDP Act 2023 alignment: explicit consent for microphone use, granular and revocable from the device's site settings, audio retained only for processing, no PII in logs."
+          - listitem [ref=e489]:
+            - text: "GDPR alignment: data subject access via"
+            - code [ref=e490]: GET /api/v1/tm/me
+            - text: ", deletion via the parent in the hierarchy, data minimisation by design."
+          - listitem [ref=e491]:
+            - text: "India region pinning: Firestore database is Indian-region ("
+            - code [ref=e492]: asia-south2
+            - text: ); Cloud Run can be re-deployed to
+            - code [ref=e493]: asia-south1
+            - text: for production.
+        - link "Skip to next section" [ref=e494] [cursor=pointer]:
+          - /url: "#ops"
+      - region "07 Operations" [ref=e495]:
+        - heading "07 Operations" [level=2] [ref=e496]:
+          - generic [ref=e497]: "07"
+          - text: Operations
+        - heading "Cost shape" [level=3] [ref=e498]
+        - paragraph [ref=e499]: $0 idle by design. The whole stack scales to zero when no one is using it.
+        - list [ref=e500]:
+          - listitem [ref=e501]:
+            - text: "Cloud Run:"
+            - code [ref=e502]: min-instances=0
+            - text: . Charged only for in-flight request seconds.
+          - listitem [ref=e503]: "Vertex AI: pay-per-token; idle cost is zero."
+          - listitem [ref=e504]: "Firestore Native: free tier covers 1 GB stored, 50K reads, 20K writes per day, more than enough for an MVP."
+          - listitem [ref=e505]: "Secret Manager: two secret versions, well inside the six-version free tier."
+          - listitem [ref=e506]: "Artifact Registry: image well under the 0.5 GB free tier."
+          - listitem [ref=e507]: "Cloud Build: under the 120 build-minute daily free tier."
+        - heading "Bootstrap procedure (NDMA root)" [level=3] [ref=e508]
+        - list [ref=e509]:
+          - listitem [ref=e510]:
+            - text: Generate the operator's ML-DSA-65 keypair locally with the script in the repo. Save
+            - code [ref=e511]: pub.b64
+            - text: and
+            - code [ref=e512]: priv.b64
+            - text: .
+          - listitem [ref=e513]:
+            - text: "Set the gate flag:"
+            - code [ref=e514]: gcloud run services update aether --update-env-vars=TM_BOOTSTRAP_ALLOW=1
+            - text: .
+          - listitem [ref=e515]:
+            - text: POST
+            - code [ref=e516]: "{ email, name, pubkey_b64 }"
+            - text: to
+            - code [ref=e517]: /api/v1/tm/auth/bootstrap
+            - text: .
+          - listitem [ref=e518]:
+            - text: "Unset the flag:"
+            - code [ref=e519]: "--update-env-vars=TM_BOOTSTRAP_ALLOW=0"
+            - text: .
+          - listitem [ref=e520]:
+            - text: Keep
+            - code [ref=e521]: priv.b64
+            - text: offline. Lose it and the root account is unrecoverable by design.
+        - heading "Adding the first user at each tier" [level=3] [ref=e522]
+        - list [ref=e523]:
+          - listitem [ref=e524]:
+            - text: The NDMA root signs in and opens
+            - link "/tm/#/users" [ref=e525] [cursor=pointer]:
+              - /url: /tm/#/users
+            - text: .
+          - listitem [ref=e526]:
+            - text: Invite a state officer with their email, tier 80, scope
+            - code [ref=e527]: ndma/<state>
+            - text: ", parent set to the NDMA root. Share the invite link."
+          - listitem [ref=e528]:
+            - text: The state officer signs up. Repeat the invite step for a district at tier 60, scope
+            - code [ref=e529]: ndma/<state>/<district>
+            - text: .
+          - listitem [ref=e530]: Repeat down the chain to responder (40) and volunteer (20).
+        - heading "Logs and observability" [level=3] [ref=e531]
+        - list [ref=e532]:
+          - listitem [ref=e533]: Every request emits structured JSON to Cloud Run stdout. Each line carries a timestamp, severity, function, request ID, IP, and the action-specific fields.
+          - listitem [ref=e534]:
+            - text: Cloud Logging is the search surface. Filter by
+            - code [ref=e535]: jsonPayload.requestId
+            - text: to follow a request across the triage and TM modules.
+          - listitem [ref=e536]:
+            - text: Audit log
+            - code [ref=e537]: tm_audit
+            - text: is append-only and stores the canonical signed message for every privileged action.
+          - listitem [ref=e538]:
+            - code [ref=e539]: X-Request-Id
+            - text: is echoed on every HTTP response.
+        - heading "Backup and restore" [level=3] [ref=e540]
+        - list [ref=e541]:
+          - listitem [ref=e542]:
+            - text: Firestore export to a Cloud Storage bucket via
+            - code [ref=e543]: gcloud firestore export
+            - text: . Schedule daily.
+          - listitem [ref=e544]: Secret Manager versions are immutable. A rotation creates a new version; old ones can be disabled but kept for forensic recovery.
+          - listitem [ref=e545]: The Survivor PWA is a static bundle. Restore is a redeploy; no client state to recover.
+        - link "Skip to next section" [ref=e546] [cursor=pointer]:
+          - /url: "#demo"
+      - region "08 Demo and pitch" [ref=e547]:
+        - heading "08 Demo and pitch" [level=2] [ref=e548]:
+          - generic [ref=e549]: "08"
+          - text: Demo and pitch
+        - paragraph [ref=e550]: For evaluators and pilot partners.
+        - list [ref=e551]:
+          - listitem [ref=e552]:
+            - link "Interactive demo" [ref=e553] [cursor=pointer]:
+              - /url: /demo
+            - text: ": seeded accounts at every tier, a sample disaster scenario, and click-through walk-through of triage to dispatch to TM tasks."
+          - listitem [ref=e554]:
+            - link "Pitch deck" [ref=e555] [cursor=pointer]:
+              - /url: /pitch
+            - text: ": ten slides covering the why, the design choices, the cost shape, and the roadmap."
+        - paragraph [ref=e556]: Both pages cross-link back to this documentation for any term you want to dig into.
+        - link "Skip to next section" [ref=e557] [cursor=pointer]:
+          - /url: "#faq"
+      - region "09 FAQ" [ref=e558]:
+        - heading "09 FAQ" [level=2] [ref=e559]:
+          - generic [ref=e560]: "09"
+          - text: FAQ
+        - generic [ref=e561]:
+          - term [ref=e562]: Why no passwords?
+          - definition [ref=e563]: Passwords have to be sent to a server, hashed, compared, and stored. Each step is a place to leak them. ML-DSA-65 challenge-response means the server never sees a secret. Compromising the database does not compromise the users.
+          - term [ref=e564]: Can I lose my account if I forget my passphrase?
+          - definition [ref=e565]: "Yes. The passphrase decrypts your private key in the browser. Without it the key is unrecoverable. Recovery is by re-invitation from your parent in the hierarchy. This is on purpose: it means an operator with database access still cannot impersonate you."
+          - term [ref=e566]: How is this 2G-friendly?
+          - definition [ref=e567]: The Survivor PWA is 12 KB raw, 4.5 KB brotli. The audio is Opus at 12 kbps, around 40 KB for a 15-second clip. A 1.5-second window of usable signal is enough to ship the whole payload.
+          - term [ref=e568]: Why Gemini and not Whisper?
+          - definition [ref=e569]: Whisper transcribes speech. In a panicked, multilingual, wind-and-static scenario it tends to drop or mangle words. Gemini's native audio modality reads tone, dialect mix, and ambient cues directly, then outputs JSON in one call. Fewer stages, fewer places to fail.
+          - term [ref=e570]: Why post-quantum already?
+          - definition [ref=e571]: Disaster-response audit trails outlive the device that signed them. A signature today must still be trustworthy in 2040. ML-DSA-65 is the NIST-standardised choice that meets that bar without exotic primitives.
+          - term [ref=e572]: What if Cloud Run cold-starts during a disaster?
+          - definition [ref=e573]:
+            - text: Cold start for the Aether image is around 800 ms on a free-tier instance. The PWA's IndexedDB queue covers any failed POSTs and retries on reconnect. For a paid pilot, set
+            - code [ref=e574]: min-instances=1
+            - text: in the affected region for sub-100 ms p99 first response.
+          - term [ref=e575]: How do I add a state-level user?
+          - definition [ref=e576]:
+            - text: NDMA root signs in, opens the users page, invites the state officer with tier 80 and scope
+            - code [ref=e577]: ndma/<state>
+            - text: . The state officer signs up using the invite link. See
+            - link "Operations" [ref=e578] [cursor=pointer]:
+              - /url: "#ops"
+            - text: for the full chain.
+          - term [ref=e579]: Where does my voice recording go?
+          - definition [ref=e580]: From the browser, encrypted in transit by TLS 1.3, into the Cloud Run process memory, then into Vertex AI for Gemini to listen to. The Cloud Run container does not persist audio. After the response is sent, the buffer is freed. Triage JSON is logged with request ID, urgency, and confidence; not the audio, not the transcript.
+          - term [ref=e581]: What runs offline?
+          - definition [ref=e582]: The Survivor PWA shell, the queue, the language strings, the privacy notice. The triage call itself needs network, but the queue waits for it without losing the clip.
+          - term [ref=e583]: Is it production-ready?
+          - definition [ref=e584]:
+            - text: "It is a 24-hour assessment build: end-to-end working, hardened headers, rate limits, scope checks, audit log. Production hardening for a state pilot would add a webhook signing key, Firestore backups, an in-region pin to"
+            - code [ref=e585]: asia-south1
+            - text: ", and a synthetic uptime probe."
+        - link "Skip to next section" [ref=e586] [cursor=pointer]:
+          - /url: "#changelog"
+      - region "10 Changelog and roadmap" [ref=e587]:
+        - heading "10 Changelog and roadmap" [level=2] [ref=e588]:
+          - generic [ref=e589]: "10"
+          - text: Changelog and roadmap
+        - heading "Initial release. 2026-05-05" [level=3] [ref=e590]
+        - list [ref=e591]:
+          - listitem [ref=e592]:
+            - text: Survivor PWA at
+            - code [ref=e593]: /
+            - text: ": hold-to-record, four languages, IndexedDB queue, OLED-friendly black UI."
+          - listitem [ref=e594]:
+            - text: "Triage pipeline:"
+            - code [ref=e595]: POST /api/v1/triage
+            - text: ", Vertex AI Gemini 2.5 Flash, strict response schema, rate limits, MIME sniff, header sanitiser."
+          - listitem [ref=e596]:
+            - text: Task Manager at
+            - code [ref=e597]: /tm/
+            - text: ": ML-DSA-65 auth, Argon2id-encrypted private keys, dashboard, projects, tasks, users, two-click delegation, audit log."
+          - listitem [ref=e598]:
+            - text: Documentation portal at
+            - code [ref=e599]: /docs/
+            - text: ", demo at"
+            - code [ref=e600]: /demo/
+            - text: ", pitch deck at"
+            - code [ref=e601]: /pitch/
+            - text: .
+          - listitem [ref=e602]: "Hardened response headers: HSTS preload, strict CSP, locked Permissions-Policy, X-Content-Type-Options, Referrer-Policy."
+          - listitem [ref=e603]: "Cost: $0 idle, free-tier-friendly across Cloud Run, Vertex AI, Firestore, Secret Manager, Artifact Registry, Cloud Build."
+        - heading "30 days" [level=3] [ref=e604]
+        - list [ref=e605]:
+          - listitem [ref=e606]: Federated SDRF webhook delivery with HMAC and per-state signing keys.
+          - listitem [ref=e607]: Synthetic uptime probe and a public status page.
+          - listitem [ref=e608]:
+            - text: In-region pin to
+            - code [ref=e609]: asia-south1
+            - text: with daily Firestore export.
+        - heading "60 days" [level=3] [ref=e610]
+        - list [ref=e611]:
+          - listitem [ref=e612]: District pilot with a single SDMA partner. Real-traffic shadow run beside the existing channel.
+          - listitem [ref=e613]: On-device Whisper fallback for completely-offline post-incident replay (best-effort transcript only).
+          - listitem [ref=e614]: Webhook idempotency keys and at-least-once delivery semantics.
+        - heading "90 days" [level=3] [ref=e615]
+        - list [ref=e616]:
+          - listitem [ref=e617]: Threat-modelled penetration test by an external partner.
+          - listitem [ref=e618]: SOC2 readiness checklist closed against current controls.
+          - listitem [ref=e619]: Survivor PWA accessibility audit refresh against WCAG 2.2 AAA.
+      - generic [ref=e620]:
+        - paragraph [ref=e621]: Project Aether. Built end-to-end for Ethara.AI Round 1, 2026-05-05. Apache 2.0. Copyright 2026 Divya Mohan, dmj.one.
+        - paragraph [ref=e622]:
+          - link "Survivor PWA" [ref=e623] [cursor=pointer]:
+            - /url: /
+          - text: ·
+          - link "Task Manager" [ref=e624] [cursor=pointer]:
+            - /url: /tm/
+          - text: ·
+          - link "Demo" [ref=e625] [cursor=pointer]:
+            - /url: /demo
+          - text: ·
+          - link "Pitch" [ref=e626] [cursor=pointer]:
+            - /url: /pitch
+          - text: ·
+          - link "Health" [ref=e627] [cursor=pointer]:
+            - /url: /api/healthz

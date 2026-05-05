@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex,nofollow">
+<title>Aether Demo Portal</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+/*
+  WCAG 2.0 AAA + WCAG 2.2 AAA contrast pairs (sRGB; normal text needs 7:1, large text 4.5:1):
+    body text   #ffffff on #000000      contrast 21.00 : 1   AAA normal
+    secondary   #d8d8d8 on #000000      contrast 16.95 : 1   AAA normal
+    muted       #b6b6b6 on #000000      contrast 12.42 : 1   AAA normal
+    accent gold #ffd400 on #000000      contrast 17.18 : 1   AAA normal
+    button text #000000 on #ffd400      contrast 17.18 : 1   AAA normal
+    table head  #000000 on #ffffff      contrast 21.00 : 1   AAA normal
+    code        #ffffff on #0d0d0d      contrast 19.10 : 1   AAA normal
+    error red   #ff8080 on #000000      contrast  8.32 : 1   AAA normal
+    ok green    #6fe07f on #000000      contrast 11.71 : 1   AAA normal
+    border      #565656 on #000000      structural use only, not text
+  All focus rings: 4px solid #ffd400 with 4px offset against pure black.
+*/
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+ --bg:#000;--fg:#fff;--mute:#b6b6b6;--sec:#d8d8d8;--accent:#ffd400;
+ --good:#6fe07f;--bad:#ff8080;--line:#565656;--code:#0d0d0d;
+}
+html,body{background:var(--bg);color:var(--fg);min-height:100%;font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.wrap{max-width:1100px;margin:0 auto;padding:1.25rem 1rem 4rem}
+@media (min-width:720px){.wrap{padding:2rem 1.5rem 5rem}}
+a{color:var(--accent);text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:2px}
+a:hover{text-decoration-thickness:3px}
+a:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible,details>summary:focus-visible,.skip:focus-visible{outline:4px solid var(--accent);outline-offset:4px;border-radius:6px}
+.skip{position:absolute;left:-9999px;top:0;background:var(--accent);color:#000;padding:.6rem 1rem;border-radius:6px;font-weight:700;text-decoration:none}
+.skip:focus{left:1rem;top:1rem;z-index:9}
+header.top{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem}
+.brand{font:800 1.05rem/1 ui-monospace,monospace;color:var(--fg);text-decoration:none}
+.brand span{color:var(--accent)}
+.crumbs{font:400 .9rem/1 ui-monospace,monospace;color:var(--sec)}
+h1{font:800 clamp(1.65rem,4.5vw,2.4rem)/1.2 inherit;margin:.4rem 0 .6rem;letter-spacing:-.01em}
+h2{font:800 clamp(1.2rem,3vw,1.5rem)/1.25 inherit;margin:2rem 0 .6rem}
+h3{font:700 1.05rem/1.3 inherit;margin:1.4rem 0 .4rem}
+p{margin:.5rem 0;color:var(--sec)}
+.lead{font-size:1.1rem;color:var(--fg);max-width:60ch}
+.card{border:1px solid var(--line);border-radius:14px;padding:1.1rem 1.1rem 1.2rem;margin:.8rem 0;background:#070707}
+.card h3{margin-top:0}
+.row{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center}
+.btn{display:inline-block;background:var(--accent);color:#000;border:0;padding:.7rem 1rem;font:700 .95rem/1 inherit;border-radius:8px;cursor:pointer;text-decoration:none;min-height:44px}
+.btn:hover{filter:brightness(1.1)}
+.btn:disabled{opacity:.55;cursor:wait}
+.btn.alt{background:transparent;color:var(--fg);border:2px solid var(--line)}
+.btn.alt:hover{border-color:var(--accent)}
+.btn.alt:focus-visible{border-color:var(--accent)}
+.grid{display:grid;gap:.9rem}
+@media (min-width:720px){.grid.two{grid-template-columns:1fr 1fr}.grid.three{grid-template-columns:1fr 1fr 1fr}}
+ul.bare{list-style:none;padding:0;margin:.4rem 0}
+ul.bare li{padding:.25rem 0}
+table.api{width:100%;border-collapse:collapse;margin-top:.6rem;font-size:.92rem}
+table.api caption{caption-side:top;text-align:left;color:var(--mute);font-style:italic;padding:.4rem 0}
+table.api th,table.api td{border:1px solid var(--line);padding:.55rem .6rem;text-align:left;vertical-align:top}
+table.api thead th{background:#fff;color:#000}
+table.api td.method{font:700 .82rem/1 ui-monospace,monospace;white-space:nowrap}
+table.api td.path{font:600 .82rem/1.3 ui-monospace,monospace;color:var(--accent);word-break:break-all}
+table.api td.desc{color:var(--sec)}
+.tag{display:inline-block;padding:.15rem .4rem;font:700 .72rem/1.4 ui-monospace,monospace;border-radius:4px;background:#000;color:var(--fg);border:1px solid var(--line)}
+.tag.t100{background:#ffd400;color:#000;border-color:#ffd400}
+.tag.t80{background:#ffa500;color:#000;border-color:#ffa500}
+.tag.t60{background:#6fe07f;color:#000;border-color:#6fe07f}
+.tag.t40{background:#7ec0ff;color:#000;border-color:#7ec0ff}
+.tag.t20{background:#ffffff;color:#000;border-color:#ffffff}
+code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+code.inline{background:var(--code);padding:.05rem .35rem;border:1px solid var(--line);border-radius:4px;font-size:.92em}
+.passbox{display:flex;align-items:stretch;gap:.5rem;flex-wrap:wrap;margin-top:.8rem}
+.passbox code{flex:1 1 16rem;background:var(--code);color:var(--fg);padding:.7rem .9rem;border:1px solid var(--line);border-radius:8px;font-size:1rem;letter-spacing:.02em;word-break:break-all;display:flex;align-items:center}
+details{border:1px solid var(--line);border-radius:8px;padding:.5rem .8rem;margin-top:.6rem;background:#050505}
+details>summary{cursor:pointer;color:var(--accent);font-weight:700;list-style:none;padding:.3rem 0;min-height:44px;display:flex;align-items:center}
+details>summary::marker{display:none}
+details>summary::-webkit-details-marker{display:none}
+details>summary::before{content:"\002B";display:inline-block;width:1rem;font-weight:800;color:var(--accent)}
+details[open]>summary::before{content:"\2212"}
+details pre{background:var(--code);color:var(--fg);padding:.7rem .8rem;border-radius:6px;border:1px solid var(--line);overflow-x:auto;font-size:.86rem;line-height:1.45;white-space:pre;margin-top:.5rem}
+table.smoke{width:100%;border-collapse:collapse;margin-top:.6rem;font-size:.92rem}
+table.smoke caption{caption-side:top;text-align:left;color:var(--mute);font-style:italic;padding:.3rem 0}
+table.smoke th,table.smoke td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+table.smoke thead th{background:#fff;color:#000}
+.r-pass{color:var(--good);font-weight:700}
+.r-fail{color:var(--bad);font-weight:700}
+.r-run{color:var(--accent);font-weight:700}
+.notice{border-left:4px solid var(--accent);padding:.6rem .9rem;background:#0a0a0a;border-radius:0 8px 8px 0;color:var(--sec)}
+.demo-acct h3{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem}
+.demo-acct .meta{font:700 .8rem/1 ui-monospace,monospace;color:var(--mute)}
+.demo-acct p{margin-bottom:.7rem}
+footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);color:var(--mute);font-size:.85rem}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (prefers-contrast:more){.card{background:#000;border-color:#fff}.tag{border-color:#fff}}
+</style>
+</head>
+<body>
+<a href="#main" class="skip">Skip to main content</a>
+<div class="wrap">
+<header class="top" role="banner">
+ <a href="/" class="brand">Aether<span>.</span> Demo Portal</a>
+ <p class="crumbs"><a href="/">Live SOS</a> · <a href="/tm/">Task Manager</a></p>
+</header>
+
+<main id="main" role="main">
+
+<section aria-labelledby="hero">
+ <h1 id="hero">Try Project Aether end to end in your browser</h1>
+ <p class="lead">A 40 KB SOS payload feeding a strict-schema Gemini triage, plus a post-quantum task tracker for the NDMA chain of command. Five demo accounts. One published passphrase. No emails, no signups.</p>
+</section>
+
+<section aria-labelledby="hSos" class="card">
+ <h2 id="hSos">SOS pipeline demo</h2>
+ <p>Hold the red SOS button on the live page. Speak a 5-second clip. Release. Gemini 2.5 Flash returns a structured dispatch brief in under two seconds, with no Speech-to-Text in the chain.</p>
+ <p class="row"><a class="btn" href="/" aria-label="Open the SOS pipeline page">Open the SOS app</a></p>
+ <p class="muted">Works on any phone, any modern browser. Audio never leaves your device unless you press the button.</p>
+</section>
+
+<section aria-labelledby="hTm">
+ <h2 id="hTm">Task Manager demo accounts</h2>
+ <p>Click any account below. The portal loads that user's encrypted ML-DSA-65 key into your browser's IndexedDB and forwards you to the login page with the email and demo passphrase pre-filled. You press log in. The challenge-response runs against the real backend.</p>
+
+ <div class="grid two" id="acctGrid" aria-label="Demo accounts"></div>
+
+ <article class="card" aria-labelledby="hPass">
+  <h3 id="hPass">The shared demo passphrase</h3>
+  <p>Every demo account uses the same passphrase. The encrypted private keys ship inside <code class="inline">/demo/credentials.json</code>; that ciphertext is meaningless without this string.</p>
+  <div class="passbox">
+   <code id="passText" aria-label="Demo passphrase">aether-demo-2026</code>
+   <button class="btn" id="copyPass" type="button" aria-describedby="copyPassMsg">Copy passphrase</button>
+  </div>
+  <p id="copyPassMsg" class="muted" role="status" aria-live="polite">Click to copy. Paste it on the login screen.</p>
+  <p class="notice">These keys live in a <code class="inline">demo</code> scope tree. Real production users live under <code class="inline">ndma</code>. The demo subtree is isolated by design.</p>
+ </article>
+</section>
+
+<section aria-labelledby="hApi">
+ <h2 id="hApi">Live API endpoints</h2>
+ <p>Every endpoint behind the demo is hit by the live site. Click <em>Try it</em> on any row to see a copyable curl one-liner. For the full reference, see <a href="/docs/api">/docs/api</a>.</p>
+
+ <h3>SOS Triage</h3>
+ <table class="api" aria-label="SOS triage endpoints">
+  <caption>Edge client posts an audio blob, receives a strict-schema dispatch brief.</caption>
+  <thead><tr><th scope="col">Method</th><th scope="col">Path</th><th scope="col">What it does</th><th scope="col">Try it</th></tr></thead>
+  <tbody id="apiSos"></tbody>
+ </table>
+
+ <h3>Task Manager</h3>
+ <table class="api" aria-label="Task manager endpoints">
+  <caption>ML-DSA-65 challenge-response auth. Signed bearer tokens. Re-sign for sensitive actions.</caption>
+  <thead><tr><th scope="col">Method</th><th scope="col">Path</th><th scope="col">What it does</th><th scope="col">Try it</th></tr></thead>
+  <tbody id="apiTm"></tbody>
+ </table>
+</section>
+
+<section aria-labelledby="hSmoke" class="card">
+ <h2 id="hSmoke">Smoke test panel</h2>
+ <p>Hits a bounded set of public, idempotent endpoints from your browser. Useful as a quick service-up check after a deploy.</p>
+ <p class="row"><button class="btn" id="runSmoke" type="button" aria-controls="smokeBody">Run smoke test</button> <button class="btn alt" id="clearSmoke" type="button" aria-controls="smokeBody">Clear results</button></p>
+ <table class="smoke" aria-label="Smoke test results">
+  <caption>Pass / fail per endpoint, with response time. Updated live.</caption>
+  <thead><tr><th scope="col">Endpoint</th><th scope="col">Method</th><th scope="col">Status</th><th scope="col">Latency</th><th scope="col">Detail</th></tr></thead>
+  <tbody id="smokeBody"></tbody>
+ </table>
+</section>
+
+<footer>
+ <p>Built end to end as a 24-hour assessment for Ethara.AI. Apache 2.0. <a href="https://aether.dmj.one">aether.dmj.one</a> · <a href="https://dmj.one/products/aether.html">project page</a>.</p>
+</footer>
+
+</main>
+</div>
+
+<script>
+(function () {
+'use strict';
+
+var DEMO_PASSPHRASE = 'aether-demo-2026';
+var DB = 'aether-tm';
+var STORE = 'keyrings';
+var CRED_URL = '/demo/credentials.json';
+
+var ACCOUNTS = [
+ { key:'ndma', email:'demo.ndma@aether.dmj.one', tier:100, name:'NDMA Coordinator', scope:'demo',
+   blurb:'National view. Sees every state, district, responder and volunteer in the demo tree. Can delegate tier and archive any project.' },
+ { key:'state', email:'demo.state@aether.dmj.one', tier:80, name:'State Officer', scope:'demo/HP',
+   blurb:'Himachal Pradesh state subtree. Sees districts, responders and volunteers under HP. Can re-tier anyone below them.' },
+ { key:'district', email:'demo.district@aether.dmj.one', tier:60, name:'District Magistrate', scope:'demo/HP/Shimla',
+   blurb:'Shimla district. Owns the demo projects. Can edit any task in scope.' },
+ { key:'responder', email:'demo.responder@aether.dmj.one', tier:40, name:'Field Responder', scope:'demo/HP/Shimla/responder1',
+   blurb:'Field staff. Owns assigned tasks fully. Sees only the tasks in their own subtree.' },
+ { key:'volunteer', email:'demo.volunteer@aether.dmj.one', tier:20, name:'Volunteer', scope:'demo/HP/Shimla/responder1/vol1',
+   blurb:'Read-only on assigned tasks. Status-only updates. Cannot create or delegate.' }
+];
+
+var ENDPOINTS_SOS = [
+ { method:'GET', path:'/', desc:'Serves the SOS PWA. gzip and brotli pre-compressed.', curl:'curl -H "Accept-Encoding: br" https://aether.dmj.one/' },
+ { method:'POST', path:'/api/v1/triage', desc:'Audio blob in (Opus / WebM / MP4 / WAV up to 512 KB), strict-schema triage JSON out.', curl:'curl -X POST --data-binary @clip.webm \\\n  -H "Content-Type: audio/webm" \\\n  -H "X-Client-Lang: hi-IN" \\\n  https://aether.dmj.one/api/v1/triage' },
+ { method:'OPTIONS', path:'/api/v1/triage', desc:'CORS preflight for cross-origin clients.', curl:'curl -X OPTIONS -i \\\n  -H "Origin: https://dmj.one" \\\n  -H "Access-Control-Request-Method: POST" \\\n  https://aether.dmj.one/api/v1/triage' },
+ { method:'GET', path:'/api/healthz', desc:'Liveness probe. Always returns {"ok":true}.', curl:'curl https://aether.dmj.one/api/healthz' },
+ { method:'GET', path:'/sw.js', desc:'Offline-shell ServiceWorker for the PWA.', curl:'curl -i https://aether.dmj.one/sw.js' },
+ { method:'GET', path:'/manifest.webmanifest', desc:'Installable PWA manifest.', curl:'curl https://aether.dmj.one/manifest.webmanifest' }
+];
+
+var ENDPOINTS_TM = [
+ { method:'GET', path:'/tm/', desc:'Task Manager SPA shell. Loads login, dashboard, projects, tasks, users.', curl:'curl https://aether.dmj.one/tm/' },
+ { method:'GET', path:'/api/v1/tm/server-pubkey', desc:'Server\'s ML-DSA-65 public key. Lets clients verify session tokens offline.', curl:'curl https://aether.dmj.one/api/v1/tm/server-pubkey' },
+ { method:'POST', path:'/api/v1/tm/auth/challenge', desc:'Issue a 32-byte login nonce bound to an email, TTL 60 seconds.', curl:'curl -X POST -H "Content-Type: application/json" \\\n  -d \'{"email":"demo.ndma@aether.dmj.one"}\' \\\n  https://aether.dmj.one/api/v1/tm/auth/challenge' },
+ { method:'POST', path:'/api/v1/tm/auth/verify', desc:'Consume the nonce with an ML-DSA-65 signature. Returns a signed bearer token.', curl:'curl -X POST -H "Content-Type: application/json" \\\n  -d \'{"email":"...","ch_id":"...","signature_b64":"..."}\' \\\n  https://aether.dmj.one/api/v1/tm/auth/verify' },
+ { method:'POST', path:'/api/v1/tm/auth/register', desc:'Accept a signed invite and create the user record.', curl:'curl -X POST -H "Content-Type: application/json" \\\n  -d \'{"invite_id":"...","name":"...","pubkey_b64":"..."}\' \\\n  https://aether.dmj.one/api/v1/tm/auth/register' },
+ { method:'POST', path:'/api/v1/tm/auth/bootstrap', desc:'One-shot NDMA root creation, env-gated by TM_BOOTSTRAP_ALLOW=1.', curl:'curl -X POST -H "Content-Type: application/json" \\\n  -d \'{"email":"...","name":"...","pubkey_b64":"..."}\' \\\n  https://aether.dmj.one/api/v1/tm/auth/bootstrap' },
+ { method:'GET', path:'/api/v1/tm/me', desc:'Current actor (uid, tier, scope_path).', curl:'curl -H "Authorization: Bearer $TOKEN" \\\n  https://aether.dmj.one/api/v1/tm/me' },
+ { method:'GET', path:'/api/v1/tm/users', desc:'Scope-filtered user list.', curl:'curl -H "Authorization: Bearer $TOKEN" \\\n  https://aether.dmj.one/api/v1/tm/users' },
+ { method:'POST', path:'/api/v1/tm/users/invite', desc:'Mint a signed invite for an email at a tier.', curl:'curl -X POST -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"email":"...","tier":40,"scope_path":"...","signature_b64":"..."}\' \\\n  https://aether.dmj.one/api/v1/tm/users/invite' },
+ { method:'POST', path:'/api/v1/tm/users/:uid/delegate', desc:'Re-tier a user. Re-sign required.', curl:'curl -X POST -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"new_tier":40,"signature_b64":"..."}\' \\\n  https://aether.dmj.one/api/v1/tm/users/<uid>/delegate' },
+ { method:'POST', path:'/api/v1/tm/users/:uid/suspend', desc:'Suspend or restore a user account.', curl:'curl -X POST -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"suspend":true}\' \\\n  https://aether.dmj.one/api/v1/tm/users/<uid>/suspend' },
+ { method:'GET', path:'/api/v1/tm/projects', desc:'Scope-filtered active projects.', curl:'curl -H "Authorization: Bearer $TOKEN" \\\n  https://aether.dmj.one/api/v1/tm/projects' },
+ { method:'POST', path:'/api/v1/tm/projects', desc:'Create a project. District tier and above.', curl:'curl -X POST -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"name":"...","description":"..."}\' \\\n  https://aether.dmj.one/api/v1/tm/projects' },
+ { method:'GET', path:'/api/v1/tm/projects/:pid', desc:'Fetch one project.', curl:'curl -H "Authorization: Bearer $TOKEN" \\\n  https://aether.dmj.one/api/v1/tm/projects/<pid>' },
+ { method:'PATCH', path:'/api/v1/tm/projects/:pid', desc:'Update name or description.', curl:'curl -X PATCH -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"name":"..."}\' \\\n  https://aether.dmj.one/api/v1/tm/projects/<pid>' },
+ { method:'DELETE', path:'/api/v1/tm/projects/:pid', desc:'Archive a project. Re-sign required.', curl:'curl -X DELETE -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"signature_b64":"..."}\' \\\n  https://aether.dmj.one/api/v1/tm/projects/<pid>' },
+ { method:'GET', path:'/api/v1/tm/tasks', desc:'Filter by project, assignee, status, overdue.', curl:'curl -H "Authorization: Bearer $TOKEN" \\\n  "https://aether.dmj.one/api/v1/tm/tasks?status=open&overdue=true"' },
+ { method:'POST', path:'/api/v1/tm/tasks', desc:'Create a task scoped to a project.', curl:'curl -X POST -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"project_id":"...","title":"...","priority":"med"}\' \\\n  https://aether.dmj.one/api/v1/tm/tasks' },
+ { method:'GET', path:'/api/v1/tm/tasks/:tid', desc:'Fetch one task.', curl:'curl -H "Authorization: Bearer $TOKEN" \\\n  https://aether.dmj.one/api/v1/tm/tasks/<tid>' },
+ { method:'PATCH', path:'/api/v1/tm/tasks/:tid', desc:'Update status, assignee, priority. Reassign requires a re-sign.', curl:'curl -X PATCH -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"status":"done"}\' \\\n  https://aether.dmj.one/api/v1/tm/tasks/<tid>' },
+ { method:'DELETE', path:'/api/v1/tm/tasks/:tid', desc:'Archive a task.', curl:'curl -X DELETE -H "Authorization: Bearer $TOKEN" \\\n  https://aether.dmj.one/api/v1/tm/tasks/<tid>' },
+ { method:'GET', path:'/api/v1/tm/dashboard', desc:'Counts by status and priority, top assignees, active projects.', curl:'curl -H "Authorization: Bearer $TOKEN" \\\n  https://aether.dmj.one/api/v1/tm/dashboard' }
+];
+
+function $(s) { return document.querySelector(s); }
+function el(tag, attrs) {
+ var n = document.createElement(tag);
+ if (attrs) {
+  for (var k in attrs) {
+   if (k === 'text') n.textContent = attrs[k];
+   else if (k === 'cls') n.className = attrs[k];
+   else n.setAttribute(k, attrs[k]);
+  }
+ }
+ return n;
+}
+function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+
+// ---------- Account cards ----------
+function renderAccounts() {
+ var grid = $('#acctGrid');
+ clear(grid);
+ ACCOUNTS.forEach(function (a) {
+  var card = el('article', { cls:'card demo-acct', 'aria-labelledby':'acct-' + a.key });
+
+  var h = el('h3', { id:'acct-' + a.key });
+  h.appendChild(document.createTextNode(a.name + ' '));
+  h.appendChild(el('span', { cls:'tag t' + a.tier, text:'tier ' + a.tier }));
+  card.appendChild(h);
+
+  card.appendChild(el('p', { cls:'meta', text:a.email + ' · scope ' + a.scope }));
+  card.appendChild(el('p', { text:a.blurb }));
+
+  var btn = el('button', { type:'button', cls:'btn', 'data-acct':a.key, 'aria-label':'Use the ' + a.name + ' account' });
+  btn.textContent = 'Use this account';
+  btn.addEventListener('click', function () { useAccount(a.key, btn); });
+  card.appendChild(btn);
+
+  card.appendChild(el('p', { cls:'sr-only', id:'acct-status-' + a.key, role:'status', 'aria-live':'polite' }));
+  grid.appendChild(card);
+ });
+}
+
+// ---------- Credentials cache + click-to-login ----------
+var credsPromise = null;
+function loadCreds() {
+ if (credsPromise) return credsPromise;
+ credsPromise = fetch(CRED_URL, { cache:'force-cache' }).then(function (r) {
+  if (!r.ok) throw new Error('credentials_fetch_' + r.status);
+  return r.json();
+ });
+ return credsPromise;
+}
+
+function openIdb() {
+ return new Promise(function (res, rej) {
+  if (!('indexedDB' in self)) return rej(new Error('no_indexeddb'));
+  var req = indexedDB.open(DB, 1);
+  req.onupgradeneeded = function () {
+   if (!req.result.objectStoreNames.contains(STORE)) {
+    req.result.createObjectStore(STORE, { keyPath:'email' });
+   }
+  };
+  req.onsuccess = function () { res(req.result); };
+  req.onerror = function () { rej(req.error); };
+ });
+}
+
+function putKeyring(rec) {
+ return openIdb().then(function (d) {
+  return new Promise(function (res, rej) {
+   var tx = d.transaction(STORE, 'readwrite').objectStore(STORE).put(rec);
+   tx.onsuccess = function () { res(); };
+   tx.onerror = function () { rej(tx.error); };
+  });
+ });
+}
+
+function statusFor(key) { return $('#acct-status-' + key); }
+
+function useAccount(key, btn) {
+ var status = statusFor(key);
+ btn.disabled = true;
+ var prev = btn.textContent;
+ btn.textContent = 'Loading.';
+ if (status) status.textContent = 'Loading credentials.';
+ loadCreds().then(function (creds) {
+  var match = null;
+  for (var i = 0; i < creds.length; i++) {
+   if (creds[i].email && creds[i].email.toLowerCase().indexOf('demo.' + key + '@') === 0) match = creds[i];
+  }
+  if (!match) throw new Error('account_not_in_credentials');
+  var rec = {
+   email: match.email,
+   salt: match.encrypted_priv.saltB64,
+   iv: match.encrypted_priv.ivB64,
+   ct: match.encrypted_priv.ctB64,
+   pubkey_b64: match.pubkey_b64,
+   created_at: new Date().toISOString()
+  };
+  return putKeyring(rec).then(function () { return match.email; });
+ }).then(function (email) {
+  if (status) status.textContent = 'Loaded. Redirecting to login.';
+  var url = '/tm/#/login?email=' + encodeURIComponent(email) + '&demo=1';
+  setTimeout(function () { location.href = url; }, 60);
+ }).catch(function (e) {
+  btn.disabled = false;
+  btn.textContent = prev;
+  if (status) status.textContent = 'Could not load credentials. ' + (e && e.message ? e.message : '');
+ });
+}
+
+// ---------- Endpoint tables ----------
+function renderEndpoints(tbody, list) {
+ clear(tbody);
+ list.forEach(function (e) {
+  var tr = el('tr');
+  tr.appendChild(el('td', { cls:'method', text:e.method }));
+  tr.appendChild(el('td', { cls:'path', text:e.path }));
+  tr.appendChild(el('td', { cls:'desc', text:e.desc }));
+
+  var d = el('details');
+  var s = el('summary');
+  s.textContent = 'Try it';
+  d.appendChild(s);
+  var pre = el('pre');
+  pre.textContent = e.curl;
+  d.appendChild(pre);
+
+  var td = el('td');
+  td.appendChild(d);
+  tr.appendChild(td);
+  tbody.appendChild(tr);
+ });
+}
+
+// ---------- Copy passphrase ----------
+function copyPassphrase() {
+ var msg = $('#copyPassMsg');
+ var setMsg = function (t) { if (msg) msg.textContent = t; };
+ if (navigator.clipboard && navigator.clipboard.writeText) {
+  navigator.clipboard.writeText(DEMO_PASSPHRASE).then(function () {
+   setMsg('Copied. Paste it into the login passphrase field.');
+  }).catch(function () { setMsg('Copy blocked by your browser. Select the text and copy manually.'); });
+  return;
+ }
+ var node = $('#passText');
+ var sel = window.getSelection();
+ if (!sel || !node) { setMsg('Copy is not available. Select the text manually.'); return; }
+ sel.removeAllRanges();
+ var range = document.createRange();
+ range.selectNodeContents(node);
+ sel.addRange(range);
+ setMsg('Selected. Press Ctrl+C or Cmd+C to copy.');
+}
+
+// ---------- Smoke test ----------
+var SMOKE = [
+ { name:'Triage health probe', method:'GET', url:'/api/healthz', expect:200, kind:'json' },
+ { name:'Static index (HEAD)', method:'HEAD', url:'/', expect:200, kind:'head' },
+ { name:'TM SPA shell (HEAD)', method:'HEAD', url:'/tm/', expect:200, kind:'head' },
+ { name:'TM server pubkey', method:'GET', url:'/api/v1/tm/server-pubkey', expect:200, kind:'json' },
+ { name:'TM API root', method:'GET', url:'/api/v1/tm', expect:200, kind:'json' },
+ { name:'CORS preflight: triage', method:'OPTIONS', url:'/api/v1/triage', expect:204, kind:'opt' },
+ { name:'Demo credentials', method:'GET', url:'/demo/credentials.json', expect:200, kind:'json' }
+];
+
+function placeholderRow(text) {
+ var tr = el('tr');
+ var td = el('td', { colspan:'5', cls:'muted', text:text });
+ tr.appendChild(td);
+ return tr;
+}
+
+function clearSmoke() {
+ var tb = $('#smokeBody');
+ clear(tb);
+ tb.appendChild(placeholderRow('Press Run smoke test to begin.'));
+}
+
+function runSmoke() {
+ var tb = $('#smokeBody');
+ clear(tb);
+ var btn = $('#runSmoke');
+ btn.disabled = true;
+ var prev = btn.textContent;
+ btn.textContent = 'Running.';
+ var passes = 0, fails = 0;
+ var p = Promise.resolve();
+ SMOKE.forEach(function (c) {
+  var tr = el('tr');
+  tr.appendChild(el('td', { text:c.name }));
+  tr.appendChild(el('td', { cls:'method', text:c.method }));
+
+  var statusTd = el('td');
+  statusTd.appendChild(el('span', { cls:'r-run', text:'Pending' }));
+  tr.appendChild(statusTd);
+
+  var latTd = el('td', { text:'—' });
+  tr.appendChild(latTd);
+
+  var detTd = el('td', { text:'' });
+  tr.appendChild(detTd);
+
+  tb.appendChild(tr);
+
+  p = p.then(function () {
+   clear(statusTd);
+   statusTd.appendChild(el('span', { cls:'r-run', text:'Running.' }));
+   var t0 = performance.now();
+   var opts = { method:c.method, cache:'no-store' };
+   if (c.kind === 'opt') {
+    opts.headers = {
+     'Origin':'https://dmj.one',
+     'Access-Control-Request-Method':'POST'
+    };
+   }
+   return fetch(c.url, opts).then(function (r) {
+    var ms = Math.round(performance.now() - t0);
+    latTd.textContent = ms + ' ms';
+    var ok = r.status === c.expect;
+    clear(statusTd);
+    statusTd.appendChild(el('span', { cls:ok ? 'r-pass' : 'r-fail', text:ok ? 'Pass · ' + r.status : 'Fail · ' + r.status }));
+    if (ok) passes++; else fails++;
+    if (c.kind === 'json' && ok) {
+     return r.text().then(function (txt) {
+      try {
+       JSON.parse(txt);
+       detTd.textContent = 'JSON parsed, ' + txt.length + ' bytes.';
+      } catch (e) {
+       detTd.textContent = 'Body was not valid JSON.';
+       clear(statusTd);
+       statusTd.appendChild(el('span', { cls:'r-fail', text:'Fail · bad JSON' }));
+       passes--; fails++;
+      }
+     });
+    }
+    if (c.kind === 'head' && ok) {
+     detTd.textContent = 'Headers OK (' + (r.headers.get('content-type') || 'no content-type') + ').';
+    } else if (c.kind === 'opt' && ok) {
+     detTd.textContent = 'Preflight returned ' + r.status + '.';
+    } else if (!ok) {
+     detTd.textContent = 'Expected ' + c.expect + ', got ' + r.status + '.';
+    }
+   }).catch(function (e) {
+    var ms = Math.round(performance.now() - t0);
+    latTd.textContent = ms + ' ms';
+    clear(statusTd);
+    statusTd.appendChild(el('span', { cls:'r-fail', text:'Fail · network' }));
+    detTd.textContent = (e && e.message) ? e.message : 'Network error.';
+    fails++;
+   });
+  });
+ });
+ p.then(function () {
+  btn.disabled = false;
+  btn.textContent = prev;
+  var summary = el('tr');
+  var td = el('td', { colspan:'5' });
+  td.appendChild(el('strong', { text:'Result: ' }));
+  td.appendChild(el('span', { cls:'r-pass', text:passes + ' pass' }));
+  td.appendChild(document.createTextNode(' · '));
+  td.appendChild(el('span', { cls:fails ? 'r-fail' : 'r-pass', text:fails + ' fail' }));
+  summary.appendChild(td);
+  tb.appendChild(summary);
+ });
+}
+
+// ---------- Init ----------
+renderAccounts();
+renderEndpoints($('#apiSos'), ENDPOINTS_SOS);
+renderEndpoints($('#apiTm'), ENDPOINTS_TM);
+clearSmoke();
+$('#copyPass').addEventListener('click', copyPassphrase);
+$('#runSmoke').addEventListener('click', runSmoke);
+$('#clearSmoke').addEventListener('click', clearSmoke);
+
+// Pre-warm credentials so the first click is instant.
+loadCreds().catch(function () { /* surface error only on click */ });
+
+})();
+</script>
+</body>
+</html>

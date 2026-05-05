@@ -1,0 +1,25 @@
+- generic [active] [ref=e1]:
+  - link "Skip to content" [ref=e2] [cursor=pointer]:
+    - /url: "#main"
+  - banner [ref=e3]:
+    - link "Aether Task Manager home" [ref=e4] [cursor=pointer]:
+      - /url: "#/"
+      - text: Aether
+      - generic [ref=e13]: TM
+  - main [ref=e11]:
+    - region "Sign in" [ref=e14]:
+      - heading "Sign in" [level=1] [ref=e15]
+      - note [ref=e16]: Demo mode. The passphrase below is published on the demo portal. Do not reuse this account in production.
+      - generic [ref=e17]:
+        - generic [ref=e18]:
+          - text: Email
+          - textbox "Email" [ref=e19]: demo.ndma@aether.dmj.one
+        - generic [ref=e20]:
+          - text: Passphrase
+          - textbox "Passphrase" [ref=e21]: aether-demo-2026
+        - alert [ref=e22]
+        - button "Working." [disabled] [ref=e26]
+      - paragraph [ref=e24]:
+        - text: No keys on this device?
+        - link "Accept an invite" [ref=e25] [cursor=pointer]:
+          - /url: "#/register"

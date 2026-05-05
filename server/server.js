@@ -260,7 +260,19 @@ const STATIC_ROUTES = {
   '/sw.js': { file: 'sw.js', mime: 'text/javascript; charset=utf-8' },
   '/manifest.webmanifest': { file: 'manifest.webmanifest', mime: 'application/manifest+json; charset=utf-8' },
   '/favicon.svg': { file: 'favicon.svg', mime: 'image/svg+xml; charset=utf-8' },
-  '/robots.txt': { file: 'robots.txt', mime: 'text/plain; charset=utf-8' }
+  '/icon-192.png': { file: 'icon-192.png', mime: 'image/png' },
+  '/icon-512.png': { file: 'icon-512.png', mime: 'image/png' },
+  '/robots.txt': { file: 'robots.txt', mime: 'text/plain; charset=utf-8' },
+  '/pitch': { file: 'pitch/index.html', mime: 'text/html; charset=utf-8' },
+  '/pitch/': { file: 'pitch/index.html', mime: 'text/html; charset=utf-8' },
+  '/pitch/index.html': { file: 'pitch/index.html', mime: 'text/html; charset=utf-8' },
+  '/docs': { file: 'docs/index.html', mime: 'text/html; charset=utf-8' },
+  '/docs/': { file: 'docs/index.html', mime: 'text/html; charset=utf-8' },
+  '/docs/index.html': { file: 'docs/index.html', mime: 'text/html; charset=utf-8' },
+  '/demo': { file: 'demo/index.html', mime: 'text/html; charset=utf-8' },
+  '/demo/': { file: 'demo/index.html', mime: 'text/html; charset=utf-8' },
+  '/demo/index.html': { file: 'demo/index.html', mime: 'text/html; charset=utf-8' },
+  '/demo/credentials.json': { file: 'demo/credentials.json', mime: 'application/json; charset=utf-8' }
 };
 
 async function serveStatic(req, res, route, requestId) {

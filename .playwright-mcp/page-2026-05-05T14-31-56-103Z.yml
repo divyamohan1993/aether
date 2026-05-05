@@ -1,0 +1,24 @@
+- generic [ref=e1]:
+  - link "Skip to content" [ref=e2] [cursor=pointer]:
+    - /url: "#main"
+  - banner [ref=e3]:
+    - link "Aether Task Manager home" [ref=e4] [cursor=pointer]:
+      - /url: "#/"
+      - text: Aether
+      - generic [ref=e13]: TM
+    - navigation "Primary" [ref=e5]:
+      - link "Dashboard" [ref=e6] [cursor=pointer]:
+        - /url: "#/"
+      - link "Projects" [active] [ref=e7] [cursor=pointer]:
+        - /url: "#/projects"
+      - link "Tasks" [ref=e8] [cursor=pointer]:
+        - /url: "#/tasks"
+      - link "Users" [ref=e9] [cursor=pointer]:
+        - /url: "#/users"
+      - button "Log out" [ref=e10] [cursor=pointer]
+  - main [ref=e11]:
+    - region "Projects" [ref=e51]:
+      - heading "Projects" [level=1] [ref=e52]
+      - group [ref=e53]:
+        - generic "+ New project" [ref=e54] [cursor=pointer]
+      - paragraph [ref=e56]: Nothing here yet.

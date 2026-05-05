@@ -1,0 +1,13 @@
+- generic [active] [ref=e1]:
+  - status [ref=e2]:
+    - generic "Battery" [ref=e3]: 82%+
+    - generic "Network" [ref=e4]: 4g
+    - generic "Queue"
+    - generic "Language" [ref=e5]: EN
+  - main [ref=e6]:
+    - button "Hold to send SOS" [ref=e7] [cursor=pointer]
+  - contentinfo [ref=e8]:
+    - status [ref=e9]
+    - paragraph [ref=e10]: Goes only to State Disaster Response Force. False reports cost lives.
+    - group [ref=e11]:
+      - generic "Privacy" [ref=e12] [cursor=pointer]

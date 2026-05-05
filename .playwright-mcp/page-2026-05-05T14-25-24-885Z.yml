@@ -1,0 +1,336 @@
+- generic [active] [ref=e1]:
+  - link "Skip to main content" [ref=e2] [cursor=pointer]:
+    - /url: "#main"
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - link "Aether. Demo Portal" [ref=e5] [cursor=pointer]:
+        - /url: /
+      - paragraph [ref=e6]:
+        - link "Live SOS" [ref=e7] [cursor=pointer]:
+          - /url: /
+        - text: ·
+        - link "Task Manager" [ref=e8] [cursor=pointer]:
+          - /url: /tm/
+    - main [ref=e9]:
+      - region "Try Project Aether end to end in your browser" [ref=e10]:
+        - heading "Try Project Aether end to end in your browser" [level=1] [ref=e11]
+        - paragraph [ref=e12]: A 40 KB SOS payload feeding a strict-schema Gemini triage, plus a post-quantum task tracker for the NDMA chain of command. Five demo accounts. One published passphrase. No emails, no signups.
+      - region "SOS pipeline demo" [ref=e13]:
+        - heading "SOS pipeline demo" [level=2] [ref=e14]
+        - paragraph [ref=e15]: Hold the red SOS button on the live page. Speak a 5-second clip. Release. Gemini 2.5 Flash returns a structured dispatch brief in under two seconds, with no Speech-to-Text in the chain.
+        - paragraph [ref=e16]:
+          - link "Open the SOS pipeline page" [ref=e17] [cursor=pointer]:
+            - /url: /
+            - text: Open the SOS app
+        - paragraph [ref=e18]: Works on any phone, any modern browser. Audio never leaves your device unless you press the button.
+      - region "Task Manager demo accounts" [ref=e19]:
+        - heading "Task Manager demo accounts" [level=2] [ref=e20]
+        - paragraph [ref=e21]: Click any account below. The portal loads that user's encrypted ML-DSA-65 key into your browser's IndexedDB and forwards you to the login page with the email and demo passphrase pre-filled. You press log in. The challenge-response runs against the real backend.
+        - generic "Demo accounts" [ref=e22]:
+          - article "NDMA Coordinator tier 100" [ref=e23]:
+            - heading "NDMA Coordinator tier 100" [level=3] [ref=e24]:
+              - text: NDMA Coordinator
+              - generic [ref=e25]: tier 100
+            - paragraph [ref=e26]: demo.ndma@aether.dmj.one · scope demo
+            - paragraph [ref=e27]: National view. Sees every state, district, responder and volunteer in the demo tree. Can delegate tier and archive any project.
+            - button "Use the NDMA Coordinator account" [ref=e28] [cursor=pointer]: Use this account
+            - status [ref=e29]
+          - article "State Officer tier 80" [ref=e30]:
+            - heading "State Officer tier 80" [level=3] [ref=e31]:
+              - text: State Officer
+              - generic [ref=e32]: tier 80
+            - paragraph [ref=e33]: demo.state@aether.dmj.one · scope demo/HP
+            - paragraph [ref=e34]: Himachal Pradesh state subtree. Sees districts, responders and volunteers under HP. Can re-tier anyone below them.
+            - button "Use the State Officer account" [ref=e35] [cursor=pointer]: Use this account
+            - status [ref=e36]
+          - article "District Magistrate tier 60" [ref=e37]:
+            - heading "District Magistrate tier 60" [level=3] [ref=e38]:
+              - text: District Magistrate
+              - generic [ref=e39]: tier 60
+            - paragraph [ref=e40]: demo.district@aether.dmj.one · scope demo/HP/Shimla
+            - paragraph [ref=e41]: Shimla district. Owns the demo projects. Can edit any task in scope.
+            - button "Use the District Magistrate account" [ref=e42] [cursor=pointer]: Use this account
+            - status [ref=e43]
+          - article "Field Responder tier 40" [ref=e44]:
+            - heading "Field Responder tier 40" [level=3] [ref=e45]:
+              - text: Field Responder
+              - generic [ref=e46]: tier 40
+            - paragraph [ref=e47]: demo.responder@aether.dmj.one · scope demo/HP/Shimla/responder1
+            - paragraph [ref=e48]: Field staff. Owns assigned tasks fully. Sees only the tasks in their own subtree.
+            - button "Use the Field Responder account" [ref=e49] [cursor=pointer]: Use this account
+            - status [ref=e50]
+          - article "Volunteer tier 20" [ref=e51]:
+            - heading "Volunteer tier 20" [level=3] [ref=e52]:
+              - text: Volunteer
+              - generic [ref=e53]: tier 20
+            - paragraph [ref=e54]: demo.volunteer@aether.dmj.one · scope demo/HP/Shimla/responder1/vol1
+            - paragraph [ref=e55]: Read-only on assigned tasks. Status-only updates. Cannot create or delegate.
+            - button "Use the Volunteer account" [ref=e56] [cursor=pointer]: Use this account
+            - status [ref=e57]
+        - article "The shared demo passphrase" [ref=e58]:
+          - heading "The shared demo passphrase" [level=3] [ref=e59]
+          - paragraph [ref=e60]:
+            - text: Every demo account uses the same passphrase. The encrypted private keys ship inside
+            - code [ref=e61]: /demo/credentials.json
+            - text: ; that ciphertext is meaningless without this string.
+          - generic [ref=e62]:
+            - code [ref=e63]: aether-demo-2026
+            - button "Copy passphrase" [ref=e64] [cursor=pointer]
+          - status [ref=e65]: Click to copy. Paste it on the login screen.
+          - paragraph [ref=e66]:
+            - text: These keys live in a
+            - code [ref=e67]: demo
+            - text: scope tree. Real production users live under
+            - code [ref=e68]: ndma
+            - text: . The demo subtree is isolated by design.
+      - region "Live API endpoints" [ref=e69]:
+        - heading "Live API endpoints" [level=2] [ref=e70]
+        - paragraph [ref=e71]:
+          - text: Every endpoint behind the demo is hit by the live site. Click
+          - emphasis [ref=e72]: Try it
+          - text: on any row to see a copyable curl one-liner. For the full reference, see
+          - link "/docs/api" [ref=e73] [cursor=pointer]:
+            - /url: /docs/api
+          - text: .
+        - heading "SOS Triage" [level=3] [ref=e74]
+        - table "SOS triage endpoints" [ref=e75]:
+          - caption [ref=e76]: Edge client posts an audio blob, receives a strict-schema dispatch brief.
+          - rowgroup [ref=e77]:
+            - row "Method Path What it does Try it" [ref=e78]:
+              - columnheader "Method" [ref=e79]
+              - columnheader "Path" [ref=e80]
+              - columnheader "What it does" [ref=e81]
+              - columnheader "Try it" [ref=e82]
+          - rowgroup [ref=e83]:
+            - row "GET / Serves the SOS PWA. gzip and brotli pre-compressed." [ref=e84]:
+              - cell "GET" [ref=e85]
+              - cell / [ref=e86]
+              - cell "Serves the SOS PWA. gzip and brotli pre-compressed." [ref=e87]
+              - cell [ref=e88]:
+                - group [ref=e89]:
+                  - generic "+ Try it" [ref=e90] [cursor=pointer]
+            - row "POST /api/v1/triage Audio blob in (Opus / WebM / MP4 / WAV up to 512 KB), strict-schema triage JSON out." [ref=e91]:
+              - cell "POST" [ref=e92]
+              - cell "/api/v1/triage" [ref=e93]
+              - cell "Audio blob in (Opus / WebM / MP4 / WAV up to 512 KB), strict-schema triage JSON out." [ref=e94]
+              - cell [ref=e95]:
+                - group [ref=e96]:
+                  - generic "+ Try it" [ref=e97] [cursor=pointer]
+            - row "OPTIONS /api/v1/triage CORS preflight for cross-origin clients." [ref=e98]:
+              - cell "OPTIONS" [ref=e99]
+              - cell "/api/v1/triage" [ref=e100]
+              - cell "CORS preflight for cross-origin clients." [ref=e101]
+              - cell [ref=e102]:
+                - group [ref=e103]:
+                  - generic "+ Try it" [ref=e104] [cursor=pointer]
+            - 'row "GET /api/healthz Liveness probe. Always returns {\"ok\":true}." [ref=e105]':
+              - cell "GET" [ref=e106]
+              - cell "/api/healthz" [ref=e107]
+              - 'cell "Liveness probe. Always returns {\"ok\":true}." [ref=e108]'
+              - cell [ref=e109]:
+                - group [ref=e110]:
+                  - generic "+ Try it" [ref=e111] [cursor=pointer]
+            - row "GET /sw.js Offline-shell ServiceWorker for the PWA." [ref=e112]:
+              - cell "GET" [ref=e113]
+              - cell "/sw.js" [ref=e114]
+              - cell "Offline-shell ServiceWorker for the PWA." [ref=e115]
+              - cell [ref=e116]:
+                - group [ref=e117]:
+                  - generic "+ Try it" [ref=e118] [cursor=pointer]
+            - row "GET /manifest.webmanifest Installable PWA manifest." [ref=e119]:
+              - cell "GET" [ref=e120]
+              - cell "/manifest.webmanifest" [ref=e121]
+              - cell "Installable PWA manifest." [ref=e122]
+              - cell [ref=e123]:
+                - group [ref=e124]:
+                  - generic "+ Try it" [ref=e125] [cursor=pointer]
+        - heading "Task Manager" [level=3] [ref=e126]
+        - table "Task manager endpoints" [ref=e127]:
+          - caption [ref=e128]: ML-DSA-65 challenge-response auth. Signed bearer tokens. Re-sign for sensitive actions.
+          - rowgroup [ref=e129]:
+            - row "Method Path What it does Try it" [ref=e130]:
+              - columnheader "Method" [ref=e131]
+              - columnheader "Path" [ref=e132]
+              - columnheader "What it does" [ref=e133]
+              - columnheader "Try it" [ref=e134]
+          - rowgroup [ref=e135]:
+            - row "GET /tm/ Task Manager SPA shell. Loads login, dashboard, projects, tasks, users." [ref=e136]:
+              - cell "GET" [ref=e137]
+              - cell /tm/ [ref=e138]
+              - cell "Task Manager SPA shell. Loads login, dashboard, projects, tasks, users." [ref=e139]
+              - cell [ref=e140]:
+                - group [ref=e141]:
+                  - generic "+ Try it" [ref=e142] [cursor=pointer]
+            - row "GET /api/v1/tm/server-pubkey Server's ML-DSA-65 public key. Lets clients verify session tokens offline." [ref=e143]:
+              - cell "GET" [ref=e144]
+              - cell "/api/v1/tm/server-pubkey" [ref=e145]
+              - cell "Server's ML-DSA-65 public key. Lets clients verify session tokens offline." [ref=e146]
+              - cell [ref=e147]:
+                - group [ref=e148]:
+                  - generic "+ Try it" [ref=e149] [cursor=pointer]
+            - row "POST /api/v1/tm/auth/challenge Issue a 32-byte login nonce bound to an email, TTL 60 seconds." [ref=e150]:
+              - cell "POST" [ref=e151]
+              - cell "/api/v1/tm/auth/challenge" [ref=e152]
+              - cell "Issue a 32-byte login nonce bound to an email, TTL 60 seconds." [ref=e153]
+              - cell [ref=e154]:
+                - group [ref=e155]:
+                  - generic "+ Try it" [ref=e156] [cursor=pointer]
+            - row "POST /api/v1/tm/auth/verify Consume the nonce with an ML-DSA-65 signature. Returns a signed bearer token." [ref=e157]:
+              - cell "POST" [ref=e158]
+              - cell "/api/v1/tm/auth/verify" [ref=e159]
+              - cell "Consume the nonce with an ML-DSA-65 signature. Returns a signed bearer token." [ref=e160]
+              - cell [ref=e161]:
+                - group [ref=e162]:
+                  - generic "+ Try it" [ref=e163] [cursor=pointer]
+            - row "POST /api/v1/tm/auth/register Accept a signed invite and create the user record." [ref=e164]:
+              - cell "POST" [ref=e165]
+              - cell "/api/v1/tm/auth/register" [ref=e166]
+              - cell "Accept a signed invite and create the user record." [ref=e167]
+              - cell [ref=e168]:
+                - group [ref=e169]:
+                  - generic "+ Try it" [ref=e170] [cursor=pointer]
+            - row "POST /api/v1/tm/auth/bootstrap One-shot NDMA root creation, env-gated by TM_BOOTSTRAP_ALLOW=1." [ref=e171]:
+              - cell "POST" [ref=e172]
+              - cell "/api/v1/tm/auth/bootstrap" [ref=e173]
+              - cell "One-shot NDMA root creation, env-gated by TM_BOOTSTRAP_ALLOW=1." [ref=e174]
+              - cell [ref=e175]:
+                - group [ref=e176]:
+                  - generic "+ Try it" [ref=e177] [cursor=pointer]
+            - row "GET /api/v1/tm/me Current actor (uid, tier, scope_path)." [ref=e178]:
+              - cell "GET" [ref=e179]
+              - cell "/api/v1/tm/me" [ref=e180]
+              - cell "Current actor (uid, tier, scope_path)." [ref=e181]
+              - cell [ref=e182]:
+                - group [ref=e183]:
+                  - generic "+ Try it" [ref=e184] [cursor=pointer]
+            - row "GET /api/v1/tm/users Scope-filtered user list." [ref=e185]:
+              - cell "GET" [ref=e186]
+              - cell "/api/v1/tm/users" [ref=e187]
+              - cell "Scope-filtered user list." [ref=e188]
+              - cell [ref=e189]:
+                - group [ref=e190]:
+                  - generic "+ Try it" [ref=e191] [cursor=pointer]
+            - row "POST /api/v1/tm/users/invite Mint a signed invite for an email at a tier." [ref=e192]:
+              - cell "POST" [ref=e193]
+              - cell "/api/v1/tm/users/invite" [ref=e194]
+              - cell "Mint a signed invite for an email at a tier." [ref=e195]
+              - cell [ref=e196]:
+                - group [ref=e197]:
+                  - generic "+ Try it" [ref=e198] [cursor=pointer]
+            - row "POST /api/v1/tm/users/:uid/delegate Re-tier a user. Re-sign required." [ref=e199]:
+              - cell "POST" [ref=e200]
+              - cell "/api/v1/tm/users/:uid/delegate" [ref=e201]
+              - cell "Re-tier a user. Re-sign required." [ref=e202]
+              - cell [ref=e203]:
+                - group [ref=e204]:
+                  - generic "+ Try it" [ref=e205] [cursor=pointer]
+            - row "POST /api/v1/tm/users/:uid/suspend Suspend or restore a user account." [ref=e206]:
+              - cell "POST" [ref=e207]
+              - cell "/api/v1/tm/users/:uid/suspend" [ref=e208]
+              - cell "Suspend or restore a user account." [ref=e209]
+              - cell [ref=e210]:
+                - group [ref=e211]:
+                  - generic "+ Try it" [ref=e212] [cursor=pointer]
+            - row "GET /api/v1/tm/projects Scope-filtered active projects." [ref=e213]:
+              - cell "GET" [ref=e214]
+              - cell "/api/v1/tm/projects" [ref=e215]
+              - cell "Scope-filtered active projects." [ref=e216]
+              - cell [ref=e217]:
+                - group [ref=e218]:
+                  - generic "+ Try it" [ref=e219] [cursor=pointer]
+            - row "POST /api/v1/tm/projects Create a project. District tier and above." [ref=e220]:
+              - cell "POST" [ref=e221]
+              - cell "/api/v1/tm/projects" [ref=e222]
+              - cell "Create a project. District tier and above." [ref=e223]
+              - cell [ref=e224]:
+                - group [ref=e225]:
+                  - generic "+ Try it" [ref=e226] [cursor=pointer]
+            - row "GET /api/v1/tm/projects/:pid Fetch one project." [ref=e227]:
+              - cell "GET" [ref=e228]
+              - cell "/api/v1/tm/projects/:pid" [ref=e229]
+              - cell "Fetch one project." [ref=e230]
+              - cell [ref=e231]:
+                - group [ref=e232]:
+                  - generic "+ Try it" [ref=e233] [cursor=pointer]
+            - row "PATCH /api/v1/tm/projects/:pid Update name or description." [ref=e234]:
+              - cell "PATCH" [ref=e235]
+              - cell "/api/v1/tm/projects/:pid" [ref=e236]
+              - cell "Update name or description." [ref=e237]
+              - cell [ref=e238]:
+                - group [ref=e239]:
+                  - generic "+ Try it" [ref=e240] [cursor=pointer]
+            - row "DELETE /api/v1/tm/projects/:pid Archive a project. Re-sign required." [ref=e241]:
+              - cell "DELETE" [ref=e242]
+              - cell "/api/v1/tm/projects/:pid" [ref=e243]
+              - cell "Archive a project. Re-sign required." [ref=e244]
+              - cell [ref=e245]:
+                - group [ref=e246]:
+                  - generic "+ Try it" [ref=e247] [cursor=pointer]
+            - row "GET /api/v1/tm/tasks Filter by project, assignee, status, overdue." [ref=e248]:
+              - cell "GET" [ref=e249]
+              - cell "/api/v1/tm/tasks" [ref=e250]
+              - cell "Filter by project, assignee, status, overdue." [ref=e251]
+              - cell [ref=e252]:
+                - group [ref=e253]:
+                  - generic "+ Try it" [ref=e254] [cursor=pointer]
+            - row "POST /api/v1/tm/tasks Create a task scoped to a project." [ref=e255]:
+              - cell "POST" [ref=e256]
+              - cell "/api/v1/tm/tasks" [ref=e257]
+              - cell "Create a task scoped to a project." [ref=e258]
+              - cell [ref=e259]:
+                - group [ref=e260]:
+                  - generic "+ Try it" [ref=e261] [cursor=pointer]
+            - row "GET /api/v1/tm/tasks/:tid Fetch one task." [ref=e262]:
+              - cell "GET" [ref=e263]
+              - cell "/api/v1/tm/tasks/:tid" [ref=e264]
+              - cell "Fetch one task." [ref=e265]
+              - cell [ref=e266]:
+                - group [ref=e267]:
+                  - generic "+ Try it" [ref=e268] [cursor=pointer]
+            - row "PATCH /api/v1/tm/tasks/:tid Update status, assignee, priority. Reassign requires a re-sign." [ref=e269]:
+              - cell "PATCH" [ref=e270]
+              - cell "/api/v1/tm/tasks/:tid" [ref=e271]
+              - cell "Update status, assignee, priority. Reassign requires a re-sign." [ref=e272]
+              - cell [ref=e273]:
+                - group [ref=e274]:
+                  - generic "+ Try it" [ref=e275] [cursor=pointer]
+            - row "DELETE /api/v1/tm/tasks/:tid Archive a task." [ref=e276]:
+              - cell "DELETE" [ref=e277]
+              - cell "/api/v1/tm/tasks/:tid" [ref=e278]
+              - cell "Archive a task." [ref=e279]
+              - cell [ref=e280]:
+                - group [ref=e281]:
+                  - generic "+ Try it" [ref=e282] [cursor=pointer]
+            - row "GET /api/v1/tm/dashboard Counts by status and priority, top assignees, active projects." [ref=e283]:
+              - cell "GET" [ref=e284]
+              - cell "/api/v1/tm/dashboard" [ref=e285]
+              - cell "Counts by status and priority, top assignees, active projects." [ref=e286]
+              - cell [ref=e287]:
+                - group [ref=e288]:
+                  - generic "+ Try it" [ref=e289] [cursor=pointer]
+      - region "Smoke test panel" [ref=e290]:
+        - heading "Smoke test panel" [level=2] [ref=e291]
+        - paragraph [ref=e292]: Hits a bounded set of public, idempotent endpoints from your browser. Useful as a quick service-up check after a deploy.
+        - paragraph [ref=e293]:
+          - button "Run smoke test" [ref=e294] [cursor=pointer]
+          - button "Clear results" [ref=e295] [cursor=pointer]
+        - table "Smoke test results" [ref=e296]:
+          - caption [ref=e297]: Pass / fail per endpoint, with response time. Updated live.
+          - rowgroup [ref=e298]:
+            - row "Endpoint Method Status Latency Detail" [ref=e299]:
+              - columnheader "Endpoint" [ref=e300]
+              - columnheader "Method" [ref=e301]
+              - columnheader "Status" [ref=e302]
+              - columnheader "Latency" [ref=e303]
+              - columnheader "Detail" [ref=e304]
+          - rowgroup [ref=e305]:
+            - row "Press Run smoke test to begin." [ref=e306]:
+              - cell "Press Run smoke test to begin." [ref=e307]
+      - paragraph [ref=e309]:
+        - text: Built end to end as a 24-hour assessment for Ethara.AI. Apache 2.0.
+        - link "aether.dmj.one" [ref=e310] [cursor=pointer]:
+          - /url: https://aether.dmj.one
+        - text: ·
+        - link "project page" [ref=e311] [cursor=pointer]:
+          - /url: https://dmj.one/products/aether.html
+        - text: .
