@@ -1944,6 +1944,9 @@ setAuthUsers(fakeUsers);
 }
 
 
+// ---------------------------------------------------------------------------
+
+
 // i18n-server lane. pickLocale + t() + summaryFor locale wiring +
 // JSON pack file count. Owned by wave-3-i18n-server.
 {
@@ -2061,10 +2064,10 @@ setAuthUsers(fakeUsers);
 }
 
 
-// ---------------------------------------------------------------------------
+
 // 33. phone-identity lane: telco header HMAC verify, SMS OTP roundtrip,
-//     attempt cap, shortcode webhook, frequency / geo anomaly,
-//     noise gate, telco-attached triage, anonymous + noise-gate-failed
+//     attempt cap, shortcode webhook, frequency / geo anomaly, noise
+//     gate, telco-attached caller_identity, anonymous + noise-gate
 //     forwarding to the false-alarm review queue.
 // ---------------------------------------------------------------------------
 {
@@ -2093,16 +2096,13 @@ setAuthUsers(fakeUsers);
       verified && verified.msisdn_e164 === msisdn && verified.telco === 'jio');
 
     const badSig = cryptoMod.createHmac('sha256', cryptoMod.randomBytes(32)).update(`${msisdn}|${ts}`).digest('base64');
-    const bad = telcoMod.verifyTelcoHeader({ ...goodHeaders, 'x-telco-sig': badSig });
-    ok('verifyTelcoHeader rejects bad sig', bad === null);
+    ok('verifyTelcoHeader rejects bad sig',
+      telcoMod.verifyTelcoHeader({ ...goodHeaders, 'x-telco-sig': badSig }) === null);
+    ok('verifyTelcoHeader rejects unknown key id',
+      telcoMod.verifyTelcoHeader({ ...goodHeaders, 'x-telco-key-id': 'unknown' }) === null);
+    ok('verifyTelcoHeader rejects 10 min skew',
+      telcoMod.verifyTelcoHeader({ ...goodHeaders, 'x-telco-ts': String(ts - 600) }) === null);
 
-    const wrongKey = telcoMod.verifyTelcoHeader({ ...goodHeaders, 'x-telco-key-id': 'unknown' });
-    ok('verifyTelcoHeader rejects unknown key id', wrongKey === null);
-
-    const skewed = telcoMod.verifyTelcoHeader({ ...goodHeaders, 'x-telco-ts': String(ts - 600) });
-    ok('verifyTelcoHeader rejects 10 min skew', skewed === null);
-
-    // Other configured key id also works.
     process.env.TELCO_HMAC_SECRETS = `jio:${secretB64}`;
     telcoMod._resetTelcoCacheForTest();
     const reverified = telcoMod.verifyTelcoHeader(goodHeaders);
@@ -2111,7 +2111,6 @@ setAuthUsers(fakeUsers);
     telcoMod._resetTelcoCacheForTest();
   }
 
-  // Shared in-memory firestore for sms/abuse tests.
   class MiniFs {
     constructor() { this.col = new Map(); }
     _c(name) { if (!this.col.has(name)) this.col.set(name, new Map()); return this.col.get(name); }
@@ -2202,15 +2201,18 @@ setAuthUsers(fakeUsers);
     });
     ok('handleShortcodeWebhook accepted SOS', r.ok === true && typeof r.dispatch_id === 'string');
     const row = await fs.getDoc('tm_dispatches', r.dispatch_id);
-    ok('shortcode dispatch row written', row && row.phone_verified === true && row.verification_channel === 'sms_shortcode');
-    ok('shortcode dispatch carries triage transcript', row.triage?.transcription_native === 'SOS trapped under building');
+    ok('shortcode dispatch row written',
+      row && row.phone_verified === true && row.verification_channel === 'sms_shortcode');
+    ok('shortcode dispatch carries triage transcript',
+      row.triage?.transcription_native === 'SOS trapped under building');
 
     const noSos = await smsMod.handleShortcodeWebhook({
       from_e164: '+919999000022',
       body: 'hello world',
       received_at: new Date().toISOString()
     });
-    ok('handleShortcodeWebhook rejects non-SOS body', noSos.ok === false && noSos.reason === 'not_sos_format');
+    ok('handleShortcodeWebhook rejects non-SOS body',
+      noSos.ok === false && noSos.reason === 'not_sos_format');
 
     smsMod._setFirestoreForTest(null);
   }
@@ -2246,42 +2248,44 @@ setAuthUsers(fakeUsers);
     fs._c('tm_dispatches').set('d-geo-1', {
       id: 'd-geo-1', received_at: recv,
       caller_identity: { fingerprint: fp },
-      location: { lat: 28.6139, lng: 77.2090 } // New Delhi
+      location: { lat: 28.6139, lng: 77.2090 }
     });
-    // 1 deg lat ~= 111 km; lat 29.6 is ~111 km north of Delhi.
     const r = await abuseMod.checkGeoImpossibility(fp, 29.6139, 77.2090);
     ok('checkGeoImpossibility flags > 50 km in 5 min',
       r.flagged === true && r.max_distance_m > 100_000);
-
     const rNear = await abuseMod.checkGeoImpossibility(fp, 28.62, 77.21);
     ok('checkGeoImpossibility nearby not flagged', rNear.flagged === false);
 
     abuseMod._setFirestoreForTest(null);
   }
 
-  // 33.7 checkNoiseGate keyword + miss.
+  // 33.7 checkNoiseGate: keyword + miss + panic + urgency.
   {
     const passKw = abuseMod.checkNoiseGate({
       urgency: 'LOW', transcription_english: 'help, trapped under rubble'
     });
-    ok('checkNoiseGate passes with disaster keyword', passKw.passed === true && passKw.reason === 'disaster_keyword');
+    ok('checkNoiseGate passes with disaster keyword',
+      passKw.passed === true && passKw.reason === 'disaster_keyword');
 
     const passUrg = abuseMod.checkNoiseGate({ urgency: 'CRITICAL', transcription_english: '' });
-    ok('checkNoiseGate passes on CRITICAL', passUrg.passed === true && passUrg.reason === 'urgency_high');
+    ok('checkNoiseGate passes on CRITICAL',
+      passUrg.passed === true && passUrg.reason === 'urgency_high');
 
     const passPanic = abuseMod.checkNoiseGate({
       urgency: 'LOW', transcription_english: '', panic_codes: [1, 8]
     });
-    ok('checkNoiseGate passes on panic-code tap', passPanic.passed === true && passPanic.reason === 'panic_code');
+    ok('checkNoiseGate passes on panic-code tap',
+      passPanic.passed === true && passPanic.reason === 'panic_code');
 
     const fail = abuseMod.checkNoiseGate({
       urgency: 'LOW', transcription_english: 'hello world how are you'
     });
-    ok('checkNoiseGate fails with no signal', fail.passed === false && fail.reason === 'no_disaster_signal');
+    ok('checkNoiseGate fails with no signal',
+      fail.passed === false && fail.reason === 'no_disaster_signal');
   }
 
   // 33.8 handleTriage with telco header sets phone_verified true.
-  //      Verifies the helper that handleTriage uses to build
+  //      Mirrors the helper that handleTriage uses to build
   //      caller_identity from a verified telco header.
   {
     const secret = cryptoMod.randomBytes(32);
@@ -2313,8 +2317,8 @@ setAuthUsers(fakeUsers);
   }
 
   // 33.9 handleTriage anon + noise gate failed forwards to police.
-  //      Validates the abuse module's forwardToPolice landing in the
-  //      tm_false_alarm_review collection that the dispatcher reads.
+  //      Mirrors the abuse-hook path that handleTriage runs after
+  //      Vertex returns when the caller has no verified phone.
   {
     const fs = new MiniFs();
     abuseMod._setFirestoreForTest(fs);
@@ -2332,7 +2336,6 @@ setAuthUsers(fakeUsers);
     abuseMod._setFirestoreForTest(null);
   }
 }
-
 
 if (failed === 0) {
   process.stdout.write('OK\n');

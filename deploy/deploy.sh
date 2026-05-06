@@ -145,8 +145,8 @@ gcloud run deploy "${SERVICE}" \
   --timeout=60 \
   --port=8080 \
   --execution-environment=gen2 \
-  --set-env-vars="GCP_PROJECT=${PROJECT_ID},VERTEX_REGION=${VERTEX_REGION},VERTEX_MODEL=${VERTEX_MODEL},NODE_ENV=production,LOG_LEVEL=info,FIRESTORE_DB=(default),TM_BOOTSTRAP_ALLOW=${TM_BOOTSTRAP_ALLOW:-0},VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:ops@aether.dmj.one},CLOUD_TASKS_QUEUE=${TASKS_QUEUE},CLOUD_TASKS_LOCATION=${TASKS_LOCATION}" \
-  --set-secrets="TM_SERVER_PUB_B64=tm-server-pub:latest,TM_SERVER_PRIV_B64=tm-server-priv:latest,VAPID_PUBLIC_KEY_B64=vapid-pub:latest,VAPID_PRIVATE_KEY_B64=vapid-priv:latest,WATCHDOG_HMAC_SECRET=aether-watchdog-hmac:latest,SYSTEM_AI_PRIV_B64=tm-system-ai-priv:latest,SYSTEM_AI_PUB_B64=tm-system-ai-pub:latest"
+  --set-env-vars="GCP_PROJECT=${PROJECT_ID},VERTEX_REGION=${VERTEX_REGION},VERTEX_MODEL=${VERTEX_MODEL},NODE_ENV=production,LOG_LEVEL=info,FIRESTORE_DB=(default),TM_BOOTSTRAP_ALLOW=${TM_BOOTSTRAP_ALLOW:-0},VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:ops@aether.dmj.one},CLOUD_TASKS_QUEUE=${TASKS_QUEUE},CLOUD_TASKS_LOCATION=${TASKS_LOCATION},MSG91_API_KEY=${MSG91_API_KEY:-},KARIX_API_KEY=${KARIX_API_KEY:-},TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-},TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-},TWILIO_FROM=${TWILIO_FROM:-}" \
+  --set-secrets="TM_SERVER_PUB_B64=tm-server-pub:latest,TM_SERVER_PRIV_B64=tm-server-priv:latest,VAPID_PUBLIC_KEY_B64=vapid-pub:latest,VAPID_PRIVATE_KEY_B64=vapid-priv:latest,WATCHDOG_HMAC_SECRET=aether-watchdog-hmac:latest,SYSTEM_AI_PRIV_B64=tm-system-ai-priv:latest,SYSTEM_AI_PUB_B64=tm-system-ai-pub:latest,TELCO_HMAC_SECRETS=aether-telco-hmac:latest,SMS_WEBHOOK_HMAC=aether-sms-webhook-hmac:latest"
 
 URL="$(gcloud run services describe "${SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)')"
 
@@ -213,3 +213,39 @@ gcloud run revisions list --service="${SERVICE}" --project="${PROJECT_ID}" --reg
 
 log "Smoke test: bash test/smoke.sh ${URL}"
 echo "${URL}"
+
+# Wave 3 (phone-identity) secret refs.
+#
+# TELCO_HMAC_SECRETS: comma-separated `name:base64secret` pairs the
+# server uses to verify X-Telco-Sig headers (one secret per partner
+# telco: Jio, Airtel, Vi, BSNL). Stored as a single Secret Manager
+# blob so rotation hits all telcos in lockstep.
+#
+#   gcloud secrets create aether-telco-hmac --replication-policy=automatic
+#   echo -n "jio:$JIO_B64,airtel:$AIRTEL_B64,vi:$VI_B64,bsnl:$BSNL_B64" \
+#     | gcloud secrets versions add aether-telco-hmac --data-file=-
+#   gcloud secrets add-iam-policy-binding aether-telco-hmac \
+#     --member="serviceAccount:${SA_EMAIL}" --role=roles/secretmanager.secretAccessor
+#
+# SMS_WEBHOOK_HMAC: shared secret with the inbound shortcode webhook
+# sender. The telco / aggregator computes HMAC-SHA256(secret, body)
+# and sends the base64 sig in X-Sms-Webhook-Sig.
+#
+#   gcloud secrets create aether-sms-webhook-hmac --replication-policy=automatic
+#   python3 -c "import secrets,sys; sys.stdout.write(secrets.token_urlsafe(48))" \
+#     | gcloud secrets versions add aether-sms-webhook-hmac --data-file=-
+#
+# OTP provider keys (env-only; rotates outside the deploy cadence):
+#   MSG91_API_KEY, KARIX_API_KEY,
+#   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM
+# Pass these on the command line of deploy.sh to enable each provider.
+#
+# tm_otp_pending TTL (5 min): row ttl_at field is enforced by Firestore TTL.
+#   gcloud firestore fields ttls update ttl_at \
+#     --collection-group=tm_otp_pending \
+#     --enable-ttl --project="${PROJECT_ID}" --database='(default)'
+#
+# tm_phone_bindings TTL (30 d): expires_at field.
+#   gcloud firestore fields ttls update expires_at \
+#     --collection-group=tm_phone_bindings \
+#     --enable-ttl --project="${PROJECT_ID}" --database='(default)'
