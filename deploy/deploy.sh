@@ -142,7 +142,8 @@ gcloud run deploy "${SERVICE}" \
   --timeout=60 \
   --port=8080 \
   --execution-environment=gen2 \
-  --set-env-vars="GCP_PROJECT=${PROJECT_ID},VERTEX_REGION=${VERTEX_REGION},VERTEX_MODEL=${VERTEX_MODEL},NODE_ENV=production,LOG_LEVEL=info,FIRESTORE_DB=(default),TM_BOOTSTRAP_ALLOW=${TM_BOOTSTRAP_ALLOW:-0},VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:ops@aether.dmj.one},CLOUD_TASKS_QUEUE=${TASKS_QUEUE},CLOUD_TASKS_LOCATION=${TASKS_LOCATION},MSG91_API_KEY=${MSG91_API_KEY:-},KARIX_API_KEY=${KARIX_API_KEY:-},TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-},TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-},TWILIO_FROM=${TWILIO_FROM:-}"
+  --set-env-vars="GCP_PROJECT=${PROJECT_ID},VERTEX_REGION=${VERTEX_REGION},VERTEX_MODEL=${VERTEX_MODEL},NODE_ENV=production,LOG_LEVEL=info,FIRESTORE_DB=(default),TM_BOOTSTRAP_ALLOW=${TM_BOOTSTRAP_ALLOW:-0},VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:ops@aether.dmj.one},CLOUD_TASKS_QUEUE=${TASKS_QUEUE},CLOUD_TASKS_LOCATION=${TASKS_LOCATION},MSG91_API_KEY=${MSG91_API_KEY:-},KARIX_API_KEY=${KARIX_API_KEY:-},TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-},TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-},TWILIO_FROM=${TWILIO_FROM:-}" \
+  --clear-secrets
 # MVP posture: NO Secret Manager bindings (zero idle Secret Manager cost).
 # Runtime modules fall back to in-memory ephemeral keys / no telco / no SMS
 # webhook on every cold start. Existing sessions die when Cloud Run scales
