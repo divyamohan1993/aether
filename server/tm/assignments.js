@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import * as fsMod from './firestore.js';
 import * as auditMod from './audit.js';
 import { ApiError, ScopeError, NotFoundError } from './_errors.js';
+import { pickLocale, t } from './i18n.js';
 
 // Test injection seams. Production binds these to firestore.js / audit.js;
 // the watchdog lane's tests swap them in-process so SYSTEM_AI assignment
@@ -54,45 +55,62 @@ function fmtPhone(p) {
   return typeof p === 'string' ? p : '';
 }
 
-// Worker-facing English summary. Re-generated every time a status moves.
-// Localising to other languages is deferred; the field is structured so
-// future locales can be added without breaking polls.
-export function summaryFor(workerStatus, assignments) {
+// Worker-facing summary, localised. Re-generated every time a status
+// moves. Locale resolution is the caller's job: pass the dispatch's
+// already-picked locale, or omit and we fall back to English. The
+// field is structured so future locales can be added without breaking
+// polls.
+export function summaryFor(workerStatus, assignments, locale = 'en') {
+  const loc = locale || 'en';
   const active = (assignments || []).filter((a) =>
     a && a.status !== 'completed' && a.status !== 'cancelled');
   const lead = active[0] || null;
   if (workerStatus === 'received') {
-    return 'Request received. Dispatcher reviewing now.';
+    return t(loc, 'sm_received');
   }
   if (workerStatus === 'under_review') {
-    return 'Dispatcher is matching the right responders to your case.';
+    return t(loc, 'sm_under_review');
   }
   if (workerStatus === 'cancelled') {
-    return 'Request cancelled. If you still need help, raise a fresh SOS.';
+    return t(loc, 'sm_cancelled');
   }
   if (workerStatus === 'resolved') {
-    return 'Responders have closed this case. Stay safe.';
+    return t(loc, 'sm_resolved');
   }
-  if (!lead) return 'Resources are being arranged. Hold on.';
+  if (!lead) return t(loc, 'sm_resources_assigned');
   const parts = [];
   const name = lead.unit_name || 'Unit';
   if (workerStatus === 'on_scene' || lead.status === 'on_scene') {
-    parts.push(`${name} on scene.`);
+    parts.push(t(loc, 'sm_on_scene', { unit_name: name }));
   } else if (workerStatus === 'en_route' || lead.status === 'en_route') {
-    parts.push(`${name} en route.`);
+    parts.push(t(loc, 'sm_en_route', { unit_name: name }));
   } else {
-    parts.push(`${name} dispatched.`);
+    parts.push(t(loc, 'sm_dispatched', { unit_name: name }));
   }
   if (Number.isFinite(Number(lead.eta_minutes))) {
-    parts.push(`ETA ${Math.max(0, Math.floor(Number(lead.eta_minutes)))} minutes.`);
+    const minutes = Math.max(0, Math.floor(Number(lead.eta_minutes)));
+    parts.push(t(loc, 'sm_eta', { minutes }));
   }
   if (lead.contact_phone) {
-    parts.push(`Call ${lead.contact_phone}.`);
+    parts.push(t(loc, 'sm_call', { phone: lead.contact_phone }));
   }
   if (active.length > 1) {
-    parts.push(`+${active.length - 1} more resources tasked.`);
+    parts.push(t(loc, 'sm_more_resources', { n: active.length - 1 }));
   }
   return parts.join(' ');
+}
+
+// Resolve the locale a dispatch should render in. Triage's
+// language_detected is the strongest signal (Vertex sees the actual
+// audio); the caller's lang_hint is a fallback; finally English.
+export function resolveDispatchLocale(dispatch) {
+  if (!dispatch || typeof dispatch !== 'object') return 'en';
+  if (typeof dispatch.locale === 'string' && dispatch.locale) {
+    return pickLocale(dispatch.locale, null);
+  }
+  const triageLang = dispatch.triage && typeof dispatch.triage === 'object'
+    ? dispatch.triage.language_detected : null;
+  return pickLocale(triageLang, dispatch.lang_hint || null);
 }
 
 function denormaliseAssignment(aid, a) {
@@ -190,7 +208,8 @@ export async function assignUnit(actor, dispatchId, body, signatureB64) {
       by_uid: actor.uid,
       note: note || null
     });
-    const summary = summaryFor(nextWorkerStatus, assignments);
+    const locale = resolveDispatchLocale(dispatch);
+    const summary = summaryFor(nextWorkerStatus, assignments, locale);
 
     tx.update('tm_dispatches', dispatchId, {
       assignments,
@@ -309,7 +328,8 @@ export async function updateAssignment(actor, aid, body) {
           status: workerStatus, ts: nowIso, by_uid: actor.uid, note: note || null
         })
       : (Array.isArray(dispatch.worker_status_history) ? dispatch.worker_status_history : []);
-    const summary = summaryFor(workerStatus, assignments);
+    const locale = resolveDispatchLocale(dispatch);
+    const summary = summaryFor(workerStatus, assignments, locale);
 
     tx.update('tm_dispatches', a.dispatch_id, {
       assignments,
@@ -373,4 +393,4 @@ export async function readWorkerStatus(actor, dispatchId) {
 }
 
 export const VALID_WORKER_STATUSES = WORKER_STATUSES;
-export const _internal = { summaryFor, ASSIGNMENT_STATUSES };
+export const _internal = { summaryFor, resolveDispatchLocale, ASSIGNMENT_STATUSES };
