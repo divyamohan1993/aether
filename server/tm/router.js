@@ -15,6 +15,7 @@ import * as dispatches from './dispatches.js';
 import * as units from './units.js';
 import * as assignments from './assignments.js';
 import * as dss from './dss.js';
+import * as audit from './audit.js';
 import { FirestoreError } from './firestore.js';
 import { ApiError, ScopeError, NotFoundError, ConflictError } from './_errors.js';
 
@@ -129,6 +130,9 @@ function mapError(e) {
   }
   if (e && e.name === 'AuthError') {
     return { status: e.status || 401, code: e.code || 'unauthorized', message: e.message || 'Unauthorized.' };
+  }
+  if (e && (e.name === 'AuditAccessError' || e.name === 'AuditWriteError')) {
+    return { status: e.status || 403, code: e.code || 'forbidden', message: e.message || 'Forbidden.' };
   }
   if (e instanceof ScopeError) return { status: 403, code: e.code || 'forbidden', message: e.message || 'Forbidden.' };
   if (e instanceof NotFoundError) return { status: 404, code: e.code || 'not_found', message: e.message || 'Not found.' };
@@ -585,6 +589,30 @@ async function dispatchApi(req, res, sub, url, ctx) {
     return sendError(res, 405, 'method_not_allowed', 'Use GET, PATCH, or DELETE.', { Allow: 'GET, PATCH, DELETE' });
   }
 
+  if (sub === 'audit/verify') {
+    if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
+    const fromSeqRaw = parseInt(url.searchParams.get('from_seq') || '0', 10);
+    const fromSeq = Number.isFinite(fromSeqRaw) && fromSeqRaw >= 0 ? fromSeqRaw : 0;
+    const limitRaw = parseInt(url.searchParams.get('limit') || '1000', 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 1000) : 1000;
+    return sendJson(res, 200, await audit.handleVerify(actor, { fromSeq, limit }));
+  }
+
+  if (sub === 'audit/list') {
+    if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
+    const filters = {
+      actor_uid: url.searchParams.get('actor_uid') || undefined,
+      action: url.searchParams.get('action') || undefined,
+      target_ref: url.searchParams.get('target_ref') || undefined,
+      since: url.searchParams.get('since') || undefined,
+      until: url.searchParams.get('until') || undefined
+    };
+    const limitRaw = parseInt(url.searchParams.get('limit') || '50', 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 50;
+    const includeSig = url.searchParams.get('include_signatures') === '1' || url.searchParams.get('include_signatures') === 'true';
+    return sendJson(res, 200, await audit.handleList(actor, filters, { limit, include_signatures: includeSig }));
+  }
+
   if (sub.startsWith('assignments/')) {
     const aid = decodeURIComponent(sub.slice('assignments/'.length));
     if (!aid || aid.includes('/')) return sendError(res, 404, 'not_found', 'No such assignment route.');
@@ -665,7 +693,9 @@ export async function route(req, res, url, ctx) {
           'POST /api/v1/tm/dispatches/:id/assign',
           'GET|POST /api/v1/tm/units',
           'GET|PATCH|DELETE /api/v1/tm/units/:unit_id',
-          'PATCH /api/v1/tm/assignments/:aid'
+          'PATCH /api/v1/tm/assignments/:aid',
+          'GET /api/v1/tm/audit/verify',
+          'GET /api/v1/tm/audit/list'
         ]
       });
       return true;
