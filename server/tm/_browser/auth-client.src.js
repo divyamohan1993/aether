@@ -1,12 +1,22 @@
 // Project Aether · Task Manager · browser auth client (source).
 //
-// Bundled to /web/tm/auth-client.js by tools/build-auth-client.mjs using
-// esbuild. The bundle is what ships; this source is checked in for
-// review and reproducibility. The browser cannot do bare ESM imports of
-// npm packages, so the bundle is the only artifact loaded by the page.
+// Bundled to /web/tm/auth-client.js by `esbuild`. The bundle is what
+// ships; this source is checked in for review and reproducibility.
+//
+// Two responsibilities live here:
+//   1. ML-DSA-65 keypair gen + login challenge sign (one-shot at login).
+//   2. HMAC-SHA256 per-action signature (every mutating call).
+//
+// `canonicalActionMessage` is imported from server/tm/canonical.js so
+// the wire-format string is byte-identical to what the server
+// canonicalises before HMAC verify. Drift between client and server
+// canonicals is what broke the previous build; sharing the file makes
+// it impossible.
 
 import { ml_dsa65 } from '@noble/post-quantum/ml-dsa.js';
 import { argon2id } from '@noble/hashes/argon2.js';
+
+import { canonicalActionMessage } from '../canonical.js';
 
 const ARGON_T = 3;
 const ARGON_M = 64 * 1024;
@@ -101,11 +111,34 @@ async function decryptPriv(saltB64, ivB64, ctB64, passphrase) {
   return pt;
 }
 
+// hmacActionSig — ~50 byte equivalent of the old 3.3 KB ML-DSA per-action
+// signature. Caller passes the session-bound action key (32 raw bytes,
+// returned in the login response and rotated on every authenticated
+// call) plus the canonical args. Returns base64url over 32-byte tag.
+async function hmacActionSig(actionKeyBytes, args) {
+  if (!(actionKeyBytes instanceof Uint8Array) || actionKeyBytes.length !== 32) {
+    throw new Error('TM_BAD_ACTION_KEY: action key must be 32 bytes');
+  }
+  const message = canonicalActionMessage(args);
+  const c = getCrypto();
+  const key = await c.subtle.importKey(
+    'raw',
+    actionKeyBytes,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const tag = new Uint8Array(await c.subtle.sign('HMAC', key, utf8(message)));
+  return b64u(tag);
+}
+
 export {
   generateKeypair,
   encryptPriv,
   decryptPriv,
   sign,
+  hmacActionSig,
+  canonicalActionMessage,
   b64,
   b64Dec,
   b64u,

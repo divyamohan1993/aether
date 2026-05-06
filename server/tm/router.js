@@ -15,6 +15,7 @@ import * as dispatches from './dispatches.js';
 import * as units from './units.js';
 import * as assignments from './assignments.js';
 import * as dss from './dss.js';
+import * as audit from './audit.js';
 import { FirestoreError } from './firestore.js';
 import { ApiError, ScopeError, NotFoundError, ConflictError } from './_errors.js';
 
@@ -86,6 +87,17 @@ function sendError(res, status, code, message, extraHeaders = {}) {
   sendJson(res, status, { error: { code, message } }, extraHeaders);
 }
 
+// Forwards the rotated action key from a verified HMAC sig back to the
+// client as response headers. The client swaps these in for the next
+// request; old key has a 30s grace window on the server.
+function nextKeyHeaders(verified) {
+  if (!verified || !verified.next_action_key_b64) return {};
+  return {
+    'X-Next-Action-Key': verified.next_action_key_b64,
+    'X-Next-Action-Key-Id': verified.next_action_key_id
+  };
+}
+
 async function readJsonBody(req) {
   const lengthHeader = req.headers['content-length'];
   if (lengthHeader) {
@@ -129,6 +141,9 @@ function mapError(e) {
   }
   if (e && e.name === 'AuthError') {
     return { status: e.status || 401, code: e.code || 'unauthorized', message: e.message || 'Unauthorized.' };
+  }
+  if (e && (e.name === 'AuditAccessError' || e.name === 'AuditWriteError')) {
+    return { status: e.status || 403, code: e.code || 'forbidden', message: e.message || 'Forbidden.' };
   }
   if (e instanceof ScopeError) return { status: 403, code: e.code || 'forbidden', message: e.message || 'Forbidden.' };
   if (e instanceof NotFoundError) return { status: 404, code: e.code || 'not_found', message: e.message || 'Not found.' };
@@ -360,11 +375,9 @@ async function dispatchApi(req, res, sub, url, ctx) {
     if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
     const body = await readJsonBody(req);
     const mod = await getAuth();
-    if (typeof mod.requireFreshUserSig === 'function') {
-      const payload = `invite|${body?.email || ''}|${body?.tier || ''}|${body?.parent_uid || ''}|${body?.scope_path || ''}`;
-      await mod.requireFreshUserSig(actor, 'user.invite', payload, body?.signature_b64);
-    }
-    return sendJson(res, 200, await users.inviteUser(actor, body, body?.signature_b64));
+    const target = `invite|${body?.email || ''}|${body?.tier || ''}|${body?.parent_uid || ''}|${body?.scope_path || ''}`;
+    const verified = await mod.requireFreshHmacSig(actor, 'user.invite', target, req.headers);
+    return sendJson(res, 200, await users.inviteUser(actor, body, body?.signature_b64), nextKeyHeaders(verified));
   }
 
   if (sub.startsWith('users/')) {
@@ -379,10 +392,8 @@ async function dispatchApi(req, res, sub, url, ctx) {
       const newTier = Number(body?.new_tier);
       const sig = body?.signature_b64;
       const mod = await getAuth();
-      if (typeof mod.requireFreshUserSig === 'function') {
-        await mod.requireFreshUserSig(actor, 'user.delegate', `delegate|${uid}|${newTier}`, sig);
-      }
-      return sendJson(res, 200, await users.delegate(actor, uid, newTier, sig));
+      const verified = await mod.requireFreshHmacSig(actor, 'user.delegate', `delegate|${uid}|${newTier}`, req.headers);
+      return sendJson(res, 200, await users.delegate(actor, uid, newTier, sig), nextKeyHeaders(verified));
     }
     if (action === 'suspend') {
       if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
@@ -428,10 +439,8 @@ async function dispatchApi(req, res, sub, url, ctx) {
       const body = await readJsonBody(req).catch(() => ({}));
       const sig = body?.signature_b64;
       const mod = await getAuth();
-      if (typeof mod.requireFreshUserSig === 'function') {
-        await mod.requireFreshUserSig(actor, 'project.archive', `project.archive|${pid}`, sig);
-      }
-      return sendJson(res, 200, await projects.archive(actor, pid, sig));
+      const verified = await mod.requireFreshHmacSig(actor, 'project.archive', `project.archive|${pid}`, req.headers);
+      return sendJson(res, 200, await projects.archive(actor, pid, sig), nextKeyHeaders(verified));
     }
     return sendError(res, 405, 'method_not_allowed', 'Use GET, PATCH, or DELETE.', { Allow: 'GET, PATCH, DELETE' });
   }
@@ -461,14 +470,13 @@ async function dispatchApi(req, res, sub, url, ctx) {
     if (method === 'PATCH') {
       const body = await readJsonBody(req);
       let sig = null;
-      if (body?.signature_b64 && body?.assignee_uid !== undefined) {
-        sig = body.signature_b64;
+      let verified = null;
+      if (body?.assignee_uid !== undefined) {
+        sig = body?.signature_b64 || null;
         const mod = await getAuth();
-        if (typeof mod.requireFreshUserSig === 'function') {
-          await mod.requireFreshUserSig(actor, 'task.assign', `task.assign|${tid}|${body.assignee_uid || ''}`, sig);
-        }
+        verified = await mod.requireFreshHmacSig(actor, 'task.assign', `task.assign|${tid}|${body.assignee_uid || ''}`, req.headers);
       }
-      return sendJson(res, 200, await tasks.update(actor, tid, body, sig));
+      return sendJson(res, 200, await tasks.update(actor, tid, body, sig), nextKeyHeaders(verified));
     }
     if (method === 'DELETE') {
       return sendJson(res, 200, await tasks.archive(actor, tid));
@@ -512,15 +520,15 @@ async function dispatchApi(req, res, sub, url, ctx) {
       const body = await readJsonBody(req);
       const sig = body?.action_signature_b64 || body?.signature_b64;
       const mod = await getAuth();
-      if (typeof mod.requireFreshUserSig === 'function') {
-        await mod.requireFreshUserSig(actor, 'dispatch.escalate', `dispatch.escalate|${did}`, sig);
-      }
-      return sendJson(res, 200, await dispatches.escalate(actor, did, body, sig));
+      const verified = await mod.requireFreshHmacSig(actor, 'dispatch.escalate', `dispatch.escalate|${did}`, req.headers);
+      return sendJson(res, 200, await dispatches.escalate(actor, did, body, sig), nextKeyHeaders(verified));
     }
     if (action === 'review') {
       if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
       const body = await readJsonBody(req).catch(() => ({}));
-      return sendJson(res, 200, await dispatches.markReviewed(actor, did, body));
+      const mod = await getAuth();
+      const verified = await mod.requireFreshHmacSig(actor, 'dispatch.review', `dispatch.review|${did}`, req.headers);
+      return sendJson(res, 200, await dispatches.markReviewed(actor, did, body), nextKeyHeaders(verified));
     }
     if (action === 'status') {
       if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
@@ -538,10 +546,8 @@ async function dispatchApi(req, res, sub, url, ctx) {
       const body = await readJsonBody(req);
       const sig = body?.action_signature_b64 || body?.signature_b64;
       const mod = await getAuth();
-      if (typeof mod.requireFreshUserSig === 'function') {
-        await mod.requireFreshUserSig(actor, 'dispatch.assign', `dispatch.assign|${did}|${body?.unit_id || ''}`, sig);
-      }
-      return sendJson(res, 200, await assignments.assignUnit(actor, did, body, sig));
+      const verified = await mod.requireFreshHmacSig(actor, 'dispatch.assign', `dispatch.assign|${did}|${body?.unit_id || ''}`, req.headers);
+      return sendJson(res, 200, await assignments.assignUnit(actor, did, body, sig), nextKeyHeaders(verified));
     }
     return sendError(res, 404, 'not_found', 'No such dispatch route.');
   }
@@ -577,23 +583,20 @@ async function dispatchApi(req, res, sub, url, ctx) {
       const body = await readJsonBody(req);
       const wantsSig = body?.scope_path !== undefined || body?.contact_phone !== undefined || body?.name !== undefined;
       let sig = null;
+      let verified = null;
       if (wantsSig) {
-        sig = body?.action_signature_b64 || body?.signature_b64;
+        sig = body?.action_signature_b64 || body?.signature_b64 || null;
         const mod = await getAuth();
-        if (typeof mod.requireFreshUserSig === 'function') {
-          await mod.requireFreshUserSig(actor, 'unit.update', `unit.update|${uid}`, sig);
-        }
+        verified = await mod.requireFreshHmacSig(actor, 'unit.update', `unit.update|${uid}`, req.headers);
       }
-      return sendJson(res, 200, await units.update(actor, uid, body, sig));
+      return sendJson(res, 200, await units.update(actor, uid, body, sig), nextKeyHeaders(verified));
     }
     if (method === 'DELETE') {
       const body = await readJsonBody(req).catch(() => ({}));
       const sig = body?.action_signature_b64 || body?.signature_b64;
       const mod = await getAuth();
-      if (typeof mod.requireFreshUserSig === 'function') {
-        await mod.requireFreshUserSig(actor, 'unit.archive', `unit.archive|${uid}`, sig);
-      }
-      return sendJson(res, 200, await units.archive(actor, uid, sig));
+      const verified = await mod.requireFreshHmacSig(actor, 'unit.archive', `unit.archive|${uid}`, req.headers);
+      return sendJson(res, 200, await units.archive(actor, uid, sig), nextKeyHeaders(verified));
     }
     return sendError(res, 405, 'method_not_allowed', 'Use GET, PATCH, or DELETE.', { Allow: 'GET, PATCH, DELETE' });
   }
@@ -603,7 +606,10 @@ async function dispatchApi(req, res, sub, url, ctx) {
     if (!aid || aid.includes('/')) return sendError(res, 404, 'not_found', 'No such assignment route.');
     if (method === 'PATCH') {
       const body = await readJsonBody(req);
-      return sendJson(res, 200, await assignments.updateAssignment(actor, aid, body));
+      const status = String(body?.status || '');
+      const mod = await getAuth();
+      const verified = await mod.requireFreshHmacSig(actor, 'assignment.update', `assignment.update|${aid}|${status}`, req.headers);
+      return sendJson(res, 200, await assignments.updateAssignment(actor, aid, body), nextKeyHeaders(verified));
     }
     return sendError(res, 405, 'method_not_allowed', 'Use PATCH.', { Allow: 'PATCH' });
   }

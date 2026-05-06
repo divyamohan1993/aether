@@ -1,4 +1,4 @@
-import {generateKeypair,encryptPriv,decryptPriv,sign,b64,b64u,b64uDec,utf8,utf8Dec} from './auth-client.js';
+import {generateKeypair,encryptPriv,decryptPriv,sign,hmacActionSig,canonicalActionMessage,b64,b64Dec,b64u,b64uDec,utf8,utf8Dec} from './auth-client.js';
 
 const API='/api/v1/tm';
 const SS='aether-tm-session';
@@ -97,15 +97,22 @@ const TIER_LABEL={100:T.tier_ndma,80:T.tier_state,60:T.tier_district,40:T.tier_r
 const STATUS_KEYS=['open','in_progress','blocked','done','cancelled'];
 const STATUS_LABEL={open:T.t_open,in_progress:T.t_inp,blocked:T.t_blk,done:T.t_done,cancelled:'Cancelled'};
 
+// Compact bearer is opaque to the client; uid + tier + scope_path now
+// arrive in the verify response body and are stashed alongside the
+// token. The 32-byte action_key (returned ONCE at login) signs every
+// per-action HMAC. The server rotates it on each verified action and
+// returns the next key in X-Next-Action-Key headers.
 const session={
- set(token,email){sessionStorage.setItem(SS,JSON.stringify({token,email}))},
+ set(rec){sessionStorage.setItem(SS,JSON.stringify(rec))},
  get(){
   try{
    const r=sessionStorage.getItem(SS);if(!r)return null;
-   const w=JSON.parse(r);
-   const p=JSON.parse(utf8Dec(b64uDec(w.token.split('.')[1])));
-   return Object.assign({},w,p);
+   return JSON.parse(r);
   }catch{return null}
+ },
+ patch(p){
+  const cur=session.get()||{};
+  sessionStorage.setItem(SS,JSON.stringify(Object.assign(cur,p)));
  },
  clear(){sessionStorage.removeItem(SS)}
 };
@@ -114,8 +121,24 @@ async function api(path,opts){
  opts=opts||{};
  const s=session.get();
  const h=Object.assign({'Content-Type':'application/json'},opts.headers||{});
- if(s)h.Authorization='Bearer '+s.token;
+ if(s&&s.token)h.Authorization='Bearer '+s.token;
+ // sigSpec={action,target} → compute HMAC over canonical(uid,action,target,ts,key_id)
+ // and attach as X-Action-* headers. Bandwidth: ~50 B vs ~7 KB ML-DSA.
+ if(opts.sigSpec&&s&&s.action_key_b64&&s.key_id&&s.uid){
+  const ts=Math.floor(Date.now()/1000);
+  const keyBytes=b64Dec(s.action_key_b64);
+  const sig=await hmacActionSig(keyBytes,{uid:s.uid,action:opts.sigSpec.action,target:opts.sigSpec.target,ts,key_id:s.key_id});
+  keyBytes.fill(0);
+  h['X-Action-Sig']=sig;
+  h['X-Action-Ts']=String(ts);
+  h['X-Action-Key-Id']=s.key_id;
+ }
  const r=await fetch(API+path,{method:opts.method||'GET',headers:h,body:opts.body===undefined?undefined:JSON.stringify(opts.body)});
+ const nextKey=r.headers.get('X-Next-Action-Key');
+ const nextKeyId=r.headers.get('X-Next-Action-Key-Id');
+ if(nextKey&&nextKeyId&&session.get()){
+  session.patch({action_key_b64:nextKey,key_id:nextKeyId});
+ }
  if(r.status===401){session.clear();location.hash='#/login';throw new Error(T.err_creds)}
  let j={};try{j=await r.json()}catch{}
  if(!r.ok){const e=new Error((j.error&&j.error.message)||T.err_net);e.code=j.error&&j.error.code;e.status=r.status;throw e}
@@ -157,7 +180,15 @@ async function login(email,pass){
   const c=await api('/auth/challenge',{method:'POST',body:{email}});
   const sig=sign(priv,utf8(DOMAIN+email+':'+c.challenge_b64));
   const v=await api('/auth/verify',{method:'POST',body:{email,ch_id:c.ch_id,signature_b64:sig}});
-  session.set(v.token,email);
+  session.set({
+   token:v.token,
+   email,
+   uid:v.user&&v.user.uid,
+   tier:v.user&&v.user.tier,
+   scope_path:v.user&&v.user.scope_path,
+   action_key_b64:v.action_key_b64,
+   key_id:v.key_id
+  });
  }finally{wipe(priv)}
 }
 
@@ -173,48 +204,27 @@ async function register(token,name,pass){
  try{
   const e=await encryptPriv(kp.priv,pass);
   const pubkey_b64=b64(kp.pub);
-  await api('/auth/register',{method:'POST',body:{invite_token:token,name,pubkey_b64}});
+  await api('/auth/register',{method:'POST',body:{invite_id:token,name,pubkey_b64}});
   await putKeyring({email:inv.email,salt:e.saltB64,iv:e.ivB64,ct:e.ctB64,pubkey_b64,created_at:new Date().toISOString()});
   return inv.email;
  }finally{wipe(kp.priv)}
 }
 
-function confirmAction(payload,desc){
- return new Promise(res=>{
-  const dlg=$('#dlgSign'),form=$('#fSign'),pass=$('#dlgPass'),err=$('#dlgErr'),cancel=$('#dlgCancel'),descEl=$('#dlgSignDesc'),ok=$('#dlgOk');
-  let result=null;
-  err.textContent='';pass.value='';descEl.textContent=desc||T.sign_desc;ok.disabled=false;
-  const finish=v=>{result=v;dlg.close()};
-  const onSubmit=async e=>{
-   e.preventDefault();err.textContent='';
-   const s=session.get();if(!s||!s.email){finish(null);return}
-   const rec=await getKeyring(s.email);
-   if(!rec){err.textContent=T.err_nokey;return}
-   ok.disabled=true;
-   let priv;
-   try{priv=await decryptPriv(rec.salt,rec.iv,rec.ct,pass.value)}
-   catch{err.textContent=T.err_pass;ok.disabled=false;return}
-   try{
-    const sig=sign(priv,utf8(JSON.stringify(Object.assign({uid:s.uid,ts:Date.now()},payload))));
-    finish(sig);
-   }finally{wipe(priv);pass.value=''}
-  };
-  const onCancel=()=>finish(null);
-  const onClick=e=>{if(e.target===dlg)finish(null)};
-  const onClose=()=>{
-   form.removeEventListener('submit',onSubmit);
-   cancel.removeEventListener('click',onCancel);
-   dlg.removeEventListener('click',onClick);
-   pass.value='';
-   res(result);
-  };
-  form.addEventListener('submit',onSubmit);
-  cancel.addEventListener('click',onCancel);
-  dlg.addEventListener('click',onClick);
-  dlg.addEventListener('close',onClose,{once:true});
-  dlg.showModal();
-  pass.focus();
- });
+// Per-action signing is now an HMAC over a session-bound key, computed
+// inline in api(). The old passphrase-prompt modal is gone for the
+// fast path. We keep the helper as a thin guard so call sites can
+// short-circuit if the session lost its action key (e.g. SW reloaded
+// the tab without the live keying material) and bail early with a
+// re-login.
+function actionReady(){
+ const s=session.get();
+ return !!(s&&s.token&&s.action_key_b64&&s.key_id&&s.uid);
+}
+function requireActionKey(){
+ if(actionReady())return true;
+ session.clear();
+ location.hash='#/login';
+ return false;
 }
 
 let usersCache=null;
@@ -399,9 +409,8 @@ async function viewProjects(){
    }</tbody></table></div>`;
    $$('#plist .arch').forEach(b=>b.addEventListener('click',async()=>{
     const pid=b.dataset.p;
-    const sig=await confirmAction({action:'project.archive',target:'tm_projects/'+pid});
-    if(!sig)return;
-    try{await api('/projects/'+encodeURIComponent(pid),{method:'DELETE',body:{action_signature_b64:sig}});viewProjects()}
+    if(!requireActionKey())return;
+    try{await api('/projects/'+encodeURIComponent(pid),{method:'DELETE',body:{},sigSpec:{action:'project.archive',target:'project.archive|'+pid}});viewProjects()}
     catch(err){alert(err.message||T.err_net)}
    }));
   }
@@ -508,10 +517,9 @@ function renderTaskTable(host,items,reload){
  host.querySelectorAll('select.sAssign').forEach(s=>s.addEventListener('change',async()=>{
   const tid=s.dataset.t,prev=s.dataset.prev||'',next=s.value;
   if(prev===next)return;
-  const sig=await confirmAction({action:'task.assign',target:'tm_tasks/'+tid,assignee_uid:next||null});
-  if(!sig){s.value=prev;return}
+  if(!requireActionKey()){s.value=prev;return}
   try{
-   await api('/tasks/'+encodeURIComponent(tid),{method:'PATCH',body:{assignee_uid:next||null,action_signature_b64:sig}});
+   await api('/tasks/'+encodeURIComponent(tid),{method:'PATCH',body:{assignee_uid:next||null},sigSpec:{action:'task.assign',target:'task.assign|'+tid+'|'+(next||'')}});
    s.dataset.prev=next;
   }catch(err){alert(err.message||T.err_net);s.value=prev}
  }));
@@ -545,10 +553,9 @@ async function viewUsers(){
     const newTier=Number(sel.value);
     const prev=Number(sel.dataset.prev);
     if(newTier===prev)return;
-    const sig=await confirmAction({action:'user.delegate',target:'tm_users/'+uid,tier:newTier});
-    if(!sig){sel.value=prev;return}
+    if(!requireActionKey()){sel.value=prev;return}
     try{
-     await api('/users/'+encodeURIComponent(uid)+'/delegate',{method:'POST',body:{tier:newTier,action_signature_b64:sig}});
+     await api('/users/'+encodeURIComponent(uid)+'/delegate',{method:'POST',body:{new_tier:newTier},sigSpec:{action:'user.delegate',target:'delegate|'+uid+'|'+newTier}});
      usersCache=null;
      viewUsers();
     }catch(err){alert(err.message||T.err_net);sel.value=prev}
@@ -658,9 +665,10 @@ async function renderDispDetail(id,d){
   });
   host.querySelectorAll('.asnSet').forEach(s=>s.addEventListener('change',async()=>{
    const aid=s.dataset.aid,next=s.value;
+   if(!requireActionKey())return;
    s.disabled=true;
    try{
-    await api('/assignments/'+encodeURIComponent(aid),{method:'PATCH',body:{status:next}});
+    await api('/assignments/'+encodeURIComponent(aid),{method:'PATCH',body:{status:next},sigSpec:{action:'assignment.update',target:'assignment.update|'+aid+'|'+next}});
     viewDispatches();
    }catch(err){alert(err.message||T.err_net)}
    finally{s.disabled=false}
@@ -669,10 +677,9 @@ async function renderDispDetail(id,d){
 }
 
 async function doAssign(dispatchId,unitId,eta,note){
- const sig=await confirmAction({action:'dispatch.assign',target:'tm_dispatches/'+dispatchId,unit_id:unitId});
- if(!sig)return;
+ if(!requireActionKey())return;
  try{
-  await api('/dispatches/'+encodeURIComponent(dispatchId)+'/assign',{method:'POST',body:{unit_id:unitId,eta_minutes:eta,note,action_signature_b64:sig}});
+  await api('/dispatches/'+encodeURIComponent(dispatchId)+'/assign',{method:'POST',body:{unit_id:unitId,eta_minutes:eta,note},sigSpec:{action:'dispatch.assign',target:'dispatch.assign|'+dispatchId+'|'+unitId}});
   viewDispatches();
  }catch(err){alert(err.message||T.err_net)}
 }
@@ -756,15 +763,16 @@ async function viewDispatches(){
    }));
    $$('#dlist .dEsc').forEach(b=>b.addEventListener('click',async()=>{
     const id=b.dataset.id;
-    const sig=await confirmAction({action:'dispatch.escalate',target:'tm_dispatches/'+id});
-    if(!sig)return;
+    if(!requireActionKey())return;
     b.disabled=true;
-    try{await api('/dispatches/'+encodeURIComponent(id)+'/escalate',{method:'POST',body:{action_signature_b64:sig}});viewDispatches()}
+    try{await api('/dispatches/'+encodeURIComponent(id)+'/escalate',{method:'POST',body:{},sigSpec:{action:'dispatch.escalate',target:'dispatch.escalate|'+id}});viewDispatches()}
     catch(err){alert(err.message||T.err_net);b.disabled=false}
    }));
    $$('#dlist .dRev').forEach(b=>b.addEventListener('click',async()=>{
-    const id=b.dataset.id;b.disabled=true;
-    try{await api('/dispatches/'+encodeURIComponent(id)+'/review',{method:'POST',body:{}});viewDispatches()}
+    const id=b.dataset.id;
+    if(!requireActionKey())return;
+    b.disabled=true;
+    try{await api('/dispatches/'+encodeURIComponent(id)+'/review',{method:'POST',body:{},sigSpec:{action:'dispatch.review',target:'dispatch.review|'+id}});viewDispatches()}
     catch(err){alert(err.message||T.err_net);b.disabled=false}
    }));
   }
@@ -826,10 +834,9 @@ async function viewUnits(){
    }));
    $$('#ulistU .uArc').forEach(b=>b.addEventListener('click',async()=>{
     const uid=b.dataset.u;
-    const sig=await confirmAction({action:'unit.archive',target:'tm_units/'+uid});
-    if(!sig)return;
+    if(!requireActionKey())return;
     b.disabled=true;
-    try{await api('/units/'+encodeURIComponent(uid),{method:'DELETE',body:{action_signature_b64:sig}});reload()}
+    try{await api('/units/'+encodeURIComponent(uid),{method:'DELETE',body:{},sigSpec:{action:'unit.archive',target:'unit.archive|'+uid}});reload()}
     catch(err){alert(err.message||T.err_net);b.disabled=false}
    }));
   }catch(err){flash($('#ulistU'),err.message||T.err_net,'err')}
