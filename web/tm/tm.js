@@ -323,7 +323,10 @@ function flash(node,msg,cls){node.innerHTML=`<p class="${cls||'muted'}" role=sta
 
 const DEMO_PASS='aether-demo-2026';
 async function loadDemoCreds(){
- const r=await fetch('/demo/credentials.json',{cache:'force-cache'});
+ // Demo creds regenerate on every seed. force-cache pinned old ciphertexts
+ // forever and broke every login after a re-seed; use no-store so the
+ // browser always picks up the latest blob the demo portal shipped.
+ const r=await fetch('/demo/credentials.json',{cache:'no-store'});
  if(!r.ok)throw new Error('demo_unavailable');
  return await r.json();
 }
