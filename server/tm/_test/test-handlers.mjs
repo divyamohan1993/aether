@@ -2217,7 +2217,6 @@ setAuthUsers(fakeUsers);
   }
 }
 
- (phone-identity: tests + deploy env / secret refs)
 if (failed === 0) {
   process.stdout.write('OK\n');
   process.exit(0);
