@@ -1944,6 +1944,239 @@ setAuthUsers(fakeUsers);
 }
 
 
+// ---------------------------------------------------------------------------
+// survivor-anon lane. Heartbeat fingerprint, body validator, rate
+// limiter, NDMA event token, recordHeartbeat upsert behaviour,
+// escalateToDispatch criticality mapping, and the /sos shell file-stat
+// budget. Numbered 50+ to leave room for the lower-numbered lanes
+// (multi-device-keys/i18n/phone-identity) to slot in their own
+// sections without renumbering.
+// ---------------------------------------------------------------------------
+{
+  const anonMod = await import('../anon.js');
+  const {
+    phoneFingerprint,
+    validateAnonBody,
+    enforceRateLimit,
+    mintEventToken,
+    verifyEventToken,
+    recordHeartbeat,
+    escalateToDispatch,
+    synthTriageFromCodes,
+    subnet24,
+    isValidFingerprint,
+    _setFirestoreForTest: setAnonFs,
+    _resetRateLimitForTest
+  } = anonMod;
+
+  // 50. phoneFingerprint stable for identical headers, distinct otherwise.
+  {
+    const h1 = { 'user-agent': 'Mozilla/5.0 (Linux; Android 10)', 'accept-language': 'en-IN,en;q=0.9' };
+    const h2 = { 'user-agent': 'Mozilla/5.0 (Linux; Android 10)', 'accept-language': 'en-IN,en;q=0.9' };
+    const h3 = { 'user-agent': 'Mozilla/5.0 (iPhone; iOS 17)', 'accept-language': 'hi-IN' };
+    const fpA = phoneFingerprint(h1);
+    const fpB = phoneFingerprint(h2);
+    const fpC = phoneFingerprint(h3);
+    ok('phoneFingerprint deterministic for identical headers', fpA === fpB);
+    ok('phoneFingerprint differs for distinct UA + lang', fpA !== fpC);
+    ok('phoneFingerprint matches survivor-<fp10> shape', isValidFingerprint(fpA) && /^survivor-[0-9a-f]{10}$/.test(fpA));
+    const fpD = phoneFingerprint({ ...h1, 'permissions-policy': 'geolocation=(self)' });
+    ok('phoneFingerprint changes when permissions-policy header changes', fpD !== fpA);
+  }
+
+  // 51. validateAnonBody rejects malformed shapes.
+  {
+    const fp = 'survivor-abcdef0123';
+    const baseBody = () => ({
+      fp, seq: 1, ts: Math.floor(Date.now() / 1000), codes: [1, 8],
+      geo: [28.6139, 77.2090, 22], bat: 87, sig: '2g', tap: 0, motion: 0.05
+    });
+    ok('validateAnonBody accepts well-formed body', validateAnonBody(baseBody()).ok === true);
+    ok('validateAnonBody rejects null', validateAnonBody(null).ok === false);
+    ok('validateAnonBody rejects array body', validateAnonBody([1, 2, 3]).ok === false);
+    const bad1 = baseBody(); bad1.fp = 'not-a-fp';
+    ok('validateAnonBody rejects bad fp', validateAnonBody(bad1).ok === false);
+    const bad2 = baseBody(); bad2.codes = [0, 1];
+    ok('validateAnonBody rejects code 0', validateAnonBody(bad2).ok === false);
+    const bad3 = baseBody(); bad3.codes = [1, 13];
+    ok('validateAnonBody rejects code 13', validateAnonBody(bad3).ok === false);
+    const bad4 = baseBody(); bad4.codes = 'one,two';
+    ok('validateAnonBody rejects non-array codes', validateAnonBody(bad4).ok === false);
+    const bad5 = baseBody(); bad5.geo = [200, 300, 0];
+    ok('validateAnonBody rejects out-of-range lat/lng', validateAnonBody(bad5).ok === false);
+    const bad6 = baseBody(); bad6.bat = 200;
+    ok('validateAnonBody rejects bat > 100', validateAnonBody(bad6).ok === false);
+    const bad7 = baseBody(); bad7.sig = 'fiber';
+    ok('validateAnonBody rejects invalid sig token', validateAnonBody(bad7).ok === false);
+    const bad8 = baseBody(); bad8.extra = 'evil';
+    ok('validateAnonBody rejects unexpected fields', validateAnonBody(bad8).ok === false);
+    const ok1 = baseBody(); ok1.geo = null;
+    ok('validateAnonBody accepts geo: null', validateAnonBody(ok1).ok === true);
+    const ok2 = baseBody(); ok2.rssi = -103;
+    ok('validateAnonBody accepts optional rssi', validateAnonBody(ok2).ok === true);
+  }
+
+  // 52. enforceRateLimit token bucket: 4th call in same /24 inside 60 s rejects.
+  {
+    _resetRateLimitForTest();
+    const ip = '203.0.113.45';
+    const fp = 'survivor-abcdef0123';
+    ok('rate limit 1st pass', enforceRateLimit(ip, fp).ok === true);
+    ok('rate limit 2nd pass', enforceRateLimit(ip, fp).ok === true);
+    ok('rate limit 3rd pass', enforceRateLimit(ip, fp).ok === true);
+    const blocked = enforceRateLimit(ip, fp);
+    ok('rate limit 4th in same minute rejects', blocked.ok === false && blocked.reason === 'minute');
+    ok('rate limit 4th carries Retry-After', Number.isFinite(blocked.retryAfter) && blocked.retryAfter > 0);
+    const otherIp = '203.0.114.1';
+    ok('rate limit different /24 has its own bucket', enforceRateLimit(otherIp, fp).ok === true);
+  }
+
+  // 53. NDMA event token mint/verify roundtrip; expired and tampered rejected;
+  //     valid token lifts the per-minute cap.
+  {
+    _resetRateLimitForTest();
+    const prev = process.env.NDMA_EVENT_HMAC_SECRET;
+    process.env.NDMA_EVENT_HMAC_SECRET = 'unit-test-secret-32bytes-min--------';
+    const validUntil = new Date(Date.now() + 3600_000).toISOString();
+    const token = mintEventToken('hp-shimla-2026-quake', validUntil);
+    ok('mintEventToken returns base64url', typeof token === 'string' && token.length > 20);
+    const verified = verifyEventToken(token);
+    ok('verifyEventToken roundtrips', verified && verified.zone_id === 'hp-shimla-2026-quake');
+    const expired = mintEventToken('hp-shimla-2026-quake', new Date(Date.now() - 60_000).toISOString());
+    ok('verifyEventToken rejects expired', verifyEventToken(expired) === null);
+    ok('verifyEventToken rejects tampered token', verifyEventToken(token + 'ZZZ') === null);
+    const ip = '203.0.115.1';
+    const fp = 'survivor-zone1abcde';
+    for (let i = 0; i < 4; i++) {
+      const r = enforceRateLimit(ip, fp, { eventToken: true });
+      ok(`rate limit pass with event token n=${i}`, r.ok === true);
+    }
+    process.env.NDMA_EVENT_HMAC_SECRET = prev;
+  }
+
+  // 54. subnet24 helper covers v4 and v6.
+  {
+    ok('subnet24 v4', subnet24('203.0.113.45') === '203.0.113.0/24');
+    ok('subnet24 v4 mapped v6', subnet24('::ffff:203.0.113.45') === '203.0.113.0/24');
+    ok('subnet24 v6 yields /48', subnet24('2401:4900:1:abc:1234::1') === '2401:4900:1::/48');
+    ok('subnet24 unknown', subnet24('') === 'unknown');
+  }
+
+  // 55. recordHeartbeat: first call creates the thread; second call merges
+  //     codes and bumps last_seen_at; statusChanged flips on new codes.
+  {
+    const fp = 'survivor-1234567890';
+    const fakeAnonFs = new FakeFs();
+    fakeAnonFs.patchDoc = async function (c, id, data) {
+      const cur = await this.getDoc(c, id);
+      if (!cur) return;
+      await this.setDoc(c, id, { ...cur, ...data });
+    };
+    setAnonFs(fakeAnonFs);
+    const body1 = {
+      fp, seq: 0, ts: Math.floor(Date.now() / 1000), codes: [1, 4],
+      geo: [28.6139, 77.2090, 30], bat: 92, sig: '2g', tap: 0, motion: 0.0
+    };
+    const r1 = await recordHeartbeat(fp, body1, '203.0.116.5');
+    ok('recordHeartbeat first call isNew', r1.isNew === true);
+    ok('recordHeartbeat first call statusChanged true', r1.statusChanged === true);
+    const stored = await fakeAnonFs.getDoc('tm_survivor_threads', fp);
+    ok('thread persisted with fp key', stored && stored.fp === fp);
+    ok('thread has initial codes', stored && Array.isArray(stored.codes) && stored.codes.includes(1) && stored.codes.includes(4));
+    ok('thread carries ip_subnet24', stored && stored.ip_subnet24 === '203.0.116.0/24');
+
+    const body2 = { ...body1, seq: 1, codes: [4, 8], tap: 3, motion: 0.2 };
+    const r2 = await recordHeartbeat(fp, body2, '203.0.116.5');
+    ok('recordHeartbeat second call isNew=false', r2.isNew === false);
+    ok('recordHeartbeat merged codes from both beats',
+      r2.thread.codes.includes(1) && r2.thread.codes.includes(4) && r2.thread.codes.includes(8));
+    ok('recordHeartbeat statusChanged true on new code 8', r2.statusChanged === true);
+    ok('recordHeartbeat seq_count incremented', r2.thread.seq_count === 2);
+
+    const body3 = { ...body1, seq: 2, codes: [1] };
+    const r3 = await recordHeartbeat(fp, body3, '203.0.116.5');
+    ok('recordHeartbeat statusChanged false on plain repeat', r3.statusChanged === false);
+
+    setAnonFs(null);
+  }
+
+  // 56. escalateToDispatch synthesizes triage from panic codes and feeds
+  //     the criticality scorer. 4 (cannot_move) + 5 (breathing difficulty)
+  //     -> CRITICAL urgency, victim flags include crush_extracted +
+  //     breathing_difficulty.
+  {
+    const fakeFs56 = new FakeFs();
+    fakeFs56.patchDoc = async function (c, id, data) {
+      const cur = await this.getDoc(c, id);
+      if (!cur) return;
+      await this.setDoc(c, id, { ...cur, ...data });
+    };
+    fakeFs56.queryDocs = async () => [];
+    setAnonFs(fakeFs56);
+    const fp = 'survivor-feed0c0de9';
+    await fakeFs56.setDoc('tm_survivor_threads', fp, {
+      fp,
+      created_at: new Date().toISOString(),
+      last_seen_at: new Date().toISOString(),
+      codes: [4, 5],
+      geo: [28.6139, 77.2090, 30],
+      bat: 50,
+      sig: '2g',
+      ip_subnet24: '203.0.117.0/24',
+      dispatch_id: null
+    });
+    const thread = await fakeFs56.getDoc('tm_survivor_threads', fp);
+    const esc = await escalateToDispatch(thread, { ip: '203.0.117.10' });
+    ok('escalateToDispatch returned id', typeof esc.id === 'string' && esc.id.length > 0);
+    ok('escalateToDispatch criticality_score > 0', Number(esc.criticality_score) > 0);
+    const dispatch = await fakeFs56.getDoc('tm_dispatches', esc.id);
+    ok('dispatch caller_tier 10', dispatch.caller_tier === 10);
+    ok('dispatch caller_scope_path survivor/<fp>', dispatch.caller_scope_path === `survivor/${fp}`);
+    ok('dispatch caller_uid is fp', dispatch.caller_uid === fp);
+    ok('dispatch phone_verified false', dispatch.phone_verified === false);
+    ok('dispatch confidence_band low', dispatch.confidence_band === 'low');
+    ok('dispatch caller_identity carries verification_channel anon',
+      dispatch.caller_identity && dispatch.caller_identity.verification_channel === 'anon');
+    ok('dispatch panic_codes preserved', Array.isArray(dispatch.panic_codes) && dispatch.panic_codes.includes(4) && dispatch.panic_codes.includes(5));
+    ok('dispatch triage urgency CRITICAL', dispatch.triage.urgency === 'CRITICAL');
+    const flags = dispatch.triage.victims[0].condition_flags;
+    ok('triage victims include crush_extracted', flags.includes('crush_extracted'));
+    ok('triage victims include breathing_difficulty', flags.includes('breathing_difficulty'));
+    ok('dispatch geohash7 set', typeof dispatch.geohash7 === 'string' && dispatch.geohash7.length === 7);
+    ok('dispatch noise_gate panic_code_pass when codes present', dispatch.noise_gate === 'panic_code_pass');
+
+    const updatedThread = await fakeFs56.getDoc('tm_survivor_threads', fp);
+    const esc2 = await escalateToDispatch(updatedThread, {});
+    ok('escalateToDispatch reuses existing dispatch_id', esc2.reused === true && esc2.id === esc.id);
+
+    setAnonFs(null);
+  }
+
+  // 57. synthTriageFromCodes maps building_failing -> incident_type
+  //     building_collapse with CRITICAL urgency.
+  {
+    const { triage } = synthTriageFromCodes([10]);
+    ok('synthTriage building_failing -> incident_type building_collapse', triage.incident_type === 'building_collapse');
+    ok('synthTriage building_failing -> CRITICAL', triage.urgency === 'CRITICAL');
+  }
+
+  // 58. /sos-shell.html and pre-compressed brotli sit at or under 3 KB.
+  {
+    const path = await import('node:path');
+    const fs = await import('node:fs');
+    const __filename = (await import('node:url')).fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const repoRoot = path.resolve(__dirname, '..', '..', '..');
+    const shellPath = path.join(repoRoot, 'web', 'sos-shell.html');
+    const brPath = path.join(repoRoot, 'web', 'sos-shell.html.br');
+    ok('sos-shell.html exists', fs.existsSync(shellPath));
+    ok('sos-shell.html.br exists', fs.existsSync(brPath));
+    const brSize = fs.statSync(brPath).size;
+    ok(`sos-shell.html.br <= 3 KB (got ${brSize} B)`, brSize <= 3 * 1024);
+  }
+}
+
+
 if (failed === 0) {
   process.stdout.write('OK\n');
   process.exit(0);
