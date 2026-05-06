@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang=en><head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name=theme-color content="#000">
+<title>SOS Aether</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#000;color:#fff;font:16px/1.4 system-ui,sans-serif;height:100%;overscroll-behavior:none}
+body{display:flex;flex-direction:column;padding:8px;gap:8px;-webkit-tap-highlight-color:transparent}
+h1{font-size:14px;font-weight:600;text-align:center;color:#ddd;letter-spacing:.5px}
+#sos{flex:0 0 38vh;min-height:200px;background:#c00;color:#fff;border:0;border-radius:16px;font-size:28px;font-weight:800;letter-spacing:2px;touch-action:manipulation}
+#sos:active,#sos.h{background:#f00}
+#sos[disabled]{background:#600;color:#aaa}
+.g{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:6px;flex:1 1 auto}
+.g button{background:#181818;color:#fff;border:2px solid #333;border-radius:10px;font-size:12px;line-height:1.15;font-weight:600;padding:4px;min-height:64px;touch-action:manipulation;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.g button .n{font-size:14px;font-weight:800;color:#fff}
+.g button.s{background:#054;border-color:#0a8}
+.g button:focus,#sos:focus{outline:3px solid #ff0;outline-offset:2px}
+#st{font-size:12px;text-align:center;color:#9c9;min-height:32px;padding:4px;border:1px solid #222;border-radius:6px;background:#0a0a0a;word-break:break-word}
+#st.e{color:#f88;border-color:#622}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+<body>
+<h1>SOS Aether. Anonymous emergency channel.</h1>
+<button id=sos aria-label="Send SOS. Hold for one second.">HOLD TO SEND SOS</button>
+<div class=g id=cg role=group aria-label="Panic codes. Tap any to add to your next signal."></div>
+<div id=st role=status aria-live=polite>Ready. No data has been sent yet.</div>
+<script>
+"use strict";
+const C=[
+[1,"Trapped"],[2,"Injured"],[3,"Many people"],
+[4,"Cannot move"],[5,"Cannot breathe"],[6,"No food, water"],
+[7,"Need medical"],[8,"Hear rescuers"],[9,"Building stable"],
+[10,"Building failing"],[11,"Water rising"],[12,"Fire near"]
+];
+const $=id=>document.getElementById(id);
+const sos=$("sos"),cg=$("cg"),st=$("st");
+const codes=new Set();
+let trapped=false,seq=0,heart=null,tap=0,motion=0;
+function s(t,err){st.textContent=t;st.className=err?"e":"";}
+function logErr(e){try{s("Issue: "+(e&&e.message||e),1);}catch{}}
+
+C.forEach(([n,lbl])=>{
+  const b=document.createElement("button");
+  b.type="button";b.dataset.c=n;b.setAttribute("aria-pressed","false");
+  const ns=document.createElement("span");ns.className="n";ns.textContent=String(n);
+  const ls=document.createElement("span");ls.textContent=lbl;
+  b.appendChild(ns);b.appendChild(document.createElement("br"));b.appendChild(ls);
+  b.onclick=()=>{
+    if(codes.has(n)){codes.delete(n);b.classList.remove("s");b.setAttribute("aria-pressed","false");}
+    else{codes.add(n);b.classList.add("s");b.setAttribute("aria-pressed","true");}
+    if(trapped)beat();
+  };
+  cg.appendChild(b);
+});
+
+const DB="a",DV=4;
+function idb(){return new Promise((r,j)=>{
+  const o=indexedDB.open(DB,DV);
+  o.onupgradeneeded=e=>{
+    const d=e.target.result;
+    if(!d.objectStoreNames.contains("q"))d.createObjectStore("q",{keyPath:"id",autoIncrement:true});
+    if(!d.objectStoreNames.contains("tracked"))d.createObjectStore("tracked",{keyPath:"id"});
+    if(!d.objectStoreNames.contains("q_anon"))d.createObjectStore("q_anon",{keyPath:"id",autoIncrement:true});
+    if(!d.objectStoreNames.contains("survivor_geo"))d.createObjectStore("survivor_geo",{keyPath:"ts"});
+    if(!d.objectStoreNames.contains("survivor_meta"))d.createObjectStore("survivor_meta");
+  };
+  o.onsuccess=e=>r(e.target.result);
+  o.onerror=()=>j(o.error);
+});}
+function p(db,store,v,k){return new Promise((r,j)=>{
+  const t=db.transaction(store,"readwrite").objectStore(store);
+  const q=k===undefined?t.put(v):t.put(v,k);
+  q.onsuccess=()=>r(q.result);q.onerror=()=>j(q.error);
+});}
+async function purgeOldGeo(db){
+  const cutoff=Date.now()-7*864e5;
+  return new Promise(res=>{
+    const t=db.transaction("survivor_geo","readwrite").objectStore("survivor_geo").openCursor();
+    t.onsuccess=e=>{const c=e.target.result;if(c){if(c.value.ts<cutoff)c.delete();c.continue();}else res();};
+    t.onerror=()=>res();
+  });
+}
+async function lastGeo(db){
+  return new Promise(res=>{
+    const t=db.transaction("survivor_geo","readonly").objectStore("survivor_geo").openCursor(null,"prev");
+    t.onsuccess=e=>{const c=e.target.result;res(c?c.value:null);};
+    t.onerror=()=>res(null);
+  });
+}
+
+function watchGeo(){
+  if(!navigator.geolocation)return;
+  try{
+    navigator.geolocation.watchPosition(async pos=>{
+      try{
+        const db=await idb();
+        await p(db,"survivor_geo",{ts:Date.now(),lat:pos.coords.latitude,lng:pos.coords.longitude,acc:pos.coords.accuracy||0});
+        purgeOldGeo(db);
+      }catch(e){logErr(e);}
+    },()=>{},{enableHighAccuracy:false,maximumAge:60000,timeout:30000});
+  }catch(e){logErr(e);}
+}
+
+async function getGeoTuple(){
+  try{const db=await idb();const f=await lastGeo(db);if(f&&Number.isFinite(f.lat))return [f.lat,f.lng,Math.round(f.acc||0)];}catch{}
+  return null;
+}
+function netSig(){
+  const c=navigator.connection||navigator.mozConnection||navigator.webkitConnection;
+  const e=c&&c.effectiveType;
+  return e==="slow-2g"||e==="2g"||e==="3g"||e==="4g"?e:"unknown";
+}
+function batPct(){
+  return new Promise(r=>{
+    if(!navigator.getBattery)return r(50);
+    navigator.getBattery().then(b=>r(Math.round((b.level||0.5)*100))).catch(()=>r(50));
+  });
+}
+
+async function send(beat){
+  try{
+    const res=await fetch("/api/v1/sos/anon",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(beat),keepalive:true});
+    if(res.ok){const j=await res.json().catch(()=>({}));s("Help requested. Beat "+seq+(j.dispatch_id?" linked.":"")+".");return true;}
+    s("Status "+res.status+". Retrying.",1);
+  }catch{s("Offline. Queued.",1);}
+  try{
+    const db=await idb();
+    await p(db,"q_anon",{body:beat,capturedAt:new Date().toISOString(),attempt_count:0});
+    if(navigator.serviceWorker){const r=await navigator.serviceWorker.ready;if(r&&r.sync)try{await r.sync.register("flush-anon");}catch{}}
+  }catch(e){logErr(e);}
+  return false;
+}
+
+async function beat(){
+  seq++;
+  const geo=await getGeoTuple();
+  const bat=await batPct();
+  const body={
+    seq,ts:Math.floor(Date.now()/1e3),
+    fp:"survivor-pending",
+    codes:Array.from(codes),
+    geo,bat,sig:netSig(),tap,motion:Number(motion.toFixed(3))
+  };
+  tap=0;motion=0;
+  await send(body);
+}
+
+async function startTrapped(){
+  if(trapped)return;
+  trapped=true;
+  sos.disabled=true;sos.textContent="HELP REQUESTED. HOLDING CONTACT.";
+  beat();
+  heart=setInterval(beat,60000);
+}
+
+let hold=null;
+function arm(){if(hold)return;hold=setTimeout(()=>{hold=null;startTrapped();},900);sos.classList.add("h");}
+function disarm(){if(hold){clearTimeout(hold);hold=null;}sos.classList.remove("h");}
+sos.addEventListener("touchstart",e=>{e.preventDefault();arm();},{passive:false});
+sos.addEventListener("touchend",disarm);sos.addEventListener("touchcancel",disarm);
+sos.addEventListener("mousedown",arm);sos.addEventListener("mouseup",disarm);sos.addEventListener("mouseleave",disarm);
+sos.addEventListener("keydown",e=>{if((e.key===" "||e.key==="Enter")&&!e.repeat)arm();});
+sos.addEventListener("keyup",e=>{if(e.key===" "||e.key==="Enter")disarm();});
+
+let tk=[];
+function tt(){const now=Date.now();tk.push(now);tk=tk.filter(t=>now-t<800);if(tk.length>=3){tk=[];startTrapped();}}
+addEventListener("touchstart",()=>{tap++;tt();});
+addEventListener("click",e=>{if(!e.target.closest("button"))tt();});
+
+const ks=new Set();
+addEventListener("keydown",e=>{ks.add(e.key);if(ks.has("ArrowUp")&&ks.has("ArrowDown"))startTrapped();});
+addEventListener("keyup",e=>{ks.delete(e.key);});
+
+let shakes=[];
+addEventListener("devicemotion",e=>{
+  const a=e.accelerationIncludingGravity;if(!a)return;
+  const m=Math.sqrt((a.x||0)**2+(a.y||0)**2+(a.z||0)**2)/9.81;
+  if(m>motion)motion=m;
+  if(m>=1.5){
+    const now=Date.now();shakes.push(now);shakes=shakes.filter(t=>now-t<2000);
+    if(shakes.length>=3){shakes=[];startTrapped();}
+  }
+});
+
+if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(()=>{});
+watchGeo();
+const D=self.DeviceMotionEvent;
+if(D&&typeof D.requestPermission==="function")document.addEventListener("click",()=>D.requestPermission().catch(()=>{}),{once:true});
+</script>
+</body></html>
