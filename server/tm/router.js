@@ -622,7 +622,24 @@ async function dispatchApi(req, res, sub, url, ctx) {
     if (!did) return sendError(res, 404, 'not_found', 'No such dispatch route.');
     if (action === '') {
       if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
-      return sendJson(res, 200, await dispatches.get(actor, did));
+      const dispatch = await dispatches.get(actor, did);
+      // Translate link wires `?locale=<code>`. Re-render the survivor-facing
+      // worker_summary_text in the requested locale without persisting.
+      const wantLocale = String(url.searchParams.get('locale') || '').trim();
+      if (wantLocale) {
+        try {
+          const i18nMod = await import('./i18n.js');
+          const resolved = i18nMod.pickLocale(wantLocale, wantLocale);
+          if (resolved && resolved !== dispatch.locale) {
+            const { _internal: assignInternal } = await import('./assignments.js');
+            dispatch.worker_summary_text = assignInternal.summaryFor(
+              dispatch.worker_status, dispatch.assignments || [], resolved
+            );
+            dispatch.locale_rendered = resolved;
+          }
+        } catch { /* fall through with stored summary */ }
+      }
+      return sendJson(res, 200, dispatch);
     }
     if (action === 'escalate') {
       if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });

@@ -67,33 +67,30 @@ if ! gcloud tasks queues describe "${TASKS_QUEUE}" --location="${TASKS_LOCATION}
 fi
 
 # Watchdog HMAC secret. Generated once and stored in Secret Manager so
-# the watchdog and the /api/v1/internal/sla_tick callback share the same
-# bytes across Cloud Run instances.
-log "Ensuring Secret Manager secret aether-watchdog-hmac"
-if ! gcloud secrets describe aether-watchdog-hmac --project="${PROJECT_ID}" >/dev/null 2>&1; then
-  gcloud secrets create aether-watchdog-hmac \
-    --replication-policy=automatic \
-    --project="${PROJECT_ID}" >/dev/null
-  python3 -c 'import secrets,sys; sys.stdout.write(secrets.token_urlsafe(48))' \
-    | gcloud secrets versions add aether-watchdog-hmac \
-        --data-file=- --project="${PROJECT_ID}" >/dev/null
-  log "  generated initial WATCHDOG_HMAC_SECRET version"
-fi
-
-# SYSTEM_AI ML-DSA-65 keypair secrets. Operator must mint and store the
-# keypair the first time. We do NOT generate it here because ML-DSA key
-# generation belongs in a controlled offline ceremony.
-log "Ensuring Secret Manager secrets tm-system-ai-priv / tm-system-ai-pub"
-for secret in tm-system-ai-priv tm-system-ai-pub; do
-  if ! gcloud secrets describe "${secret}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
-    gcloud secrets create "${secret}" \
-      --replication-policy=automatic \
-      --project="${PROJECT_ID}" >/dev/null
-    log "  created ${secret} (no version yet)"
-    log "  TODO: mint ML-DSA-65 keypair offline, then run:"
-    log "    echo -n <base64> | gcloud secrets versions add ${secret} --data-file=- --project=${PROJECT_ID}"
-  fi
-done
+# MVP posture: secret auto-creation skipped to keep Secret Manager at
+# $0 idle. Production must mint the secrets enumerated near --set-secrets
+# below. Re-enable this block by removing the early return guard.
+#
+# Production block (commented for MVP):
+# log "Ensuring Secret Manager secret aether-watchdog-hmac"
+# if ! gcloud secrets describe aether-watchdog-hmac --project="${PROJECT_ID}" >/dev/null 2>&1; then
+#   gcloud secrets create aether-watchdog-hmac \
+#     --replication-policy=automatic \
+#     --project="${PROJECT_ID}" >/dev/null
+#   python3 -c 'import secrets,sys; sys.stdout.write(secrets.token_urlsafe(48))' \
+#     | gcloud secrets versions add aether-watchdog-hmac \
+#         --data-file=- --project="${PROJECT_ID}" >/dev/null
+#   log "  generated initial WATCHDOG_HMAC_SECRET version"
+# fi
+# log "Ensuring Secret Manager secrets tm-system-ai-priv / tm-system-ai-pub"
+# for secret in tm-system-ai-priv tm-system-ai-pub; do
+#   if ! gcloud secrets describe "${secret}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+#     gcloud secrets create "${secret}" \
+#       --replication-policy=automatic \
+#       --project="${PROJECT_ID}" >/dev/null
+#     log "  TODO: mint ML-DSA-65 keypair offline, then versions add"
+#   fi
+# done
 
 log "Ensuring Artifact Registry repo ${REPO}"
 if ! gcloud artifacts repositories describe "${REPO}" --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
@@ -145,8 +142,28 @@ gcloud run deploy "${SERVICE}" \
   --timeout=60 \
   --port=8080 \
   --execution-environment=gen2 \
-  --set-env-vars="GCP_PROJECT=${PROJECT_ID},VERTEX_REGION=${VERTEX_REGION},VERTEX_MODEL=${VERTEX_MODEL},NODE_ENV=production,LOG_LEVEL=info,FIRESTORE_DB=(default),TM_BOOTSTRAP_ALLOW=${TM_BOOTSTRAP_ALLOW:-0},VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:ops@aether.dmj.one},CLOUD_TASKS_QUEUE=${TASKS_QUEUE},CLOUD_TASKS_LOCATION=${TASKS_LOCATION},MSG91_API_KEY=${MSG91_API_KEY:-},KARIX_API_KEY=${KARIX_API_KEY:-},TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-},TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-},TWILIO_FROM=${TWILIO_FROM:-}" \
-  --set-secrets="TM_SERVER_PUB_B64=tm-server-pub:latest,TM_SERVER_PRIV_B64=tm-server-priv:latest,VAPID_PUBLIC_KEY_B64=vapid-pub:latest,VAPID_PRIVATE_KEY_B64=vapid-priv:latest,WATCHDOG_HMAC_SECRET=aether-watchdog-hmac:latest,SYSTEM_AI_PRIV_B64=tm-system-ai-priv:latest,SYSTEM_AI_PUB_B64=tm-system-ai-pub:latest,TELCO_HMAC_SECRETS=aether-telco-hmac:latest,SMS_WEBHOOK_HMAC=aether-sms-webhook-hmac:latest"
+  --set-env-vars="GCP_PROJECT=${PROJECT_ID},VERTEX_REGION=${VERTEX_REGION},VERTEX_MODEL=${VERTEX_MODEL},NODE_ENV=production,LOG_LEVEL=info,FIRESTORE_DB=(default),TM_BOOTSTRAP_ALLOW=${TM_BOOTSTRAP_ALLOW:-0},VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:ops@aether.dmj.one},CLOUD_TASKS_QUEUE=${TASKS_QUEUE},CLOUD_TASKS_LOCATION=${TASKS_LOCATION},MSG91_API_KEY=${MSG91_API_KEY:-},KARIX_API_KEY=${KARIX_API_KEY:-},TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-},TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-},TWILIO_FROM=${TWILIO_FROM:-}"
+# MVP posture: NO Secret Manager bindings (zero idle Secret Manager cost).
+# Runtime modules fall back to in-memory ephemeral keys / no telco / no SMS
+# webhook on every cold start. Existing sessions die when Cloud Run scales
+# out or restarts. Audit chain cannot verify across cold starts. Web Push
+# subscriptions invalidate when VAPID rotates. Cloud Tasks callbacks fail
+# HMAC across instances. All acceptable for demo. NOT acceptable for any
+# live NDMA / SDRF disaster response deployment.
+#
+# Production requires these secrets, minted out of band, and the bindings
+# below uncommented:
+#   TM_SERVER_PUB_B64       tm-server-pub
+#   TM_SERVER_PRIV_B64      tm-server-priv
+#   VAPID_PUBLIC_KEY_B64    vapid-pub
+#   VAPID_PRIVATE_KEY_B64   vapid-priv
+#   WATCHDOG_HMAC_SECRET    aether-watchdog-hmac
+#   SYSTEM_AI_PRIV_B64      tm-system-ai-priv
+#   SYSTEM_AI_PUB_B64       tm-system-ai-pub
+#   TELCO_HMAC_SECRETS      aether-telco-hmac
+#   SMS_WEBHOOK_HMAC        aether-sms-webhook-hmac
+#
+# --set-secrets="TM_SERVER_PUB_B64=tm-server-pub:latest,TM_SERVER_PRIV_B64=tm-server-priv:latest,VAPID_PUBLIC_KEY_B64=vapid-pub:latest,VAPID_PRIVATE_KEY_B64=vapid-priv:latest,WATCHDOG_HMAC_SECRET=aether-watchdog-hmac:latest,SYSTEM_AI_PRIV_B64=tm-system-ai-priv:latest,SYSTEM_AI_PUB_B64=tm-system-ai-pub:latest,TELCO_HMAC_SECRETS=aether-telco-hmac:latest,SMS_WEBHOOK_HMAC=aether-sms-webhook-hmac:latest"
 
 URL="$(gcloud run services describe "${SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)')"
 
