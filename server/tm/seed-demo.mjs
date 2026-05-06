@@ -383,6 +383,15 @@ async function main() {
   await fs.mkdir(dirname(OUT_PATH), { recursive: true });
   const json = JSON.stringify(credentials, null, 2) + '\n';
   await fs.writeFile(OUT_PATH, json, 'utf8');
+  // Pre-compress brotli + gzip siblings. The static server prefers .br
+  // for Accept-Encoding: br, so a stale .br hides newly seeded creds
+  // from every demo browser. Regenerate every time the JSON changes.
+  const { gzipSync, brotliCompressSync, constants: zlibC } = await import('node:zlib');
+  const buf = Buffer.from(json, 'utf8');
+  await fs.writeFile(OUT_PATH + '.gz', gzipSync(buf, { level: 9 }));
+  await fs.writeFile(OUT_PATH + '.br', brotliCompressSync(buf, {
+    params: { [zlibC.BROTLI_PARAM_QUALITY]: 11, [zlibC.BROTLI_PARAM_SIZE_HINT]: buf.length }
+  }));
   log('credentials_written', { path: OUT_PATH, bytes: Buffer.byteLength(json), users: credentials.length });
 
   // Final stdout summary line so deploy scripts can grep one machine-readable line.
