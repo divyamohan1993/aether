@@ -3,16 +3,32 @@
 // prefix of their own scope_path. They can act (escalate / mark reviewed)
 // only when the caller is at a strictly lower tier in their subtree.
 
-import { getDoc, queryDocs, runTransaction } from './firestore.js';
+import * as fsMod from './firestore.js';
 import * as usersMod from './users.js';
 import { record as auditRecord } from './audit.js';
 import { ApiError, ScopeError, NotFoundError } from './_errors.js';
 
-// Test injection seam. Tests can swap getUser to avoid hitting Firestore
-// for the direct_only filter. Production reads users.js directly.
+// Test injection seams. Production binds these to firestore.js and
+// users.js directly; tests can swap any of them to keep the run
+// in-process. Lightweight and limited to read paths.
 let _getUser = (actor, uid) => usersMod.getUser(actor, uid);
+let _queryDocs = (...args) => fsMod.queryDocs(...args);
+let _getDoc = (...args) => fsMod.getDoc(...args);
+let _runTransaction = (fn) => fsMod.runTransaction(fn);
+
 export function _setUsersForTest(stub) {
   _getUser = typeof stub === 'function' ? stub : (actor, uid) => usersMod.getUser(actor, uid);
+}
+export function _setFirestoreForTest(stub) {
+  if (stub && typeof stub === 'object') {
+    if (typeof stub.queryDocs === 'function') _queryDocs = stub.queryDocs.bind(stub);
+    if (typeof stub.getDoc === 'function') _getDoc = stub.getDoc.bind(stub);
+    if (typeof stub.runTransaction === 'function') _runTransaction = stub.runTransaction.bind(stub);
+  } else {
+    _queryDocs = (...args) => fsMod.queryDocs(...args);
+    _getDoc = (...args) => fsMod.getDoc(...args);
+    _runTransaction = (fn) => fsMod.runTransaction(fn);
+  }
 }
 
 const STATUS_VALUES = new Set(['none', 'pending_review', 'escalated', 'auto_escalated', 'reviewed']);
@@ -35,7 +51,7 @@ function inActorSubtree(actorScope, callerScope) {
 export async function listMine(actor, opts) {
   if (!actor || !actor.uid) throw new ApiError('unauthorized', 'No session.', 401);
   const limit = clampLimit(opts?.limit, 50);
-  const rows = await queryDocs('tm_dispatches', [
+  const rows = await _queryDocs('tm_dispatches', [
     { field: 'caller_uid', op: '==', value: actor.uid }
   ], { limit }).catch(() => []);
   const out = rows.map((r) => projectDispatch(r.id, r.data));
@@ -63,7 +79,7 @@ export async function listTeam(actor, opts) {
   const requiresReview = opts?.requires_review === true;
   const directOnly = opts?.direct_only === true;
   const upper = actor.scope_path + '/￿';
-  const rows = await queryDocs('tm_dispatches', [
+  const rows = await _queryDocs('tm_dispatches', [
     { field: 'caller_scope_path', op: '>=', value: actor.scope_path },
     { field: 'caller_scope_path', op: '<=', value: upper }
   ], { orderBy: 'caller_scope_path', limit: 200 }).catch(() => []);
@@ -110,7 +126,7 @@ export async function get(actor, id) {
   if (typeof id !== 'string' || id.length === 0) {
     throw new ApiError('bad_request', 'id required.', 400);
   }
-  const doc = await getDoc('tm_dispatches', id);
+  const doc = await _getDoc('tm_dispatches', id);
   if (!doc) throw new NotFoundError('dispatch_not_found', 'No such dispatch.');
   if (!inActorSubtree(actor.scope_path, doc.caller_scope_path)) {
     throw new ScopeError('out_of_scope', 'Dispatch is outside your subtree.');
@@ -131,7 +147,7 @@ export async function escalate(actor, id, body, signatureB64) {
   if (Number(actor.tier) >= 100) {
     throw new ScopeError('no_supervisor', 'You are at the top of the chain.');
   }
-  return runTransaction(async (tx) => {
+  return _runTransaction(async (tx) => {
     const doc = await tx.get('tm_dispatches', id);
     if (!doc) throw new NotFoundError('dispatch_not_found', 'No such dispatch.');
     if (!inActorSubtree(actor.scope_path, doc.caller_scope_path)) {
@@ -167,7 +183,7 @@ export async function escalate(actor, id, body, signatureB64) {
 // triage action and the audit record carries the actor uid.
 export async function markReviewed(actor, id, body) {
   if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
-  return runTransaction(async (tx) => {
+  return _runTransaction(async (tx) => {
     const doc = await tx.get('tm_dispatches', id);
     if (!doc) throw new NotFoundError('dispatch_not_found', 'No such dispatch.');
     if (!inActorSubtree(actor.scope_path, doc.caller_scope_path)) {
@@ -227,7 +243,7 @@ export async function compare(actor, ids) {
     const id = typeof raw === 'string' ? raw.trim() : '';
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    const doc = await getDoc('tm_dispatches', id);
+    const doc = await _getDoc('tm_dispatches', id);
     if (!doc) throw new NotFoundError('dispatch_not_found', `No such dispatch ${id}.`);
     if (!inActorSubtree(actor.scope_path, doc.caller_scope_path)) {
       throw new ScopeError('out_of_scope', `Dispatch ${id} is outside your subtree.`);
