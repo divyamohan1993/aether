@@ -296,7 +296,20 @@ const STATIC_ROUTES = {
   // survivor-anon lane: ultra-light shell entry points (each <= 3 KB brotli).
   '/sos': { file: 'sos-shell.html', mime: 'text/html; charset=utf-8' },
   '/sos/': { file: 'sos-shell.html', mime: 'text/html; charset=utf-8' },
-  '/sos-shell.html': { file: 'sos-shell.html', mime: 'text/html; charset=utf-8' }
+  '/sos-shell.html': { file: 'sos-shell.html', mime: 'text/html; charset=utf-8' },
+  // i18n packs for the SOS PWA + dispatcher locale switcher (wave-3b).
+  // 11 lazy-loaded packs; en/hi/ta/bn stay inline for first paint.
+  '/i18n/ml.json':  { file: 'i18n/ml.json',  mime: 'application/json; charset=utf-8' },
+  '/i18n/te.json':  { file: 'i18n/te.json',  mime: 'application/json; charset=utf-8' },
+  '/i18n/mr.json':  { file: 'i18n/mr.json',  mime: 'application/json; charset=utf-8' },
+  '/i18n/or.json':  { file: 'i18n/or.json',  mime: 'application/json; charset=utf-8' },
+  '/i18n/gu.json':  { file: 'i18n/gu.json',  mime: 'application/json; charset=utf-8' },
+  '/i18n/pa.json':  { file: 'i18n/pa.json',  mime: 'application/json; charset=utf-8' },
+  '/i18n/kn.json':  { file: 'i18n/kn.json',  mime: 'application/json; charset=utf-8' },
+  '/i18n/ur.json':  { file: 'i18n/ur.json',  mime: 'application/json; charset=utf-8' },
+  '/i18n/as.json':  { file: 'i18n/as.json',  mime: 'application/json; charset=utf-8' },
+  '/i18n/ne.json':  { file: 'i18n/ne.json',  mime: 'application/json; charset=utf-8' },
+  '/i18n/mai.json': { file: 'i18n/mai.json', mime: 'application/json; charset=utf-8' }
 };
 
 async function serveStatic(req, res, route, requestId) {
