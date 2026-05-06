@@ -806,6 +806,9 @@ export async function route(req, res, url, ctx) {
         service: 'tm',
         version: 'v1',
         endpoints: [
+          // survivor-anon lane (handled in server.js, listed for discovery).
+          'POST /api/v1/sos/anon',
+          'POST /api/v1/sos/anon/audio',
           'GET /api/v1/tm/server-pubkey',
           'POST /api/v1/tm/auth/register',
           'POST /api/v1/tm/auth/bootstrap',

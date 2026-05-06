@@ -171,7 +171,7 @@ function applyCors(req, res) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Client-Id, X-Client-Clip-Id, X-Client-Lang, X-Client-Geo, X-Client-Geo-Accuracy, X-Client-Geo-Source, X-Client-Battery, X-Client-Network, X-Client-Timestamp, Authorization, X-Action-Sig, X-Action-Ts, X-Action-Key-Id');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Client-Id, X-Client-Clip-Id, X-Client-Lang, X-Client-Geo, X-Client-Geo-Accuracy, X-Client-Geo-Source, X-Client-Battery, X-Client-Network, X-Client-Timestamp, Authorization, X-Action-Sig, X-Action-Ts, X-Action-Key-Id, X-NDMA-Event-Token');
     res.setHeader('Access-Control-Max-Age', '86400');
   }
 }
@@ -291,7 +291,11 @@ const STATIC_ROUTES = {
   '/demo': { file: 'demo/index.html', mime: 'text/html; charset=utf-8' },
   '/demo/': { file: 'demo/index.html', mime: 'text/html; charset=utf-8' },
   '/demo/index.html': { file: 'demo/index.html', mime: 'text/html; charset=utf-8' },
-  '/demo/credentials.json': { file: 'demo/credentials.json', mime: 'application/json; charset=utf-8' }
+  '/demo/credentials.json': { file: 'demo/credentials.json', mime: 'application/json; charset=utf-8' },
+  // survivor-anon lane: ultra-light shell entry points (each <= 3 KB brotli).
+  '/sos': { file: 'sos-shell.html', mime: 'text/html; charset=utf-8' },
+  '/sos/': { file: 'sos-shell.html', mime: 'text/html; charset=utf-8' },
+  '/sos-shell.html': { file: 'sos-shell.html', mime: 'text/html; charset=utf-8' }
 };
 
 async function serveStatic(req, res, route, requestId) {
@@ -782,6 +786,195 @@ async function handleTriage(req, res, ctx) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// survivor-anon lane.
+//
+// /api/v1/sos/anon         JSON heartbeat. No auth. Rate-limited per /24.
+// /api/v1/sos/anon/audio   Optional audio attachment. Runs through Vertex.
+// ---------------------------------------------------------------------------
+async function handleSosAnon(req, res, ctx) {
+  if (req.method !== 'POST') {
+    sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST, OPTIONS' });
+    return;
+  }
+  const anon = await import('./tm/anon.js');
+  const fp = anon.phoneFingerprint(req.headers);
+  const eventToken = sanitizeHeader(req.headers['x-ndma-event-token']);
+  const eventVerified = eventToken ? anon.verifyEventToken(eventToken) : null;
+  const limit = anon.enforceRateLimit(ctx.ip, fp, { eventToken: !!eventVerified });
+  if (!limit.ok) {
+    logJson('WARNING', {
+      fn: 'handleSosAnon', requestId: ctx.requestId, ip: ctx.ip, fp,
+      msg: 'rate_limited', reason: limit.reason
+    });
+    sendError(res, 429, 'rate_limited', 'Too many SOS posts from this network.', { 'Retry-After': String(limit.retryAfter) });
+    return;
+  }
+  let body;
+  try {
+    const raw = await readBody(req, 8 * 1024);
+    if (raw.length === 0) {
+      sendError(res, 400, 'empty_body', 'Heartbeat body required.');
+      return;
+    }
+    body = JSON.parse(raw.toString('utf8'));
+  } catch (e) {
+    if (e?.code === 'PAYLOAD_TOO_LARGE') {
+      sendError(res, 413, 'payload_too_large', 'Heartbeat exceeds 8 KB.');
+      return;
+    }
+    sendError(res, 400, 'bad_json', 'Body is not valid JSON.');
+    return;
+  }
+  body.fp = fp;
+  const v = anon.validateAnonBody(body);
+  if (!v.ok) {
+    sendError(res, 400, 'bad_request', `Heartbeat invalid: ${v.reason}.`);
+    return;
+  }
+  let recorded;
+  try {
+    recorded = await anon.recordHeartbeat(fp, body, ctx.ip);
+  } catch (e) {
+    logJson('ERROR', { fn: 'handleSosAnon', requestId: ctx.requestId, ip: ctx.ip, fp, msg: 'record_failed', err: String(e), stack: e?.stack });
+    sendError(res, 503, 'service_unavailable', 'Survivor thread storage temporarily unavailable.');
+    return;
+  }
+  let dispatchId = recorded.thread.dispatch_id || null;
+  if (recorded.statusChanged) {
+    try {
+      const esc = await anon.escalateToDispatch(recorded.thread, {
+        requestId: ctx.requestId,
+        ip: ctx.ip,
+        latencyMs: Date.now() - ctx.startedAt
+      });
+      dispatchId = esc.id;
+    } catch (e) {
+      logJson('WARNING', { fn: 'handleSosAnon', requestId: ctx.requestId, fp, msg: 'escalate_failed', err: String(e) });
+    }
+  }
+  logJson('INFO', {
+    fn: 'handleSosAnon', requestId: ctx.requestId, ip: ctx.ip, fp,
+    msg: 'sos_anon_ok', isNew: recorded.isNew, statusChanged: recorded.statusChanged,
+    dispatch_id: dispatchId, eventToken: !!eventVerified, subnet: limit.subnet
+  });
+  sendJson(res, 200, {
+    fp,
+    seq_ack: body.seq,
+    received_at: new Date().toISOString(),
+    dispatch_id: dispatchId,
+    next_beat_seconds: 60
+  });
+}
+
+async function handleSosAnonAudio(req, res, ctx) {
+  if (req.method !== 'POST') {
+    sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST, OPTIONS' });
+    return;
+  }
+  const anon = await import('./tm/anon.js');
+  const fp = anon.phoneFingerprint(req.headers);
+  const eventToken = sanitizeHeader(req.headers['x-ndma-event-token']);
+  const eventVerified = eventToken ? anon.verifyEventToken(eventToken) : null;
+  const limit = anon.enforceRateLimit(ctx.ip, fp, { eventToken: !!eventVerified });
+  if (!limit.ok) {
+    sendError(res, 429, 'rate_limited', 'Too many SOS posts from this network.', { 'Retry-After': String(limit.retryAfter) });
+    return;
+  }
+  let buf;
+  try {
+    buf = await readBody(req, MAX_BODY);
+  } catch (e) {
+    if (e?.code === 'PAYLOAD_TOO_LARGE') {
+      sendError(res, 413, 'payload_too_large', 'Audio exceeds 512 KB.');
+      return;
+    }
+    sendError(res, 400, 'bad_request', 'Failed to read body.');
+    return;
+  }
+  const sniffed = sniffAudio(buf);
+  if (!sniffed) {
+    sendError(res, 415, 'unsupported_media_type', 'Body must be Opus/Ogg, WebM, MP4, or WAV audio.');
+    return;
+  }
+  const langHint = sanitizeHeader(req.headers['x-client-lang']);
+  const geoHint = sanitizeHeader(req.headers['x-client-geo']);
+  const geoSource = sanitizeHeader(req.headers['x-client-geo-source']);
+  const geoAccuracy = sanitizeHeader(req.headers['x-client-geo-accuracy']);
+  let location = null;
+  if (geoHint) {
+    const m = geoHint.match(/^(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)$/);
+    if (m) {
+      const lat = Number(m[1]);
+      const lng = Number(m[2]);
+      if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+        location = {
+          lat, lng,
+          accuracy_m: geoAccuracy && Number.isFinite(Number(geoAccuracy)) ? Number(geoAccuracy) : null,
+          source: (geoSource === 'gps' || geoSource === 'wifi' || geoSource === 'ip' || geoSource === 'cached') ? geoSource : 'cached'
+        };
+      }
+    }
+  }
+  let triage;
+  try {
+    const r = await callVertex({
+      audioBuf: buf, audioMime: sniffed, langHint, geoHint, caller: null, location,
+      requestId: ctx.requestId
+    });
+    triage = r.triage;
+  } catch (e) {
+    logJson('ERROR', { fn: 'handleSosAnonAudio', requestId: ctx.requestId, ip: ctx.ip, fp, msg: 'vertex_failed', err: String(e) });
+    sendError(res, 502, 'upstream_error', 'Triage model is temporarily unavailable. Retry shortly.');
+    return;
+  }
+  const synthBody = {
+    fp,
+    seq: 0,
+    ts: Math.floor(Date.now() / 1000),
+    codes: [],
+    geo: location ? [location.lat, location.lng, location.accuracy_m || 0] : null,
+    bat: 50,
+    sig: '2g',
+    tap: 0,
+    motion: 0
+  };
+  let recorded = null;
+  try {
+    recorded = await anon.recordHeartbeat(fp, synthBody, ctx.ip);
+  } catch (e) {
+    logJson('WARNING', { fn: 'handleSosAnonAudio', requestId: ctx.requestId, fp, msg: 'record_failed', err: String(e) });
+  }
+  let dispatchId = recorded?.thread?.dispatch_id || null;
+  if (recorded) {
+    try {
+      const esc = await anon.escalateToDispatch(recorded.thread, {
+        requestId: ctx.requestId,
+        ip: ctx.ip,
+        latencyMs: Date.now() - ctx.startedAt,
+        audioTranscriptionEnglish: triage.transcription_english,
+        audioTranscriptionNative: triage.transcription_native,
+        audioBytes: buf.length,
+        audioMime: sniffed,
+        lang_hint: triage.language_detected || langHint,
+        confidence: triage.confidence
+      });
+      dispatchId = esc.id;
+    } catch (e) {
+      logJson('WARNING', { fn: 'handleSosAnonAudio', requestId: ctx.requestId, fp, msg: 'escalate_failed', err: String(e) });
+    }
+  }
+  sendJson(res, 200, {
+    fp,
+    received_at: new Date().toISOString(),
+    dispatch_id: dispatchId,
+    triage: {
+      urgency: triage.urgency,
+      summary_for_dispatch: triage.summary_for_dispatch
+    }
+  });
+}
+
 async function handleRequest(req, res) {
   const startedAt = Date.now();
   const requestId = randomUUID();
@@ -814,6 +1007,15 @@ async function handleRequest(req, res) {
     }
     if (pathname === '/api/v1/triage') {
       await handleTriage(req, res, { ip, requestId, startedAt });
+      return;
+    }
+    // survivor-anon lane.
+    if (pathname === '/api/v1/sos/anon') {
+      await handleSosAnon(req, res, { ip, requestId, startedAt });
+      return;
+    }
+    if (pathname === '/api/v1/sos/anon/audio') {
+      await handleSosAnonAudio(req, res, { ip, requestId, startedAt });
       return;
     }
     if (pathname === '/tm' || pathname.startsWith('/tm/')
