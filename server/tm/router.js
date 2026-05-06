@@ -324,6 +324,53 @@ async function dispatchApi(req, res, sub, url, ctx) {
       const m = await import('./notify.js');
       return sendJson(res, 200, { public_key_b64: m.getPublicKeyB64() });
     }
+    // multi-device-keys lane.
+    //
+    // Device-list endpoints sit under /auth/* but require an authenticated
+    // session (they tie to a uid). They share the public auth-rate bucket
+    // with login/challenge/verify; per-action HMAC sig is enforced on the
+    // revoke route via requireFreshHmacSigForDevice.
+    if (sub === 'auth/devices') {
+      const actorEarly = await authenticate(req);
+      if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
+      const mod = await getAuth();
+      if (typeof mod.handleDeviceList !== 'function') {
+        return sendError(res, 503, 'service_unavailable', 'Devices endpoint not ready.');
+      }
+      return sendJson(res, 200, await mod.handleDeviceList(actorEarly, ctx));
+    }
+    if (sub === 'auth/devices/register') {
+      const actorEarly = await authenticate(req);
+      if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
+      const body = await readJsonBody(req);
+      const mod = await getAuth();
+      if (typeof mod.handleDeviceRegister !== 'function') {
+        return sendError(res, 503, 'service_unavailable', 'Device-register endpoint not ready.');
+      }
+      return sendJson(res, 200, await mod.handleDeviceRegister(actorEarly, body, ctx));
+    }
+    {
+      const revokeRe = /^auth\/devices\/([^\/]+)\/revoke$/;
+      const matched = revokeRe.exec(sub);
+      if (matched) {
+        const actorEarly = await authenticate(req);
+        if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
+        const deviceId = decodeURIComponent(matched[1]);
+        const body = await readJsonBody(req);
+        const sig = body?.signature_b64 || body?.action_signature_b64 || null;
+        if (typeof sig !== 'string' || sig.length === 0) {
+          return sendError(res, 400, 'bad_request', 'signature_b64 required.');
+        }
+        const mod = await getAuth();
+        if (typeof mod.requireFreshHmacSigForDevice !== 'function' || typeof mod.handleDeviceRevoke !== 'function') {
+          return sendError(res, 503, 'service_unavailable', 'Device-revoke endpoint not ready.');
+        }
+        const verified = await mod.requireFreshHmacSigForDevice(
+          actorEarly, 'device.revoke', `device.revoke|${deviceId}`, req.headers
+        );
+        return sendJson(res, 200, await mod.handleDeviceRevoke(actorEarly, deviceId, sig, ctx), nextKeyHeaders(verified));
+      }
+    }
     if (sub === 'auth/push_subscribe') {
       // Authenticated. Skip the public auth-rate bucket so a logged-in
       // PWA does not share a budget with the login challenge flow.
@@ -813,6 +860,9 @@ export async function route(req, res, url, ctx) {
           'POST /api/v1/tm/auth/verify',
           'GET /api/v1/tm/auth/vapid_pubkey',
           'POST|DELETE /api/v1/tm/auth/push_subscribe',
+          'GET /api/v1/tm/auth/devices',
+          'POST /api/v1/tm/auth/devices/register',
+          'POST /api/v1/tm/auth/devices/:id/revoke',
           'GET /api/v1/tm/me',
           'GET|POST /api/v1/tm/users',
           'POST /api/v1/tm/users/invite',
