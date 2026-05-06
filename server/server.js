@@ -327,6 +327,25 @@ async function getAccessToken() {
   return t;
 }
 
+// phone-identity lane: derive a /24 subnet hint from a v4 client IP for
+// the dispatch's caller_identity record. v6 returns null.
+function ipSubnet24(ip) {
+  if (typeof ip !== 'string' || ip.length === 0) return null;
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/.exec(ip.trim());
+  if (!m) return null;
+  return `${m[1]}.${m[2]}.${m[3]}.0/24`;
+}
+
+// phone-identity lane: hash an MSISDN (or fall back to the caller IP) to
+// a stable fingerprint suitable for caller_identity and abuse keys.
+// base64url, 24 chars. Returns null when neither input is available.
+function fingerprintForCaller(msisdn, ip) {
+  const seed = msisdn || ip || '';
+  if (!seed) return null;
+  const h = createHash('sha256').update(`aether-caller:${seed}`).digest('base64');
+  return h.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '').slice(0, 24);
+}
+
 async function persistDispatch(d) {
   const fs = await import('./tm/firestore.js').catch(() => null);
   if (!fs || typeof fs.setDoc !== 'function') return;
@@ -424,6 +443,18 @@ async function persistDispatch(d) {
     caller_name: d.caller?.name || null,
     caller_tier: d.caller?.tier ?? null,
     caller_scope_path: d.caller?.scope_path || null,
+    // phone-identity lane: caller_identity record (msisdn / verified
+    // flag / channel / fp / subnet) plus noise-gate verdict and abuse
+    // flags. Telco header sets phone_verified=true; otherwise the
+    // verification_channel falls back to 'anon'.
+    caller_phone_e164: d.caller_identity?.msisdn_e164 || null,
+    phone_verified: d.caller_identity?.phone_verified === true,
+    verification_channel: d.caller_identity?.verification_channel || 'anon',
+    caller_identity: d.caller_identity || null,
+    noise_gate: d.noise_gate || null,
+    noise_gate_reason: d.noise_gate_reason || null,
+    frequency_anomaly: d.frequency_anomaly || null,
+    geo_anomaly: d.geo_anomaly || null,
     location: d.location || null,
     triage: d.triage || null,
     audio_bytes: d.audioBytes,
@@ -608,6 +639,36 @@ async function handleTriage(req, res, ctx) {
     sendError(res, status, 'auth_required', 'Triage requires a Task Manager session. Sign in at /tm/.');
     return;
   }
+  // phone-identity lane: telco header HMAC verify. Stash on context so
+  // persistDispatch can record caller_identity. Verify failures are
+  // silent; the caller falls through to the anonymous identity path.
+  let telco = null;
+  try {
+    const telcoMod = await import('./tm/telco.js');
+    telco = telcoMod.verifyTelcoHeader(req.headers);
+  } catch (e) {
+    logJson('WARNING', {
+      fn: 'handleTriage', requestId: ctx.requestId,
+      msg: 'telco_verify_failed', err: String(e)
+    });
+  }
+  const callerIdentity = telco
+    ? {
+        msisdn_e164: telco.msisdn_e164,
+        phone_verified: true,
+        verification_channel: 'telco_header',
+        fingerprint: fingerprintForCaller(telco.msisdn_e164, ctx.ip),
+        ip_subnet24: ipSubnet24(ctx.ip),
+        telco: telco.telco
+      }
+    : {
+        msisdn_e164: null,
+        phone_verified: false,
+        verification_channel: 'anon',
+        fingerprint: fingerprintForCaller(null, ctx.ip),
+        ip_subnet24: ipSubnet24(ctx.ip),
+        telco: null
+      };
   let body;
   try {
     body = await readBody(req, MAX_BODY);
@@ -719,10 +780,47 @@ async function handleTriage(req, res, ctx) {
       modelLatencyMs,
       latencyMs
     });
+    // phone-identity lane: noise gate + frequency / geo anomaly. We
+    // never refuse to triage; the verdicts ride along on the dispatch
+    // for the dispatcher UI. forwardToPolice fires only when the
+    // caller is anonymous AND the noise gate failed.
+    let noiseGate = null;
+    let frequencyAnomaly = null;
+    let geoAnomaly = null;
+    try {
+      const abuseMod = await import('./tm/abuse.js');
+      const verdict = abuseMod.checkNoiseGate(triage);
+      noiseGate = verdict.passed ? 'passed' : 'failed';
+      if (callerIdentity?.fingerprint) {
+        frequencyAnomaly = await abuseMod.checkFrequencyAnomaly(callerIdentity.fingerprint).catch(() => null);
+        if (location && Number.isFinite(location.lat) && Number.isFinite(location.lng)) {
+          geoAnomaly = await abuseMod.checkGeoImpossibility(callerIdentity.fingerprint, location.lat, location.lng).catch(() => null);
+        }
+      }
+      if (callerIdentity?.phone_verified === false && noiseGate === 'failed') {
+        if (triage && typeof triage.confidence === 'number') {
+          triage.confidence = Math.max(0, Math.min(triage.confidence, 0.3));
+        }
+        abuseMod.forwardToPolice(id, verdict.reason || 'noise_gate_failed').catch((err) => logJson('WARNING', {
+          fn: 'handleTriage', requestId: ctx.requestId,
+          msg: 'forward_to_police_failed', err: String(err)
+        }));
+      }
+    } catch (e) {
+      logJson('WARNING', {
+        fn: 'handleTriage', requestId: ctx.requestId,
+        msg: 'abuse_hooks_failed', err: String(e)
+      });
+    }
     persistDispatch({
       id, receivedAt, caller, location, triage, latencyMs,
       audioBytes: body.length, audioMime: sniffed, network, battery,
-      clientTs, langHint, ip: ctx.ip, requestId: ctx.requestId
+      clientTs, langHint, ip: ctx.ip, requestId: ctx.requestId,
+      caller_identity: callerIdentity,
+      noise_gate: noiseGate,
+      noise_gate_reason: noiseGate === 'failed' ? 'no_disaster_signal' : null,
+      frequency_anomaly: frequencyAnomaly,
+      geo_anomaly: geoAnomaly
     }).catch((err) => logJson('WARNING', {
       fn: 'persistDispatch', requestId: ctx.requestId, msg: 'dispatch_persist_failed', err: String(err)
     }));
