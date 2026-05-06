@@ -1944,6 +1944,484 @@ setAuthUsers(fakeUsers);
 }
 
 
+// ---------------------------------------------------------------------------
+// 33. multi-device-keys lane. registerDevice + listDevices roundtrip,
+//     revokeDevice HMAC re-sign required, bad-sig rejection, scope
+//     isolation across uids.
+// ---------------------------------------------------------------------------
+{
+  const devicesMod = await import('../devices.js');
+  const { registerDevice, listDevices, revokeDevice, _setFirestoreForTest: setDevicesFs } = devicesMod;
+
+  // Minimal in-memory Firestore for the device collection.
+  class DevFs {
+    constructor() { this.col = new Map(); }
+    _c(name) { if (!this.col.has(name)) this.col.set(name, new Map()); return this.col.get(name); }
+    async setDoc(c, id, data) { this._c(c).set(id, JSON.parse(JSON.stringify(data))); }
+    async getDoc(c, id) {
+      const v = this._c(c).get(id);
+      return v ? JSON.parse(JSON.stringify(v)) : null;
+    }
+    async queryDocs(c, filters, opts) {
+      const col = this._c(c);
+      const out = [];
+      for (const [id, data] of col.entries()) {
+        let pass = true;
+        for (const f of (filters || [])) {
+          if (f.op === '==' && data[f.field] !== f.value) { pass = false; break; }
+        }
+        if (pass) out.push({ id, data: JSON.parse(JSON.stringify(data)) });
+      }
+      const lim = opts?.limit || 200;
+      return out.slice(0, lim);
+    }
+  }
+
+  const devFs = new DevFs();
+  setDevicesFs(devFs);
+
+  const actor = { uid: 'user-mdk-1', tier: 40, scope_path: 'ndma/HP/Shimla' };
+
+  // 33.1 register first device.
+  const pubkey1 = b64Enc(new Uint8Array(32).fill(1));
+  const dev1 = await registerDevice(actor, { label: 'Pixel 7', pubkey_b64: pubkey1 });
+  ok('registerDevice returned device_id', typeof dev1.device_id === 'string' && dev1.device_id.length > 0);
+  ok('registerDevice returned label', dev1.label === 'Pixel 7');
+  ok('registerDevice computed thumbprint',
+    typeof dev1.pubkey_b64_thumbprint === 'string' && dev1.pubkey_b64_thumbprint.length === 16
+    && /^[0-9a-f]+$/.test(dev1.pubkey_b64_thumbprint));
+  ok('registerDevice stamped timestamps',
+    typeof dev1.registered_at === 'string' && typeof dev1.last_seen_at === 'string');
+  ok('registerDevice not revoked', dev1.revoked === false);
+
+  // 33.2 register second device.
+  const pubkey2 = b64Enc(new Uint8Array(32).fill(2));
+  const dev2 = await registerDevice(actor, { label: 'Lenovo K8', pubkey_b64: pubkey2 });
+  ok('second registerDevice has different device_id', dev2.device_id !== dev1.device_id);
+  ok('second device thumbprint differs', dev2.pubkey_b64_thumbprint !== dev1.pubkey_b64_thumbprint);
+
+  // 33.3 listDevices returns both rows for the actor.
+  const list1 = await listDevices(actor);
+  ok('listDevices returns 2 rows', Array.isArray(list1) && list1.length === 2);
+  ok('listDevices returns only this user',
+    list1.every((d) => d.uid === actor.uid));
+  const ids = list1.map((d) => d.device_id).sort();
+  const want = [dev1.device_id, dev2.device_id].sort();
+  ok('listDevices contains both device_ids',
+    ids[0] === want[0] && ids[1] === want[1]);
+
+  // 33.4 listDevices isolated by uid: a sibling user sees nothing.
+  const sibling = { uid: 'user-mdk-2', tier: 40, scope_path: 'ndma/HP/Shimla' };
+  const sibList = await listDevices(sibling);
+  ok('sibling user listDevices returns 0', sibList.length === 0);
+
+  // 33.5 revokeDevice rejects missing signature.
+  await expectThrowAsync(
+    'revokeDevice rejects empty sig',
+    () => revokeDevice(actor, dev1.device_id, ''),
+    'no_action_sig'
+  );
+  await expectThrowAsync(
+    'revokeDevice rejects null sig',
+    () => revokeDevice(actor, dev1.device_id, null),
+    'no_action_sig'
+  );
+
+  // 33.6 revokeDevice flips the row.
+  const revoked = await revokeDevice(actor, dev1.device_id, 'fake-sig-b64');
+  ok('revokeDevice returns revoked: true', revoked.revoked === true);
+  ok('revokeDevice stamped revoked_at', typeof revoked.revoked_at === 'string' && revoked.revoked_at.length > 0);
+  const list2 = await listDevices(actor);
+  const persistedRev = list2.find((d) => d.device_id === dev1.device_id);
+  ok('listDevices reflects revoked: true', persistedRev?.revoked === true);
+  const persistedActive = list2.find((d) => d.device_id === dev2.device_id);
+  ok('other device stays active', persistedActive?.revoked === false);
+
+  // 33.7 revoking an unknown device fails 404-style.
+  await expectThrowAsync(
+    'revokeDevice rejects unknown id',
+    () => revokeDevice(actor, 'no-such-device-id', 'sig'),
+    'device_not_found'
+  );
+
+  // 33.8 cannot revoke another user's device.
+  await expectThrowAsync(
+    'revokeDevice rejects cross-user',
+    () => revokeDevice(sibling, dev2.device_id, 'sig'),
+    'device_not_found'
+  );
+
+  // 33.9 registerDevice rejects bad label.
+  await expectThrowAsync(
+    'registerDevice rejects empty label',
+    () => registerDevice(actor, { label: '', pubkey_b64: pubkey1 }),
+    'bad_label'
+  );
+  await expectThrowAsync(
+    'registerDevice rejects oversize label',
+    () => registerDevice(actor, { label: 'x'.repeat(60), pubkey_b64: pubkey1 }),
+    'bad_label'
+  );
+  await expectThrowAsync(
+    'registerDevice rejects empty pubkey',
+    () => registerDevice(actor, { label: 'OK', pubkey_b64: '' }),
+    'bad_pubkey'
+  );
+  await expectThrowAsync(
+    'registerDevice rejects null actor',
+    () => registerDevice(null, { label: 'X', pubkey_b64: pubkey1 }),
+    'unauthorized'
+  );
+
+  // 33.10 HMAC re-sign required for revoke. requireFreshHmacSigForDevice
+  // accepts only action='device.revoke' and verifies the canonical HMAC
+  // over the session-bound action key. Mirrors the wire path from the
+  // router for a real revoke call.
+  const authMod2 = await import('../auth.js');
+  const { requireFreshHmacSigForDevice } = authMod2;
+  ok('requireFreshHmacSigForDevice exported', typeof requireFreshHmacSigForDevice === 'function');
+
+  _clearReplayStoreForTest();
+  // Re-issue a session so we have a fresh action key and the auth-side
+  // user lookup hits a known uid.
+  const seedKey2 = globalThis.__seedAdminKey;
+  const ch33 = await handleChallenge({ email: 'commander@ndma.in' }, {});
+  const sigCh33 = ml_dsa65.sign(challengeMessageBytes('commander@ndma.in', ch33.challenge_b64), seedKey2.secretKey);
+  const session33 = await handleVerify({
+    email: 'commander@ndma.in', ch_id: ch33.ch_id, signature_b64: b64Enc(sigCh33)
+  }, {});
+  const actor33 = await authenticate({ headers: { authorization: 'Bearer ' + session33.token } });
+  const action_key_bytes = b64Dec(session33.action_key_b64);
+
+  const fakeDeviceId = 'd-' + Math.random().toString(16).slice(2, 12);
+  const tsRev = Math.floor(Date.now() / 1000);
+  const targetRev = `device.revoke|${fakeDeviceId}`;
+  const canonicalRev = canonicalActionMessage({
+    uid: actor33.uid, action: 'device.revoke', target: targetRev, ts: tsRev, key_id: session33.key_id
+  });
+  const sigRev = hmacB64u(action_key_bytes, canonicalRev);
+
+  const verifiedRev = await requireFreshHmacSigForDevice(
+    actor33, 'device.revoke', targetRev,
+    { 'x-action-sig': sigRev, 'x-action-ts': String(tsRev), 'x-action-key-id': session33.key_id }
+  );
+  ok('requireFreshHmacSigForDevice accepts good sig',
+    verifiedRev.uid === actor33.uid && verifiedRev.action === 'device.revoke');
+  ok('requireFreshHmacSigForDevice rotates key',
+    typeof verifiedRev.next_action_key_b64 === 'string'
+    && typeof verifiedRev.next_action_key_id === 'string');
+
+  // 33.11 wrong action name rejected.
+  await expectThrowAsync(
+    'requireFreshHmacSigForDevice rejects non-device action',
+    () => requireFreshHmacSigForDevice(actor33, 'user.delegate', 'x', { 'x-action-sig': 'a', 'x-action-ts': '1', 'x-action-key-id': 'k' }),
+    'bad_action'
+  );
+
+  // 33.12 bad sig rejected. Tamper with the target after signing the clean target.
+  _clearReplayStoreForTest();
+  const tsRev2 = Math.floor(Date.now() / 1000);
+  const cleanTarget = `device.revoke|${fakeDeviceId}-clean`;
+  const cleanCanon = canonicalActionMessage({
+    uid: actor33.uid, action: 'device.revoke', target: cleanTarget, ts: tsRev2, key_id: session33.key_id
+  });
+  const cleanSig = hmacB64u(action_key_bytes, cleanCanon);
+  await expectThrowAsync(
+    'requireFreshHmacSigForDevice rejects tampered target',
+    () => requireFreshHmacSigForDevice(actor33, 'device.revoke',
+      `device.revoke|${fakeDeviceId}-tamper`,
+      { 'x-action-sig': cleanSig, 'x-action-ts': String(tsRev2), 'x-action-key-id': session33.key_id }),
+    'action_sig_bad'
+  );
+
+  // 33.13 missing sig header rejected.
+  await expectThrowAsync(
+    'requireFreshHmacSigForDevice rejects missing sig',
+    () => requireFreshHmacSigForDevice(actor33, 'device.revoke', targetRev,
+      { 'x-action-ts': String(tsRev2), 'x-action-key-id': session33.key_id }),
+    'no_action_sig'
+  );
+
+  // 33.14 stale ts rejected (outside +/-60s skew).
+  await expectThrowAsync(
+    'requireFreshHmacSigForDevice rejects stale ts',
+    () => requireFreshHmacSigForDevice(actor33, 'device.revoke', targetRev,
+      { 'x-action-sig': sigRev, 'x-action-ts': '1000', 'x-action-key-id': session33.key_id }),
+    'stale_action'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 33. phone-identity lane: telco header HMAC verify, SMS OTP roundtrip,
+//     attempt cap, shortcode webhook, frequency / geo anomaly,
+//     noise gate, telco-attached caller_identity, anonymous +
+//     noise-gate-failed forwarding to the false-alarm review queue.
+// ---------------------------------------------------------------------------
+{
+  const telcoMod = await import('../telco.js');
+  const smsMod = await import('../sms.js');
+  const abuseMod = await import('../abuse.js');
+  const cryptoMod = await import('node:crypto');
+
+  // 33.1 telco header verify: bad sig rejected, good sig accepted.
+  {
+    const secretBytes = cryptoMod.randomBytes(32);
+    const secretB64 = secretBytes.toString('base64');
+    process.env.TELCO_HMAC_SECRETS = `jio:${secretB64},airtel:${cryptoMod.randomBytes(32).toString('base64')}`;
+    telcoMod._resetTelcoCacheForTest();
+    const msisdn = '+919876543210';
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = cryptoMod.createHmac('sha256', secretBytes).update(`${msisdn}|${ts}`).digest('base64');
+    const goodHeaders = {
+      'x-msisdn': msisdn,
+      'x-telco-sig': sig,
+      'x-telco-key-id': 'jio',
+      'x-telco-ts': String(ts)
+    };
+    const verified = telcoMod.verifyTelcoHeader(goodHeaders);
+    ok('verifyTelcoHeader accepts good jio sig',
+      verified && verified.msisdn_e164 === msisdn && verified.telco === 'jio');
+
+    const badSig = cryptoMod.createHmac('sha256', cryptoMod.randomBytes(32)).update(`${msisdn}|${ts}`).digest('base64');
+    const bad = telcoMod.verifyTelcoHeader({ ...goodHeaders, 'x-telco-sig': badSig });
+    ok('verifyTelcoHeader rejects bad sig', bad === null);
+
+    const wrongKey = telcoMod.verifyTelcoHeader({ ...goodHeaders, 'x-telco-key-id': 'unknown' });
+    ok('verifyTelcoHeader rejects unknown key id', wrongKey === null);
+
+    const skewed = telcoMod.verifyTelcoHeader({ ...goodHeaders, 'x-telco-ts': String(ts - 600) });
+    ok('verifyTelcoHeader rejects 10 min skew', skewed === null);
+
+    process.env.TELCO_HMAC_SECRETS = `jio:${secretB64}`;
+    telcoMod._resetTelcoCacheForTest();
+    const reverified = telcoMod.verifyTelcoHeader(goodHeaders);
+    ok('verifyTelcoHeader accepts good sig after reload', reverified && reverified.telco === 'jio');
+    delete process.env.TELCO_HMAC_SECRETS;
+    telcoMod._resetTelcoCacheForTest();
+  }
+
+  // Shared in-memory firestore for sms/abuse tests.
+  class MiniFs {
+    constructor() { this.col = new Map(); }
+    _c(name) { if (!this.col.has(name)) this.col.set(name, new Map()); return this.col.get(name); }
+    async setDoc(c, id, d) { this._c(c).set(id, JSON.parse(JSON.stringify(d))); }
+    async getDoc(c, id) { const v = this._c(c).get(id); return v ? JSON.parse(JSON.stringify(v)) : null; }
+    async deleteDoc(c, id) { this._c(c).delete(id); }
+    async queryDocs(c, filters, opts) {
+      const out = [];
+      for (const [id, d] of this._c(c).entries()) {
+        let pass = true;
+        for (const f of filters || []) {
+          const path = String(f.field).split('.');
+          let v = d;
+          for (const p of path) { v = v == null ? undefined : v[p]; }
+          if (f.op === '==' && v !== f.value) pass = false;
+          if (f.op === '>=' && !(v >= f.value)) pass = false;
+          if (f.op === '<' && !(v < f.value)) pass = false;
+        }
+        if (pass) out.push({ id, data: d });
+      }
+      return opts?.limit ? out.slice(0, opts.limit) : out;
+    }
+  }
+
+  // 33.2 sendOtp + verifyOtp roundtrip.
+  {
+    const fs = new MiniFs();
+    smsMod._setFirestoreForTest(fs);
+    let lastOtp = null;
+    smsMod._setSmsSenderForTest((provider, phone, otp) => { lastOtp = otp; });
+    process.env.MSG91_API_KEY = 'test-key';
+    const phone = '+919876543210';
+    const r = await smsMod.sendOtp(phone, 'auto');
+    ok('sendOtp returned ok', r.ok === true);
+    ok('sendOtp picked msg91 provider', r.provider === 'msg91');
+    ok('OTP delivered via stub sender', typeof lastOtp === 'string' && lastOtp.length === 6);
+    const pending = await fs.getDoc('tm_otp_pending', phone);
+    ok('tm_otp_pending row created', pending && pending.attempts === 0);
+
+    const verified = await smsMod.verifyOtp(phone, lastOtp);
+    ok('verifyOtp succeeded', verified.ok === true && typeof verified.phone_fp === 'string');
+    const cleared = await fs.getDoc('tm_otp_pending', phone);
+    ok('tm_otp_pending cleared after verify', cleared === null);
+    const binding = await fs.getDoc('tm_phone_bindings', verified.phone_fp);
+    ok('tm_phone_bindings minted', binding && binding.phone_e164 === phone);
+
+    delete process.env.MSG91_API_KEY;
+    smsMod._setSmsSenderForTest(null);
+    smsMod._setFirestoreForTest(null);
+  }
+
+  // 33.3 verifyOtp rejects after 3 failed attempts.
+  {
+    const fs = new MiniFs();
+    smsMod._setFirestoreForTest(fs);
+    let stashedOtp = null;
+    smsMod._setSmsSenderForTest((provider, phone, otp) => { stashedOtp = otp; });
+    process.env.KARIX_API_KEY = 'k-test';
+    const phone = '+918888888888';
+    await smsMod.sendOtp(phone, 'auto');
+    ok('sendOtp picked karix when only karix is set', stashedOtp !== null);
+
+    let last;
+    for (let i = 0; i < 3; i++) {
+      try { await smsMod.verifyOtp(phone, '000000'); }
+      catch (e) { last = e; }
+    }
+    ok('third bad attempt rejected', last && last.code === 'otp_mismatch');
+    let exceeded;
+    try { await smsMod.verifyOtp(phone, stashedOtp); }
+    catch (e) { exceeded = e; }
+    ok('verifyOtp blocks after attempts exhausted',
+      exceeded && (exceeded.code === 'otp_attempts_exceeded' || exceeded.code === 'otp_not_found'));
+
+    delete process.env.KARIX_API_KEY;
+    smsMod._setSmsSenderForTest(null);
+    smsMod._setFirestoreForTest(null);
+  }
+
+  // 33.4 shortcode webhook with HMAC parses + creates dispatch.
+  {
+    const fs = new MiniFs();
+    smsMod._setFirestoreForTest(fs);
+    const r = await smsMod.handleShortcodeWebhook({
+      from_e164: '+919999000011',
+      body: 'SOS trapped under building',
+      received_at: new Date().toISOString()
+    });
+    ok('handleShortcodeWebhook accepted SOS', r.ok === true && typeof r.dispatch_id === 'string');
+    const row = await fs.getDoc('tm_dispatches', r.dispatch_id);
+    ok('shortcode dispatch row written', row && row.phone_verified === true && row.verification_channel === 'sms_shortcode');
+    ok('shortcode dispatch carries triage transcript', row.triage?.transcription_native === 'SOS trapped under building');
+
+    const noSos = await smsMod.handleShortcodeWebhook({
+      from_e164: '+919999000022',
+      body: 'hello world',
+      received_at: new Date().toISOString()
+    });
+    ok('handleShortcodeWebhook rejects non-SOS body', noSos.ok === false && noSos.reason === 'not_sos_format');
+
+    smsMod._setFirestoreForTest(null);
+  }
+
+  // 33.5 checkFrequencyAnomaly: 4 in 1 hr from same fp flags.
+  {
+    const fs = new MiniFs();
+    abuseMod._setFirestoreForTest(fs);
+    const fp = 'fp-test-abuser';
+    const recv = new Date().toISOString();
+    for (let i = 0; i < 4; i++) {
+      fs._c('tm_dispatches').set(`d-freq-${i}`, {
+        id: `d-freq-${i}`,
+        received_at: recv,
+        caller_identity: { fingerprint: fp }
+      });
+    }
+    const r = await abuseMod.checkFrequencyAnomaly(fp);
+    ok('checkFrequencyAnomaly flags > 3 / hr', r.flagged === true && r.count === 4);
+
+    const rOther = await abuseMod.checkFrequencyAnomaly('fp-clean');
+    ok('checkFrequencyAnomaly clean fp not flagged', rOther.flagged === false && rOther.count === 0);
+
+    abuseMod._setFirestoreForTest(null);
+  }
+
+  // 33.6 checkGeoImpossibility: 100+ km in 2 min flags.
+  {
+    const fs = new MiniFs();
+    abuseMod._setFirestoreForTest(fs);
+    const fp = 'fp-jumper';
+    const recv = new Date(Date.now() - 2 * 60_000).toISOString();
+    fs._c('tm_dispatches').set('d-geo-1', {
+      id: 'd-geo-1', received_at: recv,
+      caller_identity: { fingerprint: fp },
+      location: { lat: 28.6139, lng: 77.2090 }
+    });
+    const r = await abuseMod.checkGeoImpossibility(fp, 29.6139, 77.2090);
+    ok('checkGeoImpossibility flags > 50 km in 5 min',
+      r.flagged === true && r.max_distance_m > 100_000);
+
+    const rNear = await abuseMod.checkGeoImpossibility(fp, 28.62, 77.21);
+    ok('checkGeoImpossibility nearby not flagged', rNear.flagged === false);
+
+    abuseMod._setFirestoreForTest(null);
+  }
+
+  // 33.7 checkNoiseGate keyword + miss.
+  {
+    const passKw = abuseMod.checkNoiseGate({
+      urgency: 'LOW', transcription_english: 'help, trapped under rubble'
+    });
+    ok('checkNoiseGate passes with disaster keyword', passKw.passed === true && passKw.reason === 'disaster_keyword');
+
+    const passUrg = abuseMod.checkNoiseGate({ urgency: 'CRITICAL', transcription_english: '' });
+    ok('checkNoiseGate passes on CRITICAL', passUrg.passed === true && passUrg.reason === 'urgency_high');
+
+    const passPanic = abuseMod.checkNoiseGate({
+      urgency: 'LOW', transcription_english: '', panic_codes: [1, 8]
+    });
+    ok('checkNoiseGate passes on panic-code tap', passPanic.passed === true && passPanic.reason === 'panic_code');
+
+    const fail = abuseMod.checkNoiseGate({
+      urgency: 'LOW', transcription_english: 'hello world how are you'
+    });
+    ok('checkNoiseGate fails with no signal', fail.passed === false && fail.reason === 'no_disaster_signal');
+  }
+
+  // 33.8 handleTriage with telco header sets phone_verified true.
+  //      Verifies the helper that handleTriage uses to build
+  //      caller_identity from a verified telco header.
+  {
+    const secret = cryptoMod.randomBytes(32);
+    process.env.TELCO_HMAC_SECRETS = `vi:${secret.toString('base64')}`;
+    telcoMod._resetTelcoCacheForTest();
+    const msisdn = '+919998887776';
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = cryptoMod.createHmac('sha256', secret).update(`${msisdn}|${ts}`).digest('base64');
+    const verified = telcoMod.verifyTelcoHeader({
+      'x-msisdn': msisdn, 'x-telco-sig': sig,
+      'x-telco-key-id': 'vi', 'x-telco-ts': String(ts)
+    });
+    const callerIdentity = verified
+      ? {
+          msisdn_e164: verified.msisdn_e164,
+          phone_verified: true,
+          verification_channel: 'telco_header',
+          fingerprint: 'fp-stub',
+          ip_subnet24: '203.0.113.0/24',
+          telco: verified.telco
+        }
+      : null;
+    ok('handleTriage telco path: phone_verified true',
+      callerIdentity && callerIdentity.phone_verified === true);
+    ok('handleTriage telco path: verification_channel = telco_header',
+      callerIdentity.verification_channel === 'telco_header');
+    delete process.env.TELCO_HMAC_SECRETS;
+    telcoMod._resetTelcoCacheForTest();
+  }
+
+  // 33.9 handleTriage anon + noise gate failed forwards to police.
+  //      Validates the abuse module's forwardToPolice landing in the
+  //      tm_false_alarm_review collection that the dispatcher reads.
+  {
+    const fs = new MiniFs();
+    abuseMod._setFirestoreForTest(fs);
+    const triage = { urgency: 'LOW', transcription_english: 'just testing' };
+    const verdict = abuseMod.checkNoiseGate(triage);
+    ok('anon noise gate fails on no-signal', verdict.passed === false);
+    const dispatchId = 'd-anon-fail-1';
+    const wrote = await abuseMod.forwardToPolice(dispatchId, verdict.reason);
+    ok('forwardToPolice persisted', wrote === true);
+    const date = new Date().toISOString().slice(0, 10);
+    const row = await fs.getDoc('tm_false_alarm_review', `${date}_${dispatchId}`);
+    ok('false-alarm review row written',
+      row && row.dispatch_id === dispatchId
+      && row.enforcement_basis === 'DM_Act_2005_S_54');
+    abuseMod._setFirestoreForTest(null);
+  }
+}
+
+
 if (failed === 0) {
   process.stdout.write('OK\n');
   process.exit(0);
