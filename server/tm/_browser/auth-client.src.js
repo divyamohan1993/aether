@@ -346,6 +346,17 @@ function qrFitsVersion25(payload) {
   return typeof payload === 'string' && payload.length <= 2900;
 }
 
+// Diagnostic export. Returns hex of the raw Argon2id derived bytes for
+// the given passphrase + base64 salt at the bundle's compiled-in params.
+// Used during cross-runtime parity checks; do not call from product code.
+function _debugArgon(passphrase, saltB64) {
+  const salt = b64Dec(saltB64);
+  const raw = argon2id(passphrase, salt, {
+    t: ARGON_T, m: ARGON_M, p: ARGON_P, dkLen: ARGON_DK
+  });
+  return Array.from(raw).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 function decodeQrPayload(str) {
   if (typeof str !== 'string' || str.length === 0) {
     throw new Error('TM_QR_DECODE_EMPTY: input must be a non-empty string');
@@ -399,6 +410,7 @@ export {
   encodeQrPayload,
   qrFitsVersion25,
   decodeQrPayload,
+  _debugArgon,
   MNEMONIC_WORDS,
   QR_PAYLOAD_VERSION,
   QR_PAYLOAD_TTL_SECS,

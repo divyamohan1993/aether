@@ -320,9 +320,16 @@ async function serveStatic(req, res, route, requestId) {
     sendError(res, 503, 'service_initializing', 'Static asset not built yet. Try again shortly.');
     return;
   }
+  // Demo credentials regenerate on every seed run; tell the browser to
+  // always revalidate so a stale-but-ETag-matching body cannot wedge a
+  // demo login. Other static assets keep the 5-minute cache.
+  const isHotAsset = route.file === 'demo/credentials.json' || route.file === 'tm/auth-client.js';
+  const cacheCtl = isHotAsset
+    ? 'no-cache, must-revalidate'
+    : 'public, max-age=300, must-revalidate';
   const inm = req.headers['if-none-match'];
   if (inm && inm === entry.etag) {
-    res.writeHead(304, { ETag: entry.etag, 'Cache-Control': 'public, max-age=300, must-revalidate' });
+    res.writeHead(304, { ETag: entry.etag, 'Cache-Control': cacheCtl });
     res.end();
     return;
   }
@@ -330,7 +337,7 @@ async function serveStatic(req, res, route, requestId) {
   const headers = {
     'Content-Type': route.mime,
     'Content-Length': body.length,
-    'Cache-Control': 'public, max-age=300, must-revalidate',
+    'Cache-Control': cacheCtl,
     'ETag': entry.etag,
     'Vary': 'Accept-Encoding'
   };
