@@ -335,6 +335,13 @@ async function dispatchApi(req, res, sub, url, ctx) {
   // Authenticated routes.
   const actor = await authenticate(req);
 
+  // Presence heartbeat. Wave 2 watchdog reads tm_user_presence to detect
+  // C2 compromise. bumpPresence is rate-limited per uid, so spamming
+  // requests does not blow Firestore's free-tier write quota.
+  if (actor && actor.uid) {
+    users.bumpPresence(actor.uid).catch(() => { /* best-effort */ });
+  }
+
   if (sub === 'me') {
     if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
     return sendJson(res, 200, await users.getMe(actor));
@@ -556,6 +563,12 @@ async function dispatchApi(req, res, sub, url, ctx) {
     return sendError(res, 405, 'method_not_allowed', 'Use GET or POST.', { Allow: 'GET, POST' });
   }
 
+  if (sub === 'units/bulk') {
+    if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
+    const body = await readJsonBody(req);
+    return sendJson(res, 200, await units.bulkCreate(actor, body));
+  }
+
   if (sub.startsWith('units/')) {
     const uid = decodeURIComponent(sub.slice('units/'.length));
     if (!uid || uid.includes('/')) return sendError(res, 404, 'not_found', 'No such unit route.');
@@ -664,6 +677,7 @@ export async function route(req, res, url, ctx) {
           'GET /api/v1/tm/dispatches/:id/suggestions',
           'POST /api/v1/tm/dispatches/:id/assign',
           'GET|POST /api/v1/tm/units',
+          'POST /api/v1/tm/units/bulk',
           'GET|PATCH|DELETE /api/v1/tm/units/:unit_id',
           'PATCH /api/v1/tm/assignments/:aid'
         ]

@@ -417,6 +417,259 @@ setAuthUsers(fakeUsers);
     () => handleVerify({}, {}), 'bad_request');
 }
 
+// ---------------------------------------------------------------------------
+// 7. Tier expansion: all 10 tiers exist, names match the GoI chain, legacy
+//    aliases still resolve to the right code.
+// ---------------------------------------------------------------------------
+{
+  const usersMod = await import('../users.js');
+  const { TIER, tierName, isValidTier } = usersMod;
+
+  const expectedNames = {
+    100: 'ndma', 90: 'national_ops', 80: 'sdma', 70: 'state_ops',
+    60: 'ddma', 50: 'district_ops', 40: 'subdivisional', 30: 'tehsil',
+    20: 'volunteer', 10: 'survivor'
+  };
+  for (const [code, name] of Object.entries(expectedNames)) {
+    ok(`tierName(${code}) is ${name}`, tierName(Number(code)) === name);
+    ok(`isValidTier(${code}) true`, isValidTier(Number(code)));
+  }
+  ok('TIER.ndma is 100', TIER.ndma === 100);
+  ok('TIER.national_ops is 90', TIER.national_ops === 90);
+  ok('TIER.sdma is 80', TIER.sdma === 80);
+  ok('TIER.state_ops is 70', TIER.state_ops === 70);
+  ok('TIER.ddma is 60', TIER.ddma === 60);
+  ok('TIER.district_ops is 50', TIER.district_ops === 50);
+  ok('TIER.subdivisional is 40', TIER.subdivisional === 40);
+  ok('TIER.tehsil is 30', TIER.tehsil === 30);
+  ok('TIER.volunteer is 20', TIER.volunteer === 20);
+  ok('TIER.survivor is 10', TIER.survivor === 10);
+
+  // Legacy aliases still compile and map to the right code so existing
+  // import sites do not break.
+  ok('TIER.state alias = 80', TIER.state === 80);
+  ok('TIER.district alias = 60', TIER.district === 60);
+  ok('TIER.responder alias = 40', TIER.responder === 40);
+
+  ok('isValidTier rejects 0', !isValidTier(0));
+  ok('isValidTier rejects 25', !isValidTier(25));
+  ok('isValidTier rejects "60"', !isValidTier('60'));
+  ok('tierName(99) is unknown', tierName(99) === 'unknown');
+}
+
+// ---------------------------------------------------------------------------
+// 8. SCOPE_RE: 12-segment depth, survivor root, cross-root prefix attacks.
+// ---------------------------------------------------------------------------
+{
+  const { isValidScope, isInScope } = await import('../users.js');
+
+  // 12 segments under ndma is now legal.
+  const segs = ['HP', 'Shimla', 'Mashobra', 'Tehsil1', 'Village1',
+    'Sub1', 'Block', 'Sector', 'Lane', 'House', 'Floor', 'Unit'];
+  const path12 = 'ndma/' + segs.join('/');
+  ok('SCOPE_RE accepts 12-segment scope', isValidScope(path12));
+  ok('SCOPE_RE rejects 13-segment scope', !isValidScope(path12 + '/extra'));
+
+  ok('SCOPE_RE accepts survivor/<fp>', isValidScope('survivor/fp1234567890'));
+  ok('SCOPE_RE accepts survivor root', isValidScope('survivor'));
+  ok('SCOPE_RE accepts demo root', isValidScope('demo'));
+  ok('SCOPE_RE accepts ndma root', isValidScope('ndma'));
+
+  // Cross-root prefix attacks: any root must have a slash boundary.
+  ok('SCOPE_RE rejects ndmaplus', !isValidScope('ndmaplus'));
+  ok('SCOPE_RE rejects ndma2', !isValidScope('ndma2'));
+  ok('SCOPE_RE rejects survivors', !isValidScope('survivors'));
+  ok('SCOPE_RE rejects demoabc/x', !isValidScope('demoabc/x'));
+  ok('SCOPE_RE rejects empty', !isValidScope(''));
+  ok('SCOPE_RE rejects double slash', !isValidScope('ndma//HP'));
+  ok('SCOPE_RE rejects trailing slash', !isValidScope('ndma/HP/'));
+
+  // Survivor and ndma roots are disjoint at the prefix level: a survivor
+  // record is never reachable from any ndma actor's subtree, and vice versa.
+  ok('isInScope(ndma/mh, survivor/x) is false', isInScope('ndma/mh', 'survivor/x') === false);
+  ok('isInScope(survivor, ndma) is false', isInScope('survivor', 'ndma') === false);
+  ok('isInScope(ndma, survivor) is false', isInScope('ndma', 'survivor') === false);
+  ok('isInScope(survivor, survivor/abc) is true', isInScope('survivor', 'survivor/abc') === true);
+}
+
+// ---------------------------------------------------------------------------
+// 9. Presence bump rate-limited to once per minute per uid.
+// ---------------------------------------------------------------------------
+{
+  const { _shouldBumpPresence, _resetPresenceCacheForTest } = await import('../users.js');
+  _resetPresenceCacheForTest();
+
+  const t0 = 1_700_000_000_000;
+  ok('first bump for uid-A returns true', _shouldBumpPresence('uid-A', t0) === true);
+  ok('second bump 30s later returns false', _shouldBumpPresence('uid-A', t0 + 30_000) === false);
+  ok('bump 59s later still returns false', _shouldBumpPresence('uid-A', t0 + 59_000) === false);
+  ok('bump 61s later returns true', _shouldBumpPresence('uid-A', t0 + 61_000) === true);
+
+  // Different uids tracked independently.
+  ok('first bump for uid-B at 30s returns true', _shouldBumpPresence('uid-B', t0 + 30_000) === true);
+  ok('second bump for uid-B at 31s returns false', _shouldBumpPresence('uid-B', t0 + 31_000) === false);
+
+  // Bad input never bumps.
+  ok('empty uid never bumps', _shouldBumpPresence('', t0) === false);
+  ok('null uid never bumps', _shouldBumpPresence(null, t0) === false);
+
+  _resetPresenceCacheForTest();
+  ok('after reset, uid-A bumps again', _shouldBumpPresence('uid-A', t0 + 61_000) === true);
+}
+
+// ---------------------------------------------------------------------------
+// 10. Bulk roster import. Mixed valid/invalid rows, idempotency on
+//     (name, scope_path), tier gate.
+// ---------------------------------------------------------------------------
+{
+  const units = await import('../units.js');
+  const { TIER } = await import('../users.js');
+
+  // Minimal in-memory Firestore. Supports queryDocs (range on
+  // scope_path) + runTransaction (create with explicit id).
+  class MockFs {
+    constructor() { this.col = new Map(); }
+    _c(name) { if (!this.col.has(name)) this.col.set(name, new Map()); return this.col.get(name); }
+    async queryDocs(collection, filters, opts) {
+      const c = this._c(collection);
+      let lower = null, upper = null;
+      for (const f of filters || []) {
+        if (f.field === 'scope_path' && f.op === '>=') lower = f.value;
+        if (f.field === 'scope_path' && f.op === '<=') upper = f.value;
+      }
+      const out = [];
+      for (const [id, data] of c.entries()) {
+        const sp = data.scope_path;
+        if (lower !== null && (typeof sp !== 'string' || sp < lower)) continue;
+        if (upper !== null && (typeof sp !== 'string' || sp > upper)) continue;
+        out.push({ id, data: JSON.parse(JSON.stringify(data)) });
+      }
+      const lim = opts?.limit || 500;
+      return out.slice(0, lim);
+    }
+    async runTransaction(fn) {
+      const writes = [];
+      const handle = {
+        get: async (collection, id) => {
+          const v = this._c(collection).get(id);
+          return v ? JSON.parse(JSON.stringify(v)) : null;
+        },
+        create: (collection, data, explicitId) => {
+          const id = explicitId || ('rand-' + Math.random().toString(16).slice(2));
+          writes.push({ kind: 'create', collection, id, data: JSON.parse(JSON.stringify(data)) });
+          return id;
+        },
+        set: () => { throw new Error('mock: set not implemented'); },
+        update: () => { throw new Error('mock: update not implemented'); },
+        delete: () => { throw new Error('mock: delete not implemented'); }
+      };
+      const result = await fn(handle);
+      // Apply writes only on success.
+      for (const w of writes) {
+        if (w.kind === 'create') {
+          const c = this._c(w.collection);
+          if (c.has(w.id)) {
+            const e = new Error('already exists'); e.code = 'FS_ALREADY_EXISTS'; throw e;
+          }
+          c.set(w.id, w.data);
+        }
+      }
+      return result;
+    }
+  }
+  const mockFs = new MockFs();
+  const auditCalls = [];
+  const mockAudit = {
+    record: async (...args) => { auditCalls.push(args); return 'aid-' + auditCalls.length; }
+  };
+  units._setFirestoreForTest(mockFs);
+  units._setAuditForTest(mockAudit);
+
+  const ddma = { uid: 'admin-ddma', tier: TIER.ddma, scope_path: 'ndma/HP/Shimla' };
+
+  // Tier gate.
+  const tooLow = { uid: 'low', tier: TIER.tehsil, scope_path: 'ndma/HP/Shimla' };
+  await expectThrowAsync(
+    'bulkCreate rejects tier below ddma',
+    () => units.bulkCreate(tooLow, { rows: [{ type: 'ambulance', name: 'X', contact_phone: '+91 111 222 3333', scope_path: 'ndma/HP/Shimla' }] }),
+    'tier_too_low'
+  );
+
+  // Bad payload guards.
+  await expectThrowAsync('bulkCreate rejects missing rows',
+    () => units.bulkCreate(ddma, {}), 'bad_request');
+  await expectThrowAsync('bulkCreate rejects empty rows',
+    () => units.bulkCreate(ddma, { rows: [] }), 'bad_request');
+  await expectThrowAsync('bulkCreate rejects > 1000 rows',
+    () => units.bulkCreate(ddma, { rows: new Array(1001).fill({}) }), 'payload_too_large');
+
+  // 100 rows, mixed valid + invalid.
+  const rows = [];
+  for (let i = 0; i < 90; i++) {
+    rows.push({
+      type: 'ambulance',
+      name: `BULK-AMB-${String(i).padStart(3, '0')}`,
+      contact_phone: '+91 11 5555 ' + String(1000 + i),
+      scope_path: 'ndma/HP/Shimla',
+      capacity: 4,
+      lat: 31.10 + i * 0.001,
+      lng: 77.17 + i * 0.001
+    });
+  }
+  // Invalid: bad type.
+  rows.push({ type: 'rocket', name: 'Bad-1', contact_phone: '+91 1', scope_path: 'ndma/HP/Shimla' });
+  // Invalid: bad name (empty).
+  rows.push({ type: 'ambulance', name: '', contact_phone: '+91 1 2 3 4', scope_path: 'ndma/HP/Shimla' });
+  // Invalid: out-of-scope (UK is sibling of HP).
+  rows.push({ type: 'ambulance', name: 'OUT-001', contact_phone: '+91 11 5555 9999', scope_path: 'ndma/UK/Dehradun' });
+  // Invalid: bad capacity.
+  rows.push({ type: 'ambulance', name: 'CAP-001', contact_phone: '+91 11 5555 9998', scope_path: 'ndma/HP/Shimla', capacity: 9999 });
+  // Invalid: bad scope (wrong root).
+  rows.push({ type: 'ambulance', name: 'ROOT-001', contact_phone: '+91 11 5555 9997', scope_path: 'foo/bar' });
+  // Valid: deeper nested scope under actor.
+  rows.push({ type: 'drone', name: 'DRN-NESTED', contact_phone: '+91 11 5555 9996', scope_path: 'ndma/HP/Shimla/responder1', capacity: 2 });
+  // Duplicate-in-batch: same (name, scope_path) as row 0.
+  rows.push({ type: 'ambulance', name: 'BULK-AMB-000', contact_phone: '+91 11 5555 0000', scope_path: 'ndma/HP/Shimla' });
+  // Total: 90 + 5 invalid + 1 valid + 1 dup = 97 rows.
+
+  const r1 = await units.bulkCreate(ddma, { rows });
+  ok('bulkCreate response.rows length matches input', r1.rows.length === rows.length);
+  ok('bulkCreate summary.created = 91', r1.summary.created === 91);
+  ok('bulkCreate summary.invalid = 5', r1.summary.invalid === 5);
+  ok('bulkCreate summary.duplicate_in_batch = 1', r1.summary.duplicate_in_batch === 1);
+  ok('bulkCreate summary.total = 97', r1.summary.total === 97);
+
+  // Spot-check per-row statuses.
+  ok('row 0 created with unit_id', r1.rows[0].status === 'created' && typeof r1.rows[0].unit_id === 'string');
+  ok('row 90 (bad type) invalid', r1.rows[90].status === 'invalid' && r1.rows[90].error === 'bad_type');
+  ok('row 91 (empty name) invalid', r1.rows[91].status === 'invalid' && r1.rows[91].error === 'bad_name');
+  ok('row 92 (out of scope) invalid', r1.rows[92].status === 'invalid' && r1.rows[92].error === 'out_of_scope');
+  ok('row 93 (bad capacity) invalid', r1.rows[93].status === 'invalid' && r1.rows[93].error === 'bad_capacity');
+  ok('row 94 (bad scope) invalid', r1.rows[94].status === 'invalid' && r1.rows[94].error === 'bad_scope');
+  ok('row 95 (nested scope) created', r1.rows[95].status === 'created');
+  ok('row 96 (dup in batch) flagged', r1.rows[96].status === 'duplicate_in_batch' && r1.rows[96].unit_id === r1.rows[0].unit_id);
+
+  // Audit summary row was written.
+  ok('bulk audit summary recorded', auditCalls.some((c) => c[1] === 'unit.bulk_summary'));
+
+  // Idempotency: re-run the same valid 90-row block; all should report exists.
+  const replay = rows.slice(0, 90);
+  const r2 = await units.bulkCreate(ddma, { rows: replay });
+  ok('replay summary.created = 0', r2.summary.created === 0);
+  ok('replay summary.exists = 90', r2.summary.exists === 90);
+  ok('replay row 0 status exists', r2.rows[0].status === 'exists');
+  ok('replay row 0 unit_id matches first run', r2.rows[0].unit_id === r1.rows[0].unit_id);
+
+  // Verify the in-memory store actually got 91 unit docs from the first
+  // call plus 0 new docs on replay (sanity check on the test mock).
+  const stored = mockFs._c('tm_units');
+  ok('mock fs holds 91 unit docs', stored.size === 91);
+
+  // Restore real modules so any later tests don't see the mock.
+  units._setFirestoreForTest(null);
+  units._setAuditForTest(null);
+}
+
 if (failed === 0) {
   process.stdout.write('OK\n');
   process.exit(0);

@@ -10,22 +10,40 @@ import {
 import { record as auditRecord } from './audit.js';
 import { ApiError, ScopeError, NotFoundError, ConflictError } from './_errors.js';
 
+// Real Government of India disaster-response chain. Codes match the
+// hierarchy mandated by the build spec. Old names (state, district,
+// responder) are kept as aliases so callers that imported them continue
+// to compile until they are migrated.
 export const TIER = Object.freeze({
   ndma: 100,
+  national_ops: 90,
+  sdma: 80,
+  state_ops: 70,
+  ddma: 60,
+  district_ops: 50,
+  subdivisional: 40,
+  tehsil: 30,
+  volunteer: 20,
+  survivor: 10,
+  // Aliases for legacy import sites.
   state: 80,
   district: 60,
-  responder: 40,
-  volunteer: 20
+  responder: 40
 });
 
-const TIER_VALUES = new Set([20, 40, 60, 80, 100]);
+const TIER_VALUES = new Set([10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
 
 const TIER_NAMES = Object.freeze({
   100: 'ndma',
-  80: 'state',
-  60: 'district',
-  40: 'responder',
-  20: 'volunteer'
+  90: 'national_ops',
+  80: 'sdma',
+  70: 'state_ops',
+  60: 'ddma',
+  50: 'district_ops',
+  40: 'subdivisional',
+  30: 'tehsil',
+  20: 'volunteer',
+  10: 'survivor'
 });
 
 export function tierName(t) { return TIER_NAMES[t] || 'unknown'; }
@@ -34,7 +52,10 @@ export function isValidTier(t) {
   return Number.isInteger(t) && TIER_VALUES.has(t);
 }
 
-const SCOPE_RE = /^(ndma|demo)(\/[A-Za-z0-9_\-.]+){0,8}$/;
+// Three disjoint roots: `ndma` (operational), `demo` (public demo subtree),
+// and `survivor` (anonymous tier-10 records). Up to 12 path segments to
+// fit ndma/<state>/<district>/<sd>/<tehsil>/<village>/<sub-village>/ops/<unit>.
+const SCOPE_RE = /^(ndma|demo|survivor)(\/[A-Za-z0-9_\-.]+){0,12}$/;
 
 export function isValidScope(s) {
   return typeof s === 'string' && s.length > 0 && s.length <= 256 && SCOPE_RE.test(s);
@@ -428,5 +449,47 @@ export async function touchLastLogin(uid) {
     });
   } catch {
     /* swallowed; auth flow has already completed */
+  }
+}
+
+// Presence heartbeat. Every authenticated request bumps
+// tm_user_presence/{uid}.last_seen_at. The Wave 2 watchdog reads this to
+// detect C2 compromise. Writes are throttled per uid to one bump per
+// PRESENCE_THROTTLE_MS so an active session does not exceed Firestore
+// free-tier write quota under heavy polling.
+const PRESENCE_THROTTLE_MS = 60_000;
+const PRESENCE_CACHE_MAX = 10_000;
+const _presenceLastBump = new Map();
+
+export function _shouldBumpPresence(uid, nowMs) {
+  if (typeof uid !== 'string' || uid.length === 0) return false;
+  const t = typeof nowMs === 'number' ? nowMs : Date.now();
+  const last = _presenceLastBump.get(uid);
+  if (typeof last === 'number' && t - last < PRESENCE_THROTTLE_MS) return false;
+  if (_presenceLastBump.size >= PRESENCE_CACHE_MAX) {
+    const drop = Math.floor(PRESENCE_CACHE_MAX / 10);
+    const it = _presenceLastBump.keys();
+    for (let i = 0; i < drop; i++) {
+      const { value, done } = it.next();
+      if (done) break;
+      _presenceLastBump.delete(value);
+    }
+  }
+  _presenceLastBump.set(uid, t);
+  return true;
+}
+
+export function _resetPresenceCacheForTest() {
+  _presenceLastBump.clear();
+}
+
+export async function bumpPresence(uid) {
+  if (typeof uid !== 'string' || uid.length === 0) return false;
+  if (!_shouldBumpPresence(uid)) return false;
+  try {
+    await setDoc('tm_user_presence', uid, { uid, last_seen_at: new Date() });
+    return true;
+  } catch {
+    return false;
   }
 }
