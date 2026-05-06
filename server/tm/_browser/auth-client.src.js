@@ -322,21 +322,20 @@ async function unwrapKeyringFromImport(qrPayload, mnemonic, opts) {
   return _unpackKeyringBlob(pt);
 }
 
-// QR encode/decode. JSON -> base64url. Fits inside QR Version 25 (~2 KB).
+// JSON -> base64url. ML-DSA-65 keyrings are ~7 KB after AES-GCM wrap,
+// well above QR Version 25 (~2 KB). The UI ships these as a copyable
+// textarea + a labelled PNG via canvas instead of a real QR; callers
+// can use qrFitsVersion25 below if they want to render a real QR for
+// payloads that happen to fit.
 function encodeQrPayload(obj) {
   if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
     throw new Error('TM_QR_ENCODE_BAD: obj must be a plain object');
   }
-  const json = JSON.stringify(obj);
-  const bytes = utf8(json);
-  const out = b64u(bytes);
-  if (out.length > 2900) {
-    // QR Version 25 (alphanumeric, ECC L) ~ 2953 chars; fail loudly so
-    // the caller knows the payload will not fit instead of generating a
-    // QR that some scanners truncate silently.
-    throw new Error('TM_QR_ENCODE_TOO_LARGE: payload exceeds QR Version 25 capacity');
-  }
-  return out;
+  return b64u(utf8(JSON.stringify(obj)));
+}
+
+function qrFitsVersion25(payload) {
+  return typeof payload === 'string' && payload.length <= 2900;
 }
 
 function decodeQrPayload(str) {
@@ -390,6 +389,7 @@ export {
   unwrapKeyringFromImport,
   generateMnemonic,
   encodeQrPayload,
+  qrFitsVersion25,
   decodeQrPayload,
   MNEMONIC_WORDS,
   QR_PAYLOAD_VERSION,
