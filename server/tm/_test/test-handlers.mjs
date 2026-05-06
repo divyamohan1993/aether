@@ -36,6 +36,21 @@ import {
   _getSessionEntryForTest
 } from '../auth.js';
 import { canonicalActionMessage } from '../canonical.js';
+import { criticalityScore, _internal as critInternal } from '../criticality.js';
+import {
+  geohash7,
+  transcriptMinHash,
+  minHashJaccard,
+  haversineMeters,
+  findCluster
+} from '../dedupe.js';
+import {
+  listTeam,
+  compare,
+  _setUsersForTest as setDispatchesUsers,
+  _setFirestoreForTest as setDispatchesFirestore
+} from '../dispatches.js';
+import * as dssMod from '../dss.js';
 
 let failed = 0;
 function ok(name, cond, detail) {
@@ -1014,6 +1029,256 @@ setAuthUsers(fakeUsers);
   // Restore real fs so any later imports do not see the audit fakes.
   setAuditFs(null);
   resetAuditMigration();
+}
+
+
+// ---------------------------------------------------------------------------
+// criticality-dedup lane tests (sections 12-20). Owned by wave-1-criticality-dedup.
+// ---------------------------------------------------------------------------
+// 12. criticalityScore: pregnant + child + elderly_with_crush.
+{
+  const triage = {
+    urgency: 'CRITICAL',
+    victims: [
+      { age_band: 'adult', condition_flags: ['pregnant'], count: 1 },
+      { age_band: 'child', condition_flags: ['bleeding'], count: 1 },
+      { age_band: 'elderly', condition_flags: ['crush_extracted'], count: 1 }
+    ]
+  };
+  const fixedNow = Date.parse('2026-05-06T12:05:00Z');
+  const receivedAt = '2026-05-06T12:00:00Z';
+  const r = criticalityScore(triage, receivedAt, fixedNow);
+  ok('criticality breakdown has 3 victim rows', Array.isArray(r.breakdown.victims) && r.breakdown.victims.length === 3);
+  // adult + pregnant = 1.0 + 2.0 = 3.0
+  ok('pregnant adult weight is 3.0', r.breakdown.victims[0].weight === 3);
+  // child + bleeding = 1.3 + 1.5 = 2.8
+  ok('child + bleeding weight is 2.8', Math.abs(r.breakdown.victims[1].weight - 2.8) < 1e-6);
+  // elderly + crush -> 1.8 composite (no double-count)
+  ok('elderly_with_crush weight is 1.8', r.breakdown.victims[2].weight === 1.8);
+  // sum = 7.6, urgency 1.0, decay = 1.0 + 0.05 = 1.05 -> 7.98
+  ok('criticality score scales with urgency + decay', Math.abs(r.score - 7.98) < 0.01, `got ${r.score}`);
+  ok('breakdown urgency_factor 1.0 for CRITICAL', r.breakdown.urgency_factor === 1.0);
+  ok('breakdown not in fallback mode', r.breakdown.fallback === false);
+}
+
+// 13. criticalityScore fallback: empty victims -> people_affected.
+{
+  const r = criticalityScore({ urgency: 'HIGH', people_affected: 4 }, '2026-05-06T12:00:00Z', Date.parse('2026-05-06T12:00:00Z'));
+  ok('fallback engaged when victims missing', r.breakdown.fallback === true);
+  ok('fallback uses people_affected count', r.breakdown.fallback_people_affected === 4);
+  // 0.7 * 4 * 1.0 = 2.8
+  ok('fallback score uses urgency * people * decay', Math.abs(r.score - 2.8) < 1e-6, `got ${r.score}`);
+  // people_affected null -> default 1
+  const r2 = criticalityScore({ urgency: 'MEDIUM' }, '2026-05-06T12:00:00Z', Date.parse('2026-05-06T12:00:00Z'));
+  ok('fallback defaults people_affected to 1', r2.breakdown.fallback_people_affected === 1);
+}
+
+// 14. geohash7: distinct cities map to distinct prefixes; 50 m apart match.
+{
+  const delhi = geohash7(28.6139, 77.2090);
+  const mumbai = geohash7(19.0760, 72.8777);
+  const shimla = geohash7(31.1048, 77.1734);
+  ok('geohash7 returns 7 chars for Delhi', typeof delhi === 'string' && delhi.length === 7);
+  ok('Delhi and Mumbai have distinct geohash prefixes', delhi !== mumbai && delhi.slice(0, 3) !== mumbai.slice(0, 3));
+  ok('Delhi and Shimla share country prefix but differ', delhi !== shimla && delhi.slice(0, 2) === shimla.slice(0, 2));
+  // 0.00045 deg latitude ~ 50 m
+  const a = geohash7(28.6139, 77.2090);
+  const b = geohash7(28.6139 + 0.00045, 77.2090);
+  ok('points 50 m apart share geohash7 prefix', a === b);
+  ok('haversine 50m within 5 m tolerance', Math.abs(haversineMeters({lat: 28.6139, lng: 77.2090}, {lat: 28.6139 + 0.00045, lng: 77.2090}) - 50) < 5);
+  ok('geohash7 rejects out-of-range lat', geohash7(120, 77) === null);
+  ok('geohash7 rejects non-numeric', geohash7('x', 77) === null);
+}
+
+// 15. MinHash Jaccard: near-identical >= 0.7, unrelated < 0.2.
+{
+  const aText = 'A residential building has collapsed in Sector 7 Noida and three people are trapped under heavy rubble and one of them is bleeding badly.';
+  const bText = 'A residential building has collapsed in Sector 7 Noida and three people are trapped under heavy rubble and one of them is bleeding heavily.';
+  const cText = 'My motorbike broke down on the highway near the Indian Oil petrol pump. I need a tow truck.';
+  const aSig = transcriptMinHash(aText, 64);
+  const bSig = transcriptMinHash(bText, 64);
+  const cSig = transcriptMinHash(cText, 64);
+  ok('minhash blob is 344 base64 chars', aSig.length === 344);
+  ok('minhash decodes to 256 bytes', Buffer.from(aSig, 'base64').length === 256);
+  const sim = minHashJaccard(aSig, bSig);
+  const dis = minHashJaccard(aSig, cSig);
+  ok(`near-identical Jaccard >= 0.7 (got ${sim.toFixed(3)})`, sim >= 0.7);
+  ok(`unrelated Jaccard < 0.2 (got ${dis.toFixed(3)})`, dis < 0.2);
+  ok('identical text Jaccard is 1.0', minHashJaccard(aSig, aSig) === 1.0);
+}
+
+// 16. findCluster: two dispatches 50 m + 5 min apart, similar transcripts.
+{
+  const fakeFs2 = new FakeFs();
+  // Seed primary 5 minutes ago, same geohash bucket, similar text.
+  const primaryId = 'd_primary';
+  const primaryText = 'Building collapse in Sector 7 Noida, three people trapped under heavy rubble.';
+  const primarySig = transcriptMinHash(primaryText, 64);
+  const primaryGeo = geohash7(28.6139, 77.2090);
+  const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
+  await fakeFs2.setDoc('tm_dispatches', primaryId, {
+    id: primaryId,
+    received_at: fiveMinAgo,
+    location: { lat: 28.6139, lng: 77.2090 },
+    triage: { incident_type: 'building_collapse' },
+    geohash7: primaryGeo,
+    transcript_minhash_b64: primarySig,
+    cluster_id: primaryId,
+    cluster_role: 'primary',
+    worker_status: 'received'
+  });
+  // The dedupe module calls fakeFs.queryDocs(...). FakeFs already has
+  // setDoc and getDoc; add a minimal queryDocs that returns the geohash
+  // bucket within the time window.
+  fakeFs2.queryDocs = async function (collection, filters /*, opts */) {
+    const col = this._col(collection);
+    const filterMap = Object.fromEntries(filters.map((f) => [`${f.field}|${f.op}`, f.value]));
+    const wantHash = filterMap['geohash7|=='];
+    const cutoff = filterMap['received_at|>='];
+    const out = [];
+    for (const [id, data] of col.entries()) {
+      if (data.geohash7 !== wantHash) continue;
+      if (cutoff && (data.received_at || '') < cutoff) continue;
+      out.push({ id, data: JSON.parse(JSON.stringify(data)) });
+    }
+    return out;
+  };
+  const newSig = transcriptMinHash('Collapsed building in Sector 7 of Noida. Three people are trapped under rubble.', 64);
+  const newGeo = geohash7(28.6139 + 0.00045, 77.2090);
+  const match = await findCluster({
+    id: 'd_new',
+    geohash7: newGeo,
+    location: { lat: 28.6139 + 0.00045, lng: 77.2090 },
+    triage: { incident_type: 'building_collapse' },
+    transcript_minhash_b64: newSig
+  }, { firestoreModule: fakeFs2, nowMs: Date.now() });
+  ok('findCluster detected duplicate', match !== null);
+  ok('findCluster points at primary id', match?.cluster_primary_id === primaryId);
+  ok('findCluster cluster_id reuses primary cluster_id', match?.cluster_id === primaryId);
+  ok('findCluster match_score >= threshold', (match?.match_score ?? 0) >= 0.7);
+
+  // No match when worker_status is resolved.
+  await fakeFs2.setDoc('tm_dispatches', primaryId, {
+    id: primaryId,
+    received_at: fiveMinAgo,
+    location: { lat: 28.6139, lng: 77.2090 },
+    triage: { incident_type: 'building_collapse' },
+    geohash7: primaryGeo,
+    transcript_minhash_b64: primarySig,
+    cluster_id: primaryId,
+    cluster_role: 'primary',
+    worker_status: 'resolved'
+  });
+  const noMatch = await findCluster({
+    id: 'd_new2',
+    geohash7: newGeo,
+    location: { lat: 28.6139 + 0.00045, lng: 77.2090 },
+    triage: { incident_type: 'building_collapse' },
+    transcript_minhash_b64: newSig
+  }, { firestoreModule: fakeFs2, nowMs: Date.now() });
+  ok('findCluster skips resolved candidates', noMatch === null);
+
+  // Storage error returns null (does not throw) so SOS persist proceeds.
+  const failingFs = { queryDocs: async () => { throw new Error('FAILED_PRECONDITION: index missing'); } };
+  const failResult = await findCluster({
+    id: 'd_new3',
+    geohash7: newGeo,
+    location: { lat: 28.6139 + 0.00045, lng: 77.2090 },
+    triage: { incident_type: 'building_collapse' },
+    transcript_minhash_b64: newSig
+  }, { firestoreModule: failingFs, nowMs: Date.now() });
+  ok('findCluster swallows query errors', failResult === null);
+}
+
+// 17. listTeam ordering: pending review queue sorted by criticality desc.
+{
+  const seedRows = [
+    { id: 'a', data: { id: 'a', caller_scope_path: 'ndma/HP/Shimla', caller_uid: 'u_a', escalation_status: 'pending_review', requires_review: true, criticality_score: 1.5, received_at: '2026-05-06T12:00:00Z', caller_tier: 40, triage: { urgency: 'HIGH' } } },
+    { id: 'b', data: { id: 'b', caller_scope_path: 'ndma/HP/Shimla', caller_uid: 'u_b', escalation_status: 'pending_review', requires_review: true, criticality_score: 9.0, received_at: '2026-05-06T11:00:00Z', caller_tier: 40, triage: { urgency: 'CRITICAL' } } },
+    { id: 'c', data: { id: 'c', caller_scope_path: 'ndma/HP/Shimla', caller_uid: 'u_c', escalation_status: 'pending_review', requires_review: true, criticality_score: 4.2, received_at: '2026-05-06T11:30:00Z', caller_tier: 40, triage: { urgency: 'HIGH' } } },
+    { id: 'd', data: { id: 'd', caller_scope_path: 'ndma/HP/Shimla', caller_uid: 'u_d', escalation_status: 'reviewed', requires_review: false, criticality_score: 12.0, received_at: '2026-05-06T10:00:00Z', caller_tier: 40, triage: { urgency: 'CRITICAL' } } }
+  ];
+  setDispatchesFirestore({ queryDocs: async () => seedRows });
+  try {
+    const actor = { uid: 'lead', tier: 60, scope_path: 'ndma/HP/Shimla' };
+    const review = await listTeam(actor, { requires_review: true, limit: 50 });
+    ok('listTeam pending-review excludes non-pending rows', review.every((r) => r.requires_review === true));
+    ok('listTeam pending-review sorted by criticality desc', review[0].id === 'b' && review[1].id === 'c' && review[2].id === 'a');
+    const time = await listTeam(actor, { limit: 50 });
+    ok('listTeam default mode keeps newest-first ordering', time[0].id === 'a' && time[time.length - 1].id === 'd');
+  } finally {
+    setDispatchesFirestore(null);
+  }
+}
+
+// 18. listTeam direct_only: filters by caller.parent_uid === actor.uid.
+{
+  const seed = [
+    { id: 'd1', data: { id: 'd1', caller_scope_path: 'ndma/HP/Shimla/T1', caller_uid: 'child_user', escalation_status: 'none', requires_review: false, criticality_score: 3.0, received_at: '2026-05-06T12:00:00Z', caller_tier: 40 } },
+    { id: 'd2', data: { id: 'd2', caller_scope_path: 'ndma/HP/Shimla/T1', caller_uid: 'grandchild_user', escalation_status: 'none', requires_review: false, criticality_score: 5.0, received_at: '2026-05-06T11:30:00Z', caller_tier: 30 } }
+  ];
+  let userCalls = 0;
+  setDispatchesFirestore({ queryDocs: async () => seed });
+  setDispatchesUsers(async (_actor, uid) => {
+    userCalls++;
+    if (uid === 'child_user') return { uid, parent_uid: 'lead' };
+    if (uid === 'grandchild_user') return { uid, parent_uid: 'child_user' };
+    return null;
+  });
+  try {
+    const actor = { uid: 'lead', tier: 60, scope_path: 'ndma/HP/Shimla' };
+    const direct = await listTeam(actor, { direct_only: true, limit: 50 });
+    ok('direct_only keeps only direct subordinates', direct.length === 1 && direct[0].id === 'd1');
+    const before = userCalls;
+    await listTeam(actor, { direct_only: true, limit: 50 });
+    ok('direct_only caches user reads per call (cache cleared between calls)', userCalls - before === 2);
+    const all = await listTeam(actor, { direct_only: false, limit: 50 });
+    ok('direct_only=false returns full subtree', all.length === 2);
+  } finally {
+    setDispatchesFirestore(null);
+    setDispatchesUsers(null);
+  }
+}
+
+// 19. compare endpoint: returns 2-10 dispatches sorted by criticality desc.
+{
+  const docs = {
+    'da': { caller_scope_path: 'ndma/HP/Shimla', caller_uid: 'u_a', criticality_score: 2.0, criticality_breakdown: { urgency: 'HIGH' }, triage: { urgency: 'HIGH', incident_type: 'flood' }, received_at: '2026-05-06T12:00:00Z' },
+    'db': { caller_scope_path: 'ndma/HP/Shimla', caller_uid: 'u_b', criticality_score: 9.5, criticality_breakdown: { urgency: 'CRITICAL' }, triage: { urgency: 'CRITICAL', incident_type: 'building_collapse' }, received_at: '2026-05-06T12:01:00Z' },
+    'dc': { caller_scope_path: 'ndma/HP/Shimla', caller_uid: 'u_c', criticality_score: 5.0, criticality_breakdown: { urgency: 'HIGH' }, triage: { urgency: 'HIGH', incident_type: 'fire' }, received_at: '2026-05-06T12:02:00Z' },
+    'far': { caller_scope_path: 'ndma/MH', caller_uid: 'u_far', criticality_score: 99, triage: { urgency: 'CRITICAL' } }
+  };
+  setDispatchesFirestore({ getDoc: async (col, id) => (col === 'tm_dispatches' && docs[id]) ? JSON.parse(JSON.stringify(docs[id])) : null });
+  try {
+    const actor = { uid: 'lead', tier: 60, scope_path: 'ndma/HP/Shimla' };
+    const result = await compare(actor, ['da', 'db', 'dc']);
+    ok('compare returned 3 rows', result.length === 3);
+    ok('compare sorted by criticality desc', result[0].id === 'db' && result[1].id === 'dc' && result[2].id === 'da');
+    ok('compare carries urgency through', result[0].urgency === 'CRITICAL');
+
+    await expectThrowAsync('compare rejects fewer than 2 ids', () => compare(actor, ['da']), 'bad_request');
+    await expectThrowAsync('compare rejects more than 10 ids', () => compare(actor, ['1','2','3','4','5','6','7','8','9','10','11']), 'bad_request');
+    await expectThrowAsync('compare blocks out-of-scope dispatch', () => compare(actor, ['da', 'far']), 'out_of_scope');
+    await expectThrowAsync('compare 404s on missing dispatch', () => compare(actor, ['da', 'missing']), 'dispatch_not_found');
+  } finally {
+    setDispatchesFirestore(null);
+  }
+}
+
+// 20. dss.suggest short-circuits on duplicate cluster role.
+{
+  const dispatch = {
+    id: 'd_dup',
+    cluster_role: 'duplicate',
+    cluster_primary_id: 'd_primary',
+    cluster_id: 'd_primary',
+    cluster_match_score: 0.85,
+    triage: { urgency: 'CRITICAL', needs: ['medical_evacuation'] }
+  };
+  const units = [{ unit_id: 'u1', name: 'Ambulance 1', type: 'ambulance', status: 'available' }];
+  const r = dssMod.suggest(dispatch, units, 3);
+  ok('duplicate dispatch returns single advisory row', Array.isArray(r) && r.length === 1);
+  ok('advisory row references primary id', r[0].advisory === 'duplicate_of_primary' && r[0].cluster_primary_id === 'd_primary');
 }
 
 if (failed === 0) {

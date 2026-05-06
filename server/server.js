@@ -46,7 +46,25 @@ const TRIAGE_SCHEMA = {
     summary_for_dispatch: { type: 'STRING' },
     confidence: { type: 'NUMBER' },
     caller_state: { type: 'STRING', enum: ['calm', 'panicked', 'injured', 'unresponsive_likely'] },
-    incident_type: { type: 'STRING', enum: ['flood', 'landslide', 'earthquake', 'fire', 'building_collapse', 'unknown'] }
+    incident_type: { type: 'STRING', enum: ['flood', 'landslide', 'earthquake', 'fire', 'building_collapse', 'unknown'] },
+    victims: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          age_band: { type: 'STRING', enum: ['infant', 'child', 'adult', 'elderly'] },
+          condition_flags: {
+            type: 'ARRAY',
+            items: {
+              type: 'STRING',
+              enum: ['pregnant', 'crush_extracted', 'unresponsive', 'bleeding', 'breathing_difficulty', 'conscious_ambulatory']
+            }
+          },
+          count: { type: 'INTEGER' }
+        },
+        required: ['age_band', 'condition_flags', 'count']
+      }
+    }
   },
   required: [
     'urgency', 'language_detected', 'transcription_native', 'transcription_english',
@@ -70,7 +88,8 @@ const SYSTEM_PROMPT = [
   '7. needs[] uses these canonical tokens when applicable: medical_evacuation, food, water, shelter, search_and_rescue. Other short snake_case tokens are allowed only when clearly needed.',
   '8. The X-Client-Lang hint in the user message is a tie-breaker for ambiguous dialect, not a hard constraint. The audio always wins.',
   '9. ambient_audio[] should capture cues that change rescue tactics (rushing water, structural collapse, screams, traffic, sirens, machinery, gunfire, animals, vehicles).',
-  '10. summary_for_dispatch is one or two sentences, English only, written for an SDRF officer to act on immediately.'
+  '10. summary_for_dispatch is one or two sentences, English only, written for an SDRF officer to act on immediately.',
+  '11. victims[] is OPTIONAL. Populate only when the audio gives clear cues about specific people in distress. Use age_band buckets: infant (under 1 year), child (1 to 12), adult (13 to 60), elderly (over 60). condition_flags use the listed tokens with these meanings: pregnant (visibly or stated pregnant), crush_extracted (just removed from rubble or pinned weight), unresponsive (no response to voice or shake), bleeding (active visible blood loss), breathing_difficulty (labored or gasping), conscious_ambulatory (awake and able to move). count is the number of victims sharing the same age_band and condition_flags; default to 1; combine identical victims into one row with higher count.'
 ].join('\n');
 
 // In-memory token-bucket rate limiter. Resets per cold start, which is acceptable.
@@ -328,6 +347,49 @@ async function persistDispatch(d) {
   const workerStatus = 'received';
   const workerHistory = [{ status: workerStatus, ts: d.receivedAt }];
   const workerSummary = 'Request received. Dispatcher reviewing now.';
+  // Criticality + dedup. Failures here log a warning and proceed with
+  // sane defaults so a single broken pipeline cannot drop a dispatch.
+  let criticality_score = 0;
+  let criticality_breakdown = null;
+  try {
+    const critMod = await import('./tm/criticality.js');
+    const r = critMod.criticalityScore(d.triage || {}, d.receivedAt, Date.now());
+    criticality_score = r.score;
+    criticality_breakdown = r.breakdown;
+  } catch (e) {
+    logJson('WARNING', { fn: 'persistDispatch', requestId: d.requestId, msg: 'criticality_failed', err: String(e) });
+  }
+  let geohash7 = null;
+  let transcript_minhash_b64 = null;
+  let cluster_id = null;
+  let cluster_role = 'primary';
+  let cluster_primary_id = null;
+  let cluster_match_score = null;
+  let cluster_match_reasons = null;
+  try {
+    const dedupeMod = await import('./tm/dedupe.js');
+    if (d.location && Number.isFinite(d.location.lat) && Number.isFinite(d.location.lng)) {
+      geohash7 = dedupeMod.geohash7(d.location.lat, d.location.lng);
+    }
+    const transcriptText = d.triage?.transcription_english || '';
+    transcript_minhash_b64 = dedupeMod.transcriptMinHash(transcriptText, 64);
+    if (geohash7) {
+      const match = await dedupeMod.findCluster(
+        { id: d.id, geohash7, location: d.location, triage: d.triage, transcript_minhash_b64 },
+        { firestoreModule: fs, nowMs: Date.now() }
+      );
+      if (match) {
+        cluster_id = match.cluster_id;
+        cluster_role = 'duplicate';
+        cluster_primary_id = match.cluster_primary_id;
+        cluster_match_score = match.match_score;
+        cluster_match_reasons = match.match_reasons;
+      }
+    }
+  } catch (e) {
+    logJson('WARNING', { fn: 'persistDispatch', requestId: d.requestId, msg: 'dedupe_failed', err: String(e) });
+  }
+  if (!cluster_id) cluster_id = d.id;
   const doc = {
     id: d.id,
     received_at: d.receivedAt,
@@ -355,6 +417,15 @@ async function persistDispatch(d) {
     worker_status: workerStatus,
     worker_status_history: workerHistory,
     worker_summary_text: workerSummary,
+    criticality_score,
+    criticality_breakdown,
+    geohash7,
+    transcript_minhash_b64,
+    cluster_id,
+    cluster_role,
+    cluster_primary_id,
+    cluster_match_score,
+    cluster_match_reasons,
     created_at: new Date()
   };
   await fs.setDoc('tm_dispatches', d.id, doc);

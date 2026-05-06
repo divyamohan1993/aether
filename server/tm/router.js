@@ -500,9 +500,25 @@ async function dispatchApi(req, res, sub, url, ctx) {
     const status = url.searchParams.get('status') || null;
     const requiresReview = url.searchParams.get('requires_review') === '1' || url.searchParams.get('requires_review') === 'true';
     const includeMine = mineParam === '1' || mineParam === 'true';
+    // criticality-dedup lane: direct_only flag passed through to listTeam.
+    const directOnly = url.searchParams.get('direct_only') === '1' || url.searchParams.get('direct_only') === 'true';
     return sendJson(res, 200, {
-      dispatches: await dispatches.listTeam(actor, { limit, status, requires_review: requiresReview, mine: includeMine })
+      dispatches: await dispatches.listTeam(actor, { limit, status, requires_review: requiresReview, mine: includeMine, direct_only: directOnly })
     });
+  }
+
+  // criticality-dedup lane: side-by-side criticality comparison endpoint.
+  // Restricted to ddma+ (tier >= 60) so volunteers and field tiers cannot
+  // bulk-pull dispatch summaries. listTeam already enforces scope, but
+  // compare() runs scope checks per id as well.
+  if (sub === 'dispatches/compare') {
+    if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
+    if (Number(actor.tier) < 60) {
+      return sendError(res, 403, 'forbidden', 'compare requires district tier or higher.');
+    }
+    const idsParam = url.searchParams.get('ids') || '';
+    const ids = idsParam.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+    return sendJson(res, 200, { dispatches: await dispatches.compare(actor, ids) });
   }
 
   if (sub.startsWith('dispatches/')) {
@@ -700,6 +716,7 @@ export async function route(req, res, url, ctx) {
           'GET|PATCH|DELETE /api/v1/tm/tasks/:tid',
           'GET /api/v1/tm/dashboard',
           'GET /api/v1/tm/dispatches',
+          'GET /api/v1/tm/dispatches/compare?ids=a,b,c',
           'GET /api/v1/tm/dispatches/:id',
           'POST /api/v1/tm/dispatches/:id/escalate',
           'POST /api/v1/tm/dispatches/:id/review',
