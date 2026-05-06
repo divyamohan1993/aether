@@ -1,0 +1,120 @@
+================================================================================
+Aether
+NDMA-grade disaster response decision support system for India
+================================================================================
+
+Copyright 2026 Divya Mohan (dmj.one)
+Contact: contact@dmj.one
+Site: https://dmj.one
+
+Licensed under the Apache License, Version 2.0 (the "License").
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+================================================================================
+Mandatory attribution
+================================================================================
+
+This software was originally designed, authored, and released by
+Divya Mohan (dmj.one).
+
+Per Section 4(d) of the Apache License, Version 2.0, any redistribution
+of this Work or any Derivative Work thereof, in Source or Object form,
+must include a readable copy of this NOTICE file. The contents of this
+NOTICE file may not be removed, altered, or obscured.
+
+The following attribution must be preserved verbatim in:
+
+  (a) the NOTICE file of every Derivative Work that is distributed;
+  (b) the credits or about screen of every running deployment that
+      is operated for any user beyond the operator themselves;
+  (c) the documentation of every Derivative Work, where third-party
+      attributions are normally listed;
+  (d) any public-facing description of the Derivative Work that
+      enumerates its provenance.
+
+----- Begin preserved attribution -----
+
+Aether was originally created by Divya Mohan (dmj.one) in 2026
+as a humanitarian disaster response platform for the National
+Disaster Management Authority of India and the State Disaster
+Response Forces of every state.
+
+Original work: https://github.com/divyamohan1993/aether
+Original author: Divya Mohan (dmj.one), contact@dmj.one
+Original deployment: https://aether.dmj.one
+
+----- End preserved attribution -----
+
+================================================================================
+Use, modify, redistribute
+================================================================================
+
+You may use, modify, build upon, and redistribute this Work, in Source
+or Object form, in whole or in part, for any purpose including
+commercial purposes, subject to the terms of the Apache License,
+Version 2.0.
+
+You may add your own copyright notices and additional attribution to
+your modifications. You may not remove the original attribution above.
+
+You may not use the names "Aether," "dmj.one," or "Divya Mohan" to
+endorse or promote products derived from this Work without prior
+written permission, except as required for describing the origin of
+the Work in the manner this NOTICE prescribes.
+
+================================================================================
+Patent retaliation
+================================================================================
+
+Per Section 3 of the Apache License, Version 2.0, the patent license
+granted to You under this License terminates automatically as of the
+date You institute patent litigation (including a cross-claim or
+counterclaim) alleging that this Work, or a Contribution incorporated
+within this Work, constitutes direct or contributory patent
+infringement.
+
+================================================================================
+Trademarks
+================================================================================
+
+"Aether" and "dmj.one" are claimed as trademarks of Divya Mohan in
+connection with disaster response and decision support software.
+The Apache License does not grant permission to use these trade
+names, trademarks, service marks, or product names except as
+required for describing the origin of the Work and reproducing the
+content of this NOTICE file.
+
+================================================================================
+Acknowledgements
+================================================================================
+
+The system is built around the codified disaster response chain
+under the Disaster Management Act 2005 and the operational doctrines
+of the National Disaster Management Authority (NDMA), the National
+Disaster Response Force (NDRF), the Indian Armed Forces' Aid to
+Civil Authority provisions, the National Emergency Response Support
+System (112), and the state-level SDRF and SDMA mandates.
+
+================================================================================
+Third-party components
+================================================================================
+
+This Work uses the following open-source components, each under its
+own license. Their notices are preserved separately as required by
+their respective licenses.
+
+  - @noble/post-quantum (MIT)             ML-DSA-65 reference impl
+  - @noble/hashes (MIT)                   Argon2id, SHA-256, HMAC
+  - google-auth-library (Apache 2.0)      Google Cloud auth
+  - Google Cloud Run runtime              Apache 2.0 etc.
+  - Vertex AI Gemini 2.5 Flash            Google Cloud terms
+
+The compiled redistribution of this Work bundles only the @noble
+families directly into the browser auth client; everything else is
+called over the network at runtime.
+
+================================================================================
+End of NOTICE
+================================================================================
