@@ -175,7 +175,16 @@ export async function escalate(actor, id, body, signatureB64) {
     });
     await auditRecord(actor.uid, 'dispatch.escalate', `tm_dispatches/${id}`,
       { caller_uid: doc.caller_uid, caller_tier: callerTier, note }, signatureB64 || null);
-    return projectDispatch(id, { ...doc, escalation_chain: chain, escalation_status: 'escalated', requires_review: false });
+    const projected = projectDispatch(id, { ...doc, escalation_chain: chain, escalation_status: 'escalated', requires_review: false });
+    // Push notify the actor's parent_uid so the next tier sees the
+    // escalation without polling. Fire-and-forget; the caller path is
+    // not blocked on the OS push channel.
+    import('./notify.js').then((m) => {
+      if (typeof m.notifyDispatchEscalated === 'function') {
+        return m.notifyDispatchEscalated(projected, actor.uid);
+      }
+    }).catch(() => { /* notify is best-effort */ });
+    return projected;
   });
 }
 

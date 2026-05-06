@@ -102,19 +102,62 @@ const STATUS_LABEL={open:T.t_open,in_progress:T.t_inp,blocked:T.t_blk,done:T.t_d
 // token. The 32-byte action_key (returned ONCE at login) signs every
 // per-action HMAC. The server rotates it on each verified action and
 // returns the next key in X-Next-Action-Key headers.
+//
+// Storage moved from sessionStorage to IndexedDB store 'tm_session' so
+// the service worker can read the bearer during background sync. The
+// in-memory cache (_sessCache) is the read-path; writes mirror to IDB
+// asynchronously. Encryption-at-rest uses a non-extractable AES-GCM
+// CryptoKey held in IDB; same blast radius as today (unprotected once
+// the device is unlocked) but accessible from the SW.
+const STORE_SESS='tm_session',STORE_SKEY='tm_session_key';
+let _sessCache=null,_sessKey=null;
+function _idbOpen(){return new Promise((res,rej)=>{
+ if(!('indexedDB' in self))return rej(new Error('no idb'));
+ const r=indexedDB.open(DB,2);
+ r.onupgradeneeded=()=>{
+  const d=r.result;
+  if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:'email'});
+  if(!d.objectStoreNames.contains(STORE_SESS))d.createObjectStore(STORE_SESS);
+  if(!d.objectStoreNames.contains(STORE_SKEY))d.createObjectStore(STORE_SKEY);
+ };
+ r.onsuccess=()=>res(r.result);
+ r.onerror=()=>rej(r.error);
+});}
+async function _sessKeyEnsure(d){
+ if(_sessKey)return _sessKey;
+ const got=await new Promise((res,rej)=>{const t=d.transaction(STORE_SKEY,'readonly').objectStore(STORE_SKEY).get('k');t.onsuccess=()=>res(t.result||null);t.onerror=()=>rej(t.error)});
+ if(got){_sessKey=got;return got}
+ _sessKey=await crypto.subtle.generateKey({name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+ await new Promise((res,rej)=>{const t=d.transaction(STORE_SKEY,'readwrite').objectStore(STORE_SKEY).put(_sessKey,'k');t.onsuccess=()=>res();t.onerror=()=>rej(t.error)});
+ return _sessKey;
+}
+async function _sessRead(){
+ try{
+  const d=await _idbOpen(),k=await _sessKeyEnsure(d);
+  const rec=await new Promise((res,rej)=>{const t=d.transaction(STORE_SESS,'readonly').objectStore(STORE_SESS).get('s');t.onsuccess=()=>res(t.result||null);t.onerror=()=>rej(t.error)});
+  if(!rec||!rec.iv||!rec.ct)return null;
+  const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:rec.iv},k,rec.ct);
+  return JSON.parse(new TextDecoder().decode(pt));
+ }catch{return null}
+}
+async function _sessWrite(rec){
+ try{
+  const d=await _idbOpen(),k=await _sessKeyEnsure(d);
+  if(!rec){
+   await new Promise((res,rej)=>{const t=d.transaction(STORE_SESS,'readwrite').objectStore(STORE_SESS).delete('s');t.onsuccess=()=>res();t.onerror=()=>rej(t.error)});
+   return;
+  }
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},k,new TextEncoder().encode(JSON.stringify(rec)));
+  await new Promise((res,rej)=>{const t=d.transaction(STORE_SESS,'readwrite').objectStore(STORE_SESS).put({iv,ct},'s');t.onsuccess=()=>res();t.onerror=()=>rej(t.error)});
+ }catch{/* best-effort; cache stays */}
+}
 const session={
- set(rec){sessionStorage.setItem(SS,JSON.stringify(rec))},
- get(){
-  try{
-   const r=sessionStorage.getItem(SS);if(!r)return null;
-   return JSON.parse(r);
-  }catch{return null}
- },
- patch(p){
-  const cur=session.get()||{};
-  sessionStorage.setItem(SS,JSON.stringify(Object.assign(cur,p)));
- },
- clear(){sessionStorage.removeItem(SS)}
+ async init(){_sessCache=await _sessRead();return _sessCache},
+ set(rec){_sessCache=rec;_sessWrite(rec)},
+ get(){return _sessCache},
+ patch(p){_sessCache=Object.assign({},_sessCache||{},p);_sessWrite(_sessCache)},
+ clear(){_sessCache=null;_sessWrite(null)}
 };
 
 async function api(path,opts){
@@ -145,13 +188,9 @@ async function api(path,opts){
  return j;
 }
 
-function idb(){return new Promise((res,rej)=>{
- if(!('indexedDB' in self))return rej(new Error('no idb'));
- const r=indexedDB.open(DB,1);
- r.onupgradeneeded=()=>r.result.createObjectStore(STORE,{keyPath:'email'});
- r.onsuccess=()=>res(r.result);
- r.onerror=()=>rej(r.error);
-});}
+// Shared IDB handle. v2 adds tm_session + tm_session_key stores for
+// the SW-readable bearer. The legacy 'keyrings' store stays untouched.
+function idb(){return _idbOpen();}
 async function getKeyring(email){
  const d=await idb();
  return new Promise((res,rej)=>{
@@ -883,4 +922,14 @@ $$('#nav a').forEach(a=>{
 $('#btnLogout').textContent=T.btn_logout;
 
 window.addEventListener('hashchange',route);
-route();
+// Await the IDB-backed session before routing so the first paint sees
+// the actual auth state. A legacy sessionStorage record (older builds)
+// is migrated into the encrypted store on first boot, then cleared.
+(async()=>{
+ try{
+  const legacy=sessionStorage.getItem(SS);
+  if(legacy){try{const obj=JSON.parse(legacy);if(obj&&obj.token)await _sessWrite(obj);_sessCache=obj}catch{}sessionStorage.removeItem(SS)}
+  if(!_sessCache)await session.init();
+ }catch{}
+ route();
+})();
