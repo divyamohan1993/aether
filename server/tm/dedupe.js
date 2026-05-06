@@ -105,11 +105,19 @@ const MINHASH_COEFFS = (() => {
   return { a, b };
 })();
 
+// Word-level shingles. Strips punctuation, lowercases, collapses
+// whitespace, and emits unique 2-word n-grams plus the unigrams. Word
+// shingles discriminate English transcripts far better than character
+// bigrams (which alias on common English digraphs like "th", "he",
+// "in", forcing the Jaccard noise floor above 0.25).
 function tokenize(text) {
-  const s = String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
-  if (s.length < 2) return [];
+  const s = String(text || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (s.length === 0) return [];
+  const words = s.split(' ').filter((w) => w.length > 0);
+  if (words.length === 0) return [];
   const set = new Set();
-  for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2));
+  for (const w of words) set.add(w);
+  for (let i = 0; i < words.length - 1; i++) set.add(words[i] + ' ' + words[i + 1]);
   return Array.from(set);
 }
 
