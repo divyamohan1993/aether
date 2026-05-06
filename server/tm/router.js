@@ -5,7 +5,7 @@
 import { promises as fs } from 'node:fs';
 import { join, dirname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { gzipSync, brotliCompressSync, constants as zlibConst } from 'node:zlib';
 
 import * as users from './users.js';
@@ -303,6 +303,10 @@ function matchTm(pathname) {
   if (pathname === '/tm' || pathname === '/tm/') return { kind: 'web', sub: '' };
   if (pathname.startsWith('/tm/')) return { kind: 'web', sub: pathname.slice('/tm/'.length) };
   if (pathname.startsWith('/api/v1/internal/')) return { kind: 'internal', sub: pathname.slice('/api/v1/internal/'.length) };
+  // phone-identity lane: SMS OTP + shortcode webhook routes. Public
+  // facing (no bearer); rate-limited per IP and HMAC-gated where the
+  // sender is a telco webhook.
+  if (pathname.startsWith('/api/v1/sms/')) return { kind: 'sms', sub: pathname.slice('/api/v1/sms/'.length) };
   return null;
 }
 
@@ -785,6 +789,127 @@ async function dispatchInternal(req, res, sub, ctx) {
   return sendError(res, 404, 'not_found', 'No such internal route.');
 }
 
+
+// ---------------------------------------------------------------------------
+// phone-identity lane: SMS OTP + shortcode webhook dispatch.
+//
+// /api/v1/sms/send_otp           1/min per IP, body {phone_e164, channel}
+// /api/v1/sms/verify_otp         body {phone_e164, otp}
+// /api/v1/sms/shortcode_webhook  HMAC-gated by SMS_WEBHOOK_HMAC env. The
+//                                telco signs the raw body bytes and sends
+//                                the base64 sig in X-Sms-Webhook-Sig.
+// ---------------------------------------------------------------------------
+const smsOtpBuckets = new Map();
+const SMS_OTP_MAX_BUCKETS = 5000;
+
+function checkSmsOtpRate(ip) {
+  const now = Date.now();
+  let b = smsOtpBuckets.get(ip);
+  if (!b) {
+    if (smsOtpBuckets.size >= SMS_OTP_MAX_BUCKETS) {
+      const drop = Math.floor(SMS_OTP_MAX_BUCKETS / 10);
+      const it = smsOtpBuckets.keys();
+      for (let i = 0; i < drop; i++) {
+        const { value, done } = it.next();
+        if (done) break;
+        smsOtpBuckets.delete(value);
+      }
+    }
+    b = { lastAt: 0 };
+    smsOtpBuckets.set(ip, b);
+  }
+  const elapsed = now - b.lastAt;
+  if (elapsed < 60_000) {
+    return { ok: false, retryAfter: Math.max(1, Math.ceil((60_000 - elapsed) / 1000)) };
+  }
+  b.lastAt = now;
+  return { ok: true };
+}
+
+function timingSafeBufEq(a, b) {
+  if (!Buffer.isBuffer(a) || !Buffer.isBuffer(b) || a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+async function readRawBody(req, max) {
+  const lengthHeader = req.headers['content-length'];
+  if (lengthHeader) {
+    const len = parseInt(lengthHeader, 10);
+    if (Number.isFinite(len) && len > max) {
+      throw new ApiError('payload_too_large', `Body exceeds ${max} byte limit.`, 413);
+    }
+  }
+  let total = 0;
+  const chunks = [];
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > max) {
+      throw new ApiError('payload_too_large', `Body exceeds ${max} byte limit.`, 413);
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, total);
+}
+
+async function dispatchSms(req, res, sub, ctx) {
+  const method = req.method || 'GET';
+
+  if (sub === 'send_otp') {
+    if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
+    const rate = checkSmsOtpRate(ctx.ip);
+    if (!rate.ok) {
+      return sendError(res, 429, 'rate_limited', 'send_otp limited to 1 / min per IP.',
+        { 'Retry-After': String(rate.retryAfter) });
+    }
+    const body = await readJsonBody(req);
+    const phone = String(body?.phone_e164 || '').trim();
+    const channel = String(body?.channel || 'auto');
+    const sms = await import('./sms.js');
+    return sendJson(res, 200, await sms.sendOtp(phone, channel));
+  }
+
+  if (sub === 'verify_otp') {
+    if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
+    const body = await readJsonBody(req);
+    const phone = String(body?.phone_e164 || '').trim();
+    const otp = String(body?.otp || '').trim();
+    const sms = await import('./sms.js');
+    return sendJson(res, 200, await sms.verifyOtp(phone, otp));
+  }
+
+  if (sub === 'shortcode_webhook') {
+    if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
+    const secret = String(process.env.SMS_WEBHOOK_HMAC || '').trim();
+    if (secret.length === 0) {
+      logJson('ERROR', { fn: 'tm.router.shortcode_webhook', msg: 'webhook_secret_unset' });
+      return sendError(res, 503, 'service_unavailable', 'SMS webhook secret not configured.');
+    }
+    const sig = String(req.headers['x-sms-webhook-sig'] || '').trim();
+    if (!sig) {
+      return sendError(res, 401, 'unauthorized', 'Missing X-Sms-Webhook-Sig.');
+    }
+    const raw = await readRawBody(req, 16384);
+    const expected = createHmac('sha256', secret).update(raw).digest('base64');
+    let okSig;
+    try {
+      okSig = sig.length === expected.length
+        && timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+    } catch { okSig = false; }
+    if (!okSig) {
+      logJson('WARNING', { fn: 'tm.router.shortcode_webhook', msg: 'bad_sig' });
+      return sendError(res, 401, 'unauthorized', 'Webhook signature invalid.');
+    }
+    let body;
+    try { body = JSON.parse(raw.toString('utf8')); } catch {
+      return sendError(res, 400, 'bad_json', 'Webhook body is not valid JSON.');
+    }
+    const sms = await import('./sms.js');
+    return sendJson(res, 200, await sms.handleShortcodeWebhook(body));
+  }
+
+  return sendError(res, 404, 'not_found', 'No such SMS route.');
+}
+
 // ---------------------------------------------------------------------------
 // Public entry. Returns true if the request was handled.
 // ---------------------------------------------------------------------------
@@ -799,6 +924,10 @@ export async function route(req, res, url, ctx) {
     }
     if (m.kind === 'internal') {
       await dispatchInternal(req, res, m.sub, ctx);
+      return true;
+    }
+    if (m.kind === 'sms') {
+      await dispatchSms(req, res, m.sub, ctx);
       return true;
     }
     if (m.kind === 'api_root') {
@@ -837,7 +966,10 @@ export async function route(req, res, url, ctx) {
           'GET|PATCH|DELETE /api/v1/tm/units/:unit_id',
           'PATCH /api/v1/tm/assignments/:aid',
           'GET /api/v1/tm/audit/verify',
-          'GET /api/v1/tm/audit/list'
+          'GET /api/v1/tm/audit/list',
+          'POST /api/v1/sms/send_otp',
+          'POST /api/v1/sms/verify_otp',
+          'POST /api/v1/sms/shortcode_webhook'
         ]
       });
       return true;

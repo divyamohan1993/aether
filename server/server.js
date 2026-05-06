@@ -916,7 +916,8 @@ async function handleRequest(req, res) {
     }
     if (pathname === '/tm' || pathname.startsWith('/tm/')
         || pathname === '/api/v1/tm' || pathname.startsWith('/api/v1/tm/')
-        || pathname.startsWith('/api/v1/internal/')) {
+        || pathname.startsWith('/api/v1/internal/')
+        || pathname.startsWith('/api/v1/sms/')) {
       const tm = await loadTmRouter();
       const handled = await tm.route(req, res, url, { requestId, ip, startedAt });
       if (handled) return;
