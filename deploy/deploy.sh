@@ -106,6 +106,18 @@ URL="$(gcloud run services describe "${SERVICE}" --project="${PROJECT_ID}" --reg
 
 log "Deployed: ${URL}"
 
+# TODO(criticality-dedup): provision Firestore composite index for
+# tm_dispatches on (geohash7 ASC, received_at DESC). The dedup cluster
+# scan in server/tm/dedupe.js queries by geohash bucket within a 15 min
+# window and needs this composite to run efficiently. Until the index
+# exists, findCluster catches the missing-index error and returns null
+# so SOS persistence keeps working without dedup. Add via:
+#   gcloud firestore indexes composite create \
+#     --collection-group=tm_dispatches \
+#     --field-config=field-path=geohash7,order=ascending \
+#     --field-config=field-path=received_at,order=descending \
+#     --project="${PROJECT_ID}" --database='(default)'
+
 # Idle cost discipline: delete superseded Cloud Run revisions so we never
 # accumulate billable references to old container images. Cloud Run does
 # not bill inactive revisions, but they pin Artifact Registry image
