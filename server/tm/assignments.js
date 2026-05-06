@@ -4,9 +4,33 @@
 // mirror of the assignment so the SOS PWA poll fetches one document.
 
 import { randomUUID } from 'node:crypto';
-import { runTransaction, getDoc } from './firestore.js';
-import { record as auditRecord } from './audit.js';
+import * as fsMod from './firestore.js';
+import * as auditMod from './audit.js';
 import { ApiError, ScopeError, NotFoundError } from './_errors.js';
+
+// Test injection seams. Production binds these to firestore.js / audit.js;
+// the watchdog lane's tests swap them in-process so SYSTEM_AI assignment
+// flows can be exercised without Cloud Firestore.
+let _runTransaction = (fn) => fsMod.runTransaction(fn);
+let _getDoc = (...args) => fsMod.getDoc(...args);
+let _auditRecord = (...args) => auditMod.record(...args);
+
+export function _setFirestoreForTest(stub) {
+  if (stub && typeof stub === 'object') {
+    if (typeof stub.runTransaction === 'function') _runTransaction = stub.runTransaction.bind(stub);
+    if (typeof stub.getDoc === 'function') _getDoc = stub.getDoc.bind(stub);
+  } else {
+    _runTransaction = (fn) => fsMod.runTransaction(fn);
+    _getDoc = (...args) => fsMod.getDoc(...args);
+  }
+}
+export function _setAuditForTest(stub) {
+  if (stub && typeof stub.record === 'function') {
+    _auditRecord = stub.record.bind(stub);
+  } else {
+    _auditRecord = (...args) => auditMod.record(...args);
+  }
+}
 
 const ASSIGNMENT_STATUSES = new Set(['assigned', 'en_route', 'on_scene', 'completed', 'cancelled']);
 
@@ -91,16 +115,24 @@ function appendHistory(arr, entry) {
 }
 
 // POST /api/v1/tm/dispatches/:id/assign
-// body: { unit_id, eta_minutes?, note? }
+// body: { unit_id, eta_minutes?, note?, dss_reasoning? }
 // signatureB64 is verified by the router via requireFreshUserSig.
+//
+// SYSTEM_AI (watchdog auto-assign) carries a DSS reasoning blob so any
+// human in scope can review and reverse the auto-assignment. The unit
+// status flow is unchanged; assignments stay cancellable through the
+// normal updateAssignment path.
 export async function assignUnit(actor, dispatchId, body, signatureB64) {
   if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
+  const isSystem = actor.uid === 'SYSTEM_AI';
   const unitId = String(body?.unit_id || '');
   if (!unitId) throw new ApiError('bad_request', 'unit_id required.', 400);
   const eta = fmtEta(body?.eta_minutes);
   const note = typeof body?.note === 'string' && body.note.length <= 500 ? body.note : null;
+  const dssReasoning = (isSystem && body?.dss_reasoning && typeof body.dss_reasoning === 'object')
+    ? body.dss_reasoning : null;
 
-  return runTransaction(async (tx) => {
+  return _runTransaction(async (tx) => {
     const dispatch = await tx.get('tm_dispatches', dispatchId);
     if (!dispatch) throw new NotFoundError('dispatch_not_found', 'No such dispatch.');
     if (!inActorSubtree(actor.scope_path, dispatch.caller_scope_path)) {
@@ -130,7 +162,9 @@ export async function assignUnit(actor, dispatchId, body, signatureB64) {
       unit_type: unit.type,
       unit_contact_phone: fmtPhone(unit.contact_phone),
       assigned_by_uid: actor.uid,
-      assigned_by_name: actor.name || null,
+      assigned_by_name: actor.name || (isSystem ? 'Aether Auto-DSS' : null),
+      assigned_by_kind: isSystem ? 'system_ai' : 'human',
+      dss_reasoning: dssReasoning,
       assigned_at: now,
       eta_minutes: eta,
       note,
@@ -166,8 +200,10 @@ export async function assignUnit(actor, dispatchId, body, signatureB64) {
       updated_at: now
     });
 
-    await auditRecord(actor.uid, 'dispatch.assign', `tm_dispatches/${dispatchId}`,
-      { aid, unit_id: unitId, unit_name: unit.name, eta, note }, signatureB64 || null);
+    await _auditRecord(actor.uid, 'dispatch.assign', `tm_dispatches/${dispatchId}`,
+      { aid, unit_id: unitId, unit_name: unit.name, eta, note,
+        system_actor: isSystem, dss_reasoning: dssReasoning },
+      signatureB64 || null);
 
     return {
       aid,
@@ -198,7 +234,7 @@ export async function updateAssignment(actor, aid, body) {
   const wantEta = body?.eta_minutes !== undefined ? fmtEta(body.eta_minutes) : undefined;
   const note = typeof body?.note === 'string' && body.note.length <= 500 ? body.note : null;
 
-  return runTransaction(async (tx) => {
+  return _runTransaction(async (tx) => {
     const a = await tx.get('tm_assignments', aid);
     if (!a) throw new NotFoundError('assignment_not_found', 'No such assignment.');
     const dispatch = await tx.get('tm_dispatches', a.dispatch_id);
@@ -268,7 +304,7 @@ export async function updateAssignment(actor, aid, body) {
       ...(workerStatus === 'resolved' ? { resolved_at: now } : {})
     });
 
-    await auditRecord(actor.uid, 'assignment.update', `tm_assignments/${aid}`,
+    await _auditRecord(actor.uid, 'assignment.update', `tm_assignments/${aid}`,
       { dispatch_id: a.dispatch_id, status: nextStatus, eta_minutes: wantEta, note }, null);
 
     return {
@@ -289,7 +325,7 @@ export async function updateAssignment(actor, aid, body) {
 // scope. Returns only fields the worker needs to render.
 export async function readWorkerStatus(actor, dispatchId) {
   if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
-  const doc = await getDoc('tm_dispatches', dispatchId);
+  const doc = await _getDoc('tm_dispatches', dispatchId);
   if (!doc) throw new NotFoundError('dispatch_not_found', 'No such dispatch.');
   const isCaller = doc.caller_uid && doc.caller_uid === actor.uid;
   const inScope = inActorSubtree(actor.scope_path, doc.caller_scope_path);

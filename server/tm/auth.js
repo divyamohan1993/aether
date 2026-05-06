@@ -704,6 +704,72 @@ async function requireFreshHmacSig(actor, action, target, headers) {
 // name. Same behaviour: HMAC, not ML-DSA.
 const requireFreshUserSig = requireFreshHmacSig;
 
+// SPEC DEVIATION (acceptable per spec G): a parallel system-sig path
+// rather than an extension to requireFreshHmacSig. Reasons:
+//   - The HMAC path is bound to a session-scoped action key cached on the
+//     in-memory session record. SYSTEM_AI has no session and no rotating
+//     key; mixing the two mechanisms inside one function would force
+//     extra branching on every human request.
+//   - Human-facing endpoints stay on the HMAC path and are unchanged.
+//   - The watchdog calls requireFreshSystemSig directly before invoking
+//     dispatches.escalate / assignments.assignUnit.
+//
+// The SYSTEM_AI keypair lives in server/tm/watchdog.js so loading the
+// auth module does not pull the ML-DSA verifier for system actions.
+async function requireFreshSystemSig(actor, action, target, sigB64) {
+  if (!actor || actor.uid !== 'SYSTEM_AI') {
+    throw new AuthError('not_system_actor', 'requireFreshSystemSig requires the SYSTEM_AI actor.', 401);
+  }
+  if (typeof action !== 'string' || action.length === 0) {
+    throw new AuthError('bad_action', 'action required.', 400);
+  }
+  if (!isCriticalAction(action)) {
+    throw new AuthError('bad_action', 'action is not on the critical-actions list.', 400);
+  }
+  if (typeof target !== 'string') {
+    throw new AuthError('bad_action', 'target required.', 400);
+  }
+  if (typeof sigB64 !== 'string' || sigB64.length === 0) {
+    throw new AuthError('no_action_sig', 'system signature required.', 400);
+  }
+  let watchdogMod;
+  try {
+    watchdogMod = await import('./watchdog.js');
+  } catch (e) {
+    throw new AuthError('watchdog_unavailable',
+      'server/tm/watchdog.js is not available: ' + (e?.message || String(e)), 503);
+  }
+  if (typeof watchdogMod.verifySystemAction !== 'function') {
+    throw new AuthError('watchdog_incomplete',
+      'watchdog.js missing verifySystemAction.', 503);
+  }
+  const ts = Math.floor(Date.now() / 1000);
+  // The signed canonical message must include a server-known ts. The
+  // watchdog signs at issue time and includes the ts in the body it
+  // forwards through to assignUnit/escalate; we accept ts via the actor
+  // object (set by watchdog) or fall back to "now" with a generous skew.
+  const claimedTs = Number(actor.system_action_ts) || ts;
+  const ok = watchdogMod.verifySystemAction({
+    action,
+    target,
+    ts: claimedTs,
+    key_id: actor.system_action_key_id || watchdogMod.SYSTEM_AI_KEY_ID,
+    sig_b64: sigB64
+  });
+  if (!ok) {
+    throw new AuthError('action_sig_bad', 'system action signature did not verify.', 401);
+  }
+  return {
+    uid: 'SYSTEM_AI',
+    action,
+    target,
+    ts: claimedTs,
+    key_id: actor.system_action_key_id || watchdogMod.SYSTEM_AI_KEY_ID,
+    next_action_key_b64: null,
+    next_action_key_id: null
+  };
+}
+
 function canonicalActionTarget(uid, action, target) {
   // Pre-existing helper used by `handleRegister` for the ML-DSA-signed
   // *invite*. Invites still ride ML-DSA because they are signed at
@@ -910,6 +976,7 @@ export {
   handleVerify,
   requireFreshHmacSig,
   requireFreshUserSig,
+  requireFreshSystemSig,
   canonicalActionTarget,
   hmacB64u,
   CHALLENGE_DOMAIN,

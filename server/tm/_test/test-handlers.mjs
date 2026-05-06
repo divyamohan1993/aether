@@ -1281,6 +1281,458 @@ setAuthUsers(fakeUsers);
   ok('advisory row references primary id', r[0].advisory === 'duplicate_of_primary' && r[0].cluster_primary_id === 'd_primary');
 }
 
+// ---------------------------------------------------------------------------
+// watchdog-tasks lane tests (sections 22+).
+// ---------------------------------------------------------------------------
+{
+  const watchdog = await import('../watchdog.js');
+  const dispatchesMod = await import('../dispatches.js');
+  const assignmentsMod = await import('../assignments.js');
+  const authMod = await import('../auth.js');
+
+  // Tiny in-memory firestore that supports the surface watchdog needs:
+  // getDoc, setDoc, patchDoc, queryDocs, runTransaction.
+  class TickFs {
+    constructor() { this.col = new Map(); }
+    _c(name) {
+      if (!this.col.has(name)) this.col.set(name, new Map());
+      return this.col.get(name);
+    }
+    async getDoc(collection, id) {
+      const v = this._c(collection).get(id);
+      return v ? JSON.parse(JSON.stringify(v)) : null;
+    }
+    async setDoc(collection, id, data) {
+      this._c(collection).set(id, JSON.parse(JSON.stringify(data)));
+    }
+    async patchDoc(collection, id, data) {
+      const cur = this._c(collection).get(id) || {};
+      this._c(collection).set(id, { ...cur, ...JSON.parse(JSON.stringify(data)) });
+    }
+    async queryDocs(collection, filters, opts) {
+      const c = this._c(collection);
+      const rows = [];
+      for (const [id, data] of c.entries()) {
+        let pass = true;
+        for (const f of (filters || [])) {
+          const v = data[f.field];
+          if (f.op === '==') { if (v !== f.value) { pass = false; break; } }
+          else if (f.op === '>=') { if (!(v >= f.value)) { pass = false; break; } }
+          else if (f.op === '<=') { if (!(v <= f.value)) { pass = false; break; } }
+        }
+        if (pass) rows.push({ id, data: JSON.parse(JSON.stringify(data)) });
+      }
+      const lim = opts?.limit || 1000;
+      return rows.slice(0, lim);
+    }
+    async runTransaction(fn) {
+      const writes = [];
+      const handle = {
+        get: async (c, i) => this.getDoc(c, i),
+        create: (c, d, eid) => {
+          const id = eid || ('tx-' + Math.random().toString(16).slice(2));
+          writes.push({ kind: 'create', c, id, d });
+          return id;
+        },
+        set: (c, i, d) => writes.push({ kind: 'set', c, id: i, d }),
+        update: (c, i, d) => writes.push({ kind: 'update', c, id: i, d }),
+        delete: (c, i) => writes.push({ kind: 'delete', c, id: i })
+      };
+      const result = await fn(handle);
+      for (const w of writes) {
+        const col = this._c(w.c);
+        if (w.kind === 'create') {
+          if (col.has(w.id)) { const e = new Error('exists'); e.code = 'FS_ALREADY_EXISTS'; throw e; }
+          col.set(w.id, JSON.parse(JSON.stringify(w.d)));
+        } else if (w.kind === 'set') {
+          col.set(w.id, JSON.parse(JSON.stringify(w.d)));
+        } else if (w.kind === 'update') {
+          const cur = col.get(w.id) || {};
+          col.set(w.id, { ...cur, ...JSON.parse(JSON.stringify(w.d)) });
+        } else if (w.kind === 'delete') {
+          col.delete(w.id);
+        }
+      }
+      return result;
+    }
+  }
+
+  // 22. SLA: persist CRITICAL dispatch -> sla_deadline_at = received_at + 60.
+  {
+    const recv = '2026-05-06T12:00:00.000Z';
+    const deadline = watchdog.computeSlaDeadlineIso(recv, 'CRITICAL');
+    ok('SLA CRITICAL = 60s', watchdog.slaSecondsFor('CRITICAL') === 60);
+    ok('SLA HIGH = 300s', watchdog.slaSecondsFor('HIGH') === 300);
+    ok('SLA MEDIUM = 900s', watchdog.slaSecondsFor('MEDIUM') === 900);
+    ok('SLA LOW = 3600s', watchdog.slaSecondsFor('LOW') === 3600);
+    ok('SLA UNCLEAR = 300s', watchdog.slaSecondsFor('UNCLEAR') === 300);
+    ok('SLA unknown urgency falls back to UNCLEAR', watchdog.slaSecondsFor('???') === 300);
+    ok('CRITICAL deadline is +60s of received_at',
+      deadline === '2026-05-06T12:01:00.000Z');
+    ok('HIGH deadline is +300s', watchdog.computeSlaDeadlineIso(recv, 'HIGH') === '2026-05-06T12:05:00.000Z');
+  }
+
+  // 23. scheduleSlaTick builds correct task name, body, HMAC.
+  {
+    const captured = [];
+    watchdog.setCloudTasksClient(async (args) => {
+      captured.push(args);
+      return { duplicate: false, status: 200 };
+    });
+    process.env.WATCHDOG_HMAC_SECRET = 'unit-test-secret-1234567890';
+    watchdog._resetForTest();
+
+    const fireAt = '2026-05-06T12:01:00.000Z';
+    const okPosted = await watchdog.scheduleSlaTick('disp-uuid-1', fireAt, 0);
+    ok('scheduleSlaTick returns true', okPosted === true);
+    ok('scheduleSlaTick captured one call', captured.length === 1);
+    ok('task name is sla-{id}-{step}', captured[0].taskName === 'sla-disp-uuid-1-0');
+    ok('schedule time matches fire_at', captured[0].scheduleTimeIso === fireAt);
+    const body = JSON.parse(captured[0].body);
+    ok('body has dispatch_id', body.dispatch_id === 'disp-uuid-1');
+    ok('body has step', body.step === 0);
+    ok('body has scheduled_for', body.scheduled_for === fireAt);
+    ok('hmac header populated', typeof captured[0].hmacSig === 'string' && captured[0].hmacSig.length === 64);
+    ok('hmac verifies via verifyCallbackSig',
+      watchdog.verifyCallbackSig(captured[0].body, captured[0].hmacSig) === true);
+
+    // Idempotency test: 409 from Cloud Tasks (duplicate name) is swallowed.
+    watchdog.setCloudTasksClient(async () => ({ duplicate: true, status: 409 }));
+    const okDup = await watchdog.scheduleSlaTick('disp-uuid-1', fireAt, 0);
+    ok('scheduleSlaTick swallows 409 and returns true', okDup === true);
+
+    // Failure path: client throws -> WARN logged, returns false but no
+    // exception escapes (so persist pipeline never blocks).
+    watchdog.setCloudTasksClient(async () => { throw new Error('cloud_tasks_offline'); });
+    const okFail = await watchdog.scheduleSlaTick('disp-uuid-2', fireAt, 0);
+    ok('scheduleSlaTick swallows transport failure', okFail === false);
+    watchdog.setCloudTasksClient(null);
+  }
+
+  // 24. sla_tick callback: rejects bad HMAC, accepts good HMAC.
+  {
+    const body = JSON.stringify({ dispatch_id: 'd', scheduled_for: 'now', step: 0 });
+    const badSig = 'a'.repeat(64);
+    ok('rejects bad sig', watchdog.verifyCallbackSig(body, badSig) === false);
+    ok('rejects empty sig', watchdog.verifyCallbackSig(body, '') === false);
+    const goodSig = watchdog.signCallback(body);
+    ok('accepts good sig', watchdog.verifyCallbackSig(body, goodSig) === true);
+  }
+
+  // 25. sla_tick callback: dispatch already advanced -> no-op.
+  {
+    const fs = new TickFs();
+    fs._c('tm_dispatches').set('d-advanced', {
+      id: 'd-advanced', received_at: new Date().toISOString(),
+      caller_uid: 'caller-1', caller_scope_path: 'ndma/HP/Shimla',
+      worker_status: 'on_scene', sla_step: 0, sla_history: [],
+      triage: { urgency: 'CRITICAL' }
+    });
+    const r = await watchdog.handleSlaTick({ dispatch_id: 'd-advanced', step: 0 },
+      { firestore: fs });
+    ok('worker_status advanced -> noop', r.code === 'noop_worker_advanced');
+    ok('worker_status echoed back', r.worker_status === 'on_scene');
+  }
+
+  // 26. sla_tick step 1 -> notify (mocked); next tick scheduled.
+  {
+    const fs = new TickFs();
+    fs._c('tm_dispatches').set('d-step1', {
+      id: 'd-step1', received_at: new Date().toISOString(),
+      caller_uid: 'caller-1', caller_scope_path: 'ndma/HP/Shimla',
+      worker_status: 'received', sla_step: 0, sla_history: [],
+      triage: { urgency: 'CRITICAL' }
+    });
+    fs._c('tm_users').set('caller-1', {
+      uid: 'caller-1', parent_uid: 'supervisor-1',
+      scope_path: 'ndma/HP/Shimla', tier: 40
+    });
+    fs._c('tm_users').set('supervisor-1', {
+      uid: 'supervisor-1', scope_path: 'ndma/HP/Shimla', tier: 60
+    });
+    // Seed presence for the supervisor so C2 evaluation does NOT skip.
+    fs._c('tm_user_presence').set('supervisor-1', {
+      uid: 'supervisor-1', last_seen_at: new Date().toISOString()
+    });
+    const notifyCalls = [];
+    watchdog._setNotifyForTest({
+      send: async (args) => { notifyCalls.push(args); }
+    });
+    const scheduled = [];
+    watchdog.setCloudTasksClient(async (args) => {
+      scheduled.push(args);
+      return { duplicate: false, status: 200 };
+    });
+    const r = await watchdog.handleSlaTick({ dispatch_id: 'd-step1', step: 0 },
+      { firestore: fs });
+    ok('step 1 executed', r.step_executed === 1);
+    ok('notify called for supervisor', notifyCalls.length >= 1
+      && notifyCalls[0].to_uid === 'supervisor-1' && notifyCalls[0].kind === 'sla_supervisor');
+    const persisted = await fs.getDoc('tm_dispatches', 'd-step1');
+    ok('sla_step persisted as 1', persisted.sla_step === 1);
+    ok('sla_history has step 1 entry',
+      persisted.sla_history.some((h) => h.step === 1 && h.action === 'notify_supervisor'));
+    ok('next tick scheduled', scheduled.length === 1);
+    ok('next tick is step 2', JSON.parse(scheduled[0].body).step === 2);
+    watchdog._setNotifyForTest(null);
+    watchdog.setCloudTasksClient(null);
+  }
+
+  // 27. sla_tick step 2 -> auto-escalate as SYSTEM_AI; sla_history appended.
+  {
+    const fs = new TickFs();
+    fs._c('tm_dispatches').set('d-step2', {
+      id: 'd-step2', received_at: new Date().toISOString(),
+      caller_uid: 'caller-2', caller_tier: 40,
+      caller_scope_path: 'ndma/HP/Shimla',
+      worker_status: 'received', sla_step: 1, sla_history: [
+        { step: 1, ts: 'x', action: 'notify_supervisor', success: true }
+      ],
+      escalation_chain: [], escalation_status: 'pending_review',
+      triage: { urgency: 'HIGH' }
+    });
+    // Route the dispatches module through the in-memory firestore.
+    dispatchesMod._setFirestoreForTest({
+      runTransaction: (fn) => fs.runTransaction(fn),
+      queryDocs: (c, f, o) => fs.queryDocs(c, f, o),
+      getDoc: (c, i) => fs.getDoc(c, i)
+    });
+    // Stub audit so escalate's auditRecord call does not hit the real
+    // firestore. audit.js uses _setFirestoreForTest as the seam.
+    const auditMod = await import('../audit.js');
+    auditMod._setFirestoreForTest({
+      runTransaction: (fn) => fs.runTransaction(fn),
+      queryDocs: (c, f, o) => fs.queryDocs(c, f, o),
+      getDoc: (c, i) => fs.getDoc(c, i),
+      setDoc: (c, i, d) => fs.setDoc(c, i, d),
+      createDoc: async (c, d, eid) => {
+        const id = eid || ('a-' + Math.random().toString(16).slice(2));
+        const col = fs._c(c);
+        if (col.has(id)) { const e = new Error('exists'); e.code = 'FS_ALREADY_EXISTS'; throw e; }
+        col.set(id, JSON.parse(JSON.stringify(d)));
+        return id;
+      }
+    });
+    auditMod._resetMigrationForTest();
+    watchdog.setCloudTasksClient(async () => ({ duplicate: false, status: 200 }));
+    const r = await watchdog.handleSlaTick({ dispatch_id: 'd-step2', step: 1 },
+      { firestore: fs });
+    ok('step 2 executed', r.step_executed === 2);
+    const persisted = await fs.getDoc('tm_dispatches', 'd-step2');
+    ok('escalation_status auto_escalated', persisted.escalation_status === 'auto_escalated');
+    ok('escalation_chain has SYSTEM_AI entry',
+      persisted.escalation_chain.some((e) => e.actor_uid === 'SYSTEM_AI' && e.action === 'auto_escalate'));
+    ok('sla_history step 2 success',
+      persisted.sla_history.some((h) => h.step === 2 && h.action === 'auto_escalate_system_ai' && h.success === true));
+    dispatchesMod._setFirestoreForTest(null);
+    auditMod._setFirestoreForTest(null);
+    auditMod._resetMigrationForTest();
+    watchdog.setCloudTasksClient(null);
+  }
+
+  // 28. sla_tick step 3 -> SYSTEM_AI assignUnit when DSS top-1 >= 0.55.
+  {
+    const fs = new TickFs();
+    fs._c('tm_dispatches').set('d-step3', {
+      id: 'd-step3', received_at: new Date().toISOString(),
+      caller_uid: 'caller-3', caller_tier: 40,
+      caller_scope_path: 'ndma/HP/Shimla',
+      worker_status: 'received', sla_step: 2, sla_history: [],
+      escalation_chain: [], assignments: [],
+      worker_status_history: [],
+      triage: { urgency: 'CRITICAL', needs: ['medical_evacuation'], incident_type: 'unknown' }
+    });
+    fs._c('tm_units').set('amb-1', {
+      unit_id: 'amb-1', name: 'Amb-1', type: 'ambulance', status: 'available',
+      scope_path: 'ndma/HP/Shimla', archived: false, contact_phone: '+91 11 5555 0001'
+    });
+    // Inject a units module that returns the seeded unit.
+    watchdog._setUnitsForTest({
+      listAvailableInScope: async () => [{
+        unit_id: 'amb-1', name: 'Amb-1', type: 'ambulance', status: 'available',
+        scope_path: 'ndma/HP/Shimla'
+      }]
+    });
+    // Inject a dispatches module that just calls through (no-op for this
+    // step) so the watchdog's escalate path is not exercised here.
+    watchdog._setDispatchesForTest({ escalate: async () => ({}) });
+    // Wire the real assignments module's firestore + audit seams to the
+    // in-memory fs so SYSTEM_AI assignment lands in our test store.
+    assignmentsMod._setFirestoreForTest({
+      runTransaction: (fn) => fs.runTransaction(fn),
+      getDoc: (c, i) => fs.getDoc(c, i)
+    });
+    assignmentsMod._setAuditForTest({
+      record: async (uid, action, target, payload, sig) => {
+        const aid = 'a-' + Math.random().toString(16).slice(2);
+        fs._c('tm_audit').set(aid, { uid, action, target, payload, sig });
+        return aid;
+      }
+    });
+    watchdog.setCloudTasksClient(async () => ({ duplicate: false, status: 200 }));
+
+    const r = await watchdog.handleSlaTick({ dispatch_id: 'd-step3', step: 2 },
+      { firestore: fs });
+    ok('step 3 executed', r.step_executed === 3);
+    const persisted = await fs.getDoc('tm_dispatches', 'd-step3');
+    ok('sla_history step 3 success',
+      persisted.sla_history.some((h) => h.step === 3 && h.action === 'auto_assign_system_ai' && h.success === true));
+    ok('dispatch has assignment by SYSTEM_AI',
+      Array.isArray(persisted.assignments) && persisted.assignments.length === 1);
+    const aid = persisted.assignments[0].aid;
+    const adoc = await fs.getDoc('tm_assignments', aid);
+    ok('assignment doc actor SYSTEM_AI', adoc && adoc.assigned_by_uid === 'SYSTEM_AI');
+    ok('assignment doc carries dss_reasoning',
+      adoc && adoc.dss_reasoning && typeof adoc.dss_reasoning.score === 'number');
+    ok('assignment doc kind system_ai', adoc && adoc.assigned_by_kind === 'system_ai');
+
+    // Restore real seams.
+    assignmentsMod._setFirestoreForTest(null);
+    assignmentsMod._setAuditForTest(null);
+    watchdog._setDispatchesForTest(null);
+    watchdog._setUnitsForTest(null);
+    watchdog.setCloudTasksClient(null);
+  }
+
+  // 29. sla_tick step 3 -> no candidate >= 0.55 -> step 4 fan-out.
+  {
+    const fs = new TickFs();
+    fs._c('tm_dispatches').set('d-step3-empty', {
+      id: 'd-step3-empty', received_at: new Date().toISOString(),
+      caller_uid: 'caller-x', caller_scope_path: 'ndma/HP/Shimla',
+      worker_status: 'received', sla_step: 2, sla_history: [],
+      triage: { urgency: 'HIGH' }
+    });
+    // Seed no available units; DSS suggest returns empty -> jump to fan-out.
+    watchdog._setUnitsForTest({
+      listAvailableInScope: async () => []
+    });
+    fs._c('tm_users').set('responder-A', {
+      uid: 'responder-A', scope_path: 'ndma/HP/Shimla/Tehsil1', tier: 30
+    });
+    fs._c('tm_users').set('responder-B', {
+      uid: 'responder-B', scope_path: 'ndma/HP/Shimla/Tehsil2', tier: 30
+    });
+    const notifyCalls = [];
+    watchdog._setNotifyForTest({ send: async (a) => { notifyCalls.push(a); } });
+    watchdog.setCloudTasksClient(async () => ({ duplicate: false, status: 200 }));
+
+    const r = await watchdog.handleSlaTick({ dispatch_id: 'd-step3-empty', step: 2 },
+      { firestore: fs });
+    ok('step 3 -> step 4 in same tick', r.step_executed === 4 && r.history_appended === 2);
+    const persisted = await fs.getDoc('tm_dispatches', 'd-step3-empty');
+    ok('sla_step persisted as 4', persisted.sla_step === 4);
+    ok('sla_history has step 3 skipped', persisted.sla_history.some((h) => h.step === 3 && h.action === 'auto_assign_skipped_no_candidate'));
+    ok('sla_history has step 4 fanout', persisted.sla_history.some((h) => h.step === 4 && h.action === 'fanout_broadcast'));
+    ok('fan-out reached subtree responders', notifyCalls.some((n) => n.kind === 'sla_fanout'));
+    watchdog._setUnitsForTest(null);
+    watchdog._setNotifyForTest(null);
+    watchdog.setCloudTasksClient(null);
+  }
+
+  // 30. C2 detection: zero presence rows -> step 1 skipped, c2_compromised: true.
+  {
+    const fs = new TickFs();
+    fs._c('tm_dispatches').set('d-c2', {
+      id: 'd-c2', received_at: new Date().toISOString(),
+      caller_uid: 'caller-c2', caller_scope_path: 'ndma/HP/Shimla',
+      worker_status: 'received', sla_step: 0, sla_history: [],
+      escalation_chain: [], caller_tier: 40, escalation_status: 'pending_review',
+      triage: { urgency: 'CRITICAL' }
+    });
+    fs._c('tm_users').set('caller-c2', {
+      uid: 'caller-c2', parent_uid: 'sup-c2', scope_path: 'ndma/HP/Shimla', tier: 40
+    });
+    // No presence rows seeded.
+    watchdog.setCloudTasksClient(async () => ({ duplicate: false, status: 200 }));
+    const r = await watchdog.handleSlaTick({ dispatch_id: 'd-c2', step: 0 },
+      { firestore: fs });
+    ok('c2 path executed step 2 instead of step 1', r.step_executed === 2);
+    const persisted = await fs.getDoc('tm_dispatches', 'd-c2');
+    ok('c2_compromised flag set', persisted.c2_compromised === true);
+    ok('history shows skip_no_presence', persisted.sla_history.some((h) => h.action === 'skip_no_presence'));
+    watchdog.setCloudTasksClient(null);
+  }
+
+  // 31. Autonomous mode: forced ON via test seam, CRITICAL dispatch jumps
+  //     to step 3, NDMA-tier call clears the flag.
+  {
+    watchdog._setAutonomousModeForTest(true);
+    ok('autonomous mode is ON', watchdog.isAutonomousMode() === true);
+    watchdog.clearAutonomousModeIfNdma({ uid: 'volunteer-1', tier: 20 });
+    ok('non-NDMA call does not clear autonomous mode', watchdog.isAutonomousMode() === true);
+    watchdog.clearAutonomousModeIfNdma({ uid: 'ndma-cmdr', tier: 100 });
+    ok('NDMA-tier call clears autonomous mode', watchdog.isAutonomousMode() === false);
+
+    // Probe semantics: with no NDMA presence and >= 10 CRITICAL dispatches,
+    // autonomous mode arms.
+    watchdog._resetForTest();
+    const fs = new TickFs();
+    const recv = new Date().toISOString();
+    for (let i = 0; i < 12; i++) {
+      fs._c('tm_dispatches').set(`d-surge-${i}`, {
+        id: `d-surge-${i}`, received_at: recv,
+        caller_scope_path: 'ndma/HP/Shimla', triage: { urgency: 'CRITICAL' }
+      });
+    }
+    // No NDMA-tier presence row.
+    const flag = await watchdog.probeAutonomousMode({ firestore: fs });
+    ok('probe arms autonomous mode on CRITICAL surge + no NDMA presence', flag === true);
+  }
+
+  // 32. SYSTEM_AI sig path verifies the ML-DSA-signed canonical message.
+  {
+    watchdog._resetForTest();
+    const ts = Math.floor(Date.now() / 1000);
+    const target = `dispatch.escalate|${randomUUID()}`;
+    const signed = watchdog.signSystemAction({ action: 'dispatch.escalate', target, ts });
+    ok('signSystemAction returns sig + ts + key_id',
+      typeof signed.sig_b64 === 'string' && signed.sig_b64.length > 100
+      && signed.ts === ts && signed.key_id === 'system-ai-v1');
+    const okVerify = watchdog.verifySystemAction({
+      action: 'dispatch.escalate', target, ts, key_id: signed.key_id, sig_b64: signed.sig_b64
+    });
+    ok('verifySystemAction accepts watchdog-signed message', okVerify === true);
+
+    // Tampered target rejected.
+    const bad = watchdog.verifySystemAction({
+      action: 'dispatch.escalate', target: target + 'TAMPER', ts, key_id: signed.key_id,
+      sig_b64: signed.sig_b64
+    });
+    ok('verifySystemAction rejects tampered target', bad === false);
+
+    // Wrong key_id rejected.
+    const badKey = watchdog.verifySystemAction({
+      action: 'dispatch.escalate', target, ts, key_id: 'system-ai-v9',
+      sig_b64: signed.sig_b64
+    });
+    ok('verifySystemAction rejects wrong key_id', badKey === false);
+
+    // requireFreshSystemSig integrates with auth.js
+    const verified = await authMod.requireFreshSystemSig(
+      { uid: 'SYSTEM_AI', system_action_ts: ts, system_action_key_id: signed.key_id },
+      'dispatch.escalate', target, signed.sig_b64
+    );
+    ok('requireFreshSystemSig returns SYSTEM_AI verified payload',
+      verified.uid === 'SYSTEM_AI' && verified.action === 'dispatch.escalate');
+
+    // Non-SYSTEM_AI actor rejected.
+    await expectThrowAsync(
+      'requireFreshSystemSig rejects non-SYSTEM_AI actor',
+      () => authMod.requireFreshSystemSig({ uid: 'other-uid' }, 'dispatch.escalate', target, signed.sig_b64),
+      'not_system_actor'
+    );
+    await expectThrowAsync(
+      'requireFreshSystemSig rejects bad sig',
+      () => authMod.requireFreshSystemSig(
+        { uid: 'SYSTEM_AI', system_action_ts: ts, system_action_key_id: signed.key_id },
+        'dispatch.escalate', target, 'A'.repeat(4412)),
+      'action_sig_bad'
+    );
+  }
+}
+
+
 if (failed === 0) {
   process.stdout.write('OK\n');
   process.exit(0);

@@ -302,6 +302,7 @@ function matchTm(pathname) {
   if (pathname.startsWith('/api/v1/tm/')) return { kind: 'api', sub: pathname.slice('/api/v1/tm/'.length) };
   if (pathname === '/tm' || pathname === '/tm/') return { kind: 'web', sub: '' };
   if (pathname.startsWith('/tm/')) return { kind: 'web', sub: pathname.slice('/tm/'.length) };
+  if (pathname.startsWith('/api/v1/internal/')) return { kind: 'internal', sub: pathname.slice('/api/v1/internal/'.length) };
   return null;
 }
 
@@ -355,6 +356,17 @@ async function dispatchApi(req, res, sub, url, ctx) {
   // requests does not blow Firestore's free-tier write quota.
   if (actor && actor.uid) {
     users.bumpPresence(actor.uid).catch(() => { /* best-effort */ });
+  }
+
+  // Autonomous-mode clear. Any NDMA-tier authenticated call cancels the
+  // watchdog's autonomous mode. Best-effort: never blocks the request.
+  if (actor && Number(actor.tier) >= 100) {
+    try {
+      const watchdogMod = await import('./watchdog.js');
+      if (typeof watchdogMod.clearAutonomousModeIfNdma === 'function') {
+        watchdogMod.clearAutonomousModeIfNdma(actor);
+      }
+    } catch { /* swallow */ }
   }
 
   if (sub === 'me') {
@@ -683,6 +695,67 @@ async function dispatchWeb(req, res, sub) {
 }
 
 // ---------------------------------------------------------------------------
+// Internal endpoints. /api/v1/internal/sla_tick is hit by Cloud Tasks
+// after a watchdog timer fires. The body is HMAC-signed with
+// WATCHDOG_HMAC_SECRET; auth bearer is NOT required because Cloud Tasks
+// cannot mint a session.
+// ---------------------------------------------------------------------------
+async function dispatchInternal(req, res, sub, ctx) {
+  if (sub === 'sla_tick') {
+    if (req.method !== 'POST') {
+      return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
+    }
+    // Read raw body so HMAC verification runs against the exact bytes
+    // the sender signed. JSON.parse afterwards.
+    const lengthHeader = req.headers['content-length'];
+    if (lengthHeader) {
+      const len = parseInt(lengthHeader, 10);
+      if (Number.isFinite(len) && len > 16384) {
+        return sendError(res, 413, 'payload_too_large', 'Internal body too large.');
+      }
+    }
+    let total = 0;
+    const chunks = [];
+    for await (const chunk of req) {
+      total += chunk.length;
+      if (total > 16384) {
+        return sendError(res, 413, 'payload_too_large', 'Internal body too large.');
+      }
+      chunks.push(chunk);
+    }
+    const rawBody = Buffer.concat(chunks, total).toString('utf8');
+    let watchdogMod;
+    try {
+      watchdogMod = await import('./watchdog.js');
+    } catch (e) {
+      logJson('ERROR', { fn: 'dispatchInternal', requestId: ctx?.requestId, msg: 'watchdog_import_failed', err: String(e) });
+      return sendError(res, 503, 'service_unavailable', 'Watchdog module unavailable.');
+    }
+    const sig = req.headers['x-watchdog-sig'];
+    if (typeof sig !== 'string' || sig.length === 0) {
+      logJson('WARNING', { fn: 'dispatchInternal', requestId: ctx?.requestId, msg: 'sla_tick_missing_sig' });
+      return sendError(res, 401, 'unauthorized', 'Missing watchdog signature.');
+    }
+    if (!watchdogMod.verifyCallbackSig(rawBody, sig)) {
+      logJson('WARNING', { fn: 'dispatchInternal', requestId: ctx?.requestId, msg: 'sla_tick_bad_sig' });
+      return sendError(res, 401, 'unauthorized', 'Watchdog signature invalid.');
+    }
+    let body;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return sendError(res, 400, 'bad_json', 'sla_tick body is not valid JSON.');
+    }
+    const result = await watchdogMod.handleSlaTick(body);
+    if (result?.ok === false) {
+      return sendError(res, result.status || 500, result.code || 'sla_tick_failed', 'sla_tick rejected.');
+    }
+    return sendJson(res, 200, result || { ok: true });
+  }
+  return sendError(res, 404, 'not_found', 'No such internal route.');
+}
+
+// ---------------------------------------------------------------------------
 // Public entry. Returns true if the request was handled.
 // ---------------------------------------------------------------------------
 export async function route(req, res, url, ctx) {
@@ -692,6 +765,10 @@ export async function route(req, res, url, ctx) {
   try {
     if (m.kind === 'web') {
       await dispatchWeb(req, res, m.sub);
+      return true;
+    }
+    if (m.kind === 'internal') {
+      await dispatchInternal(req, res, m.sub, ctx);
       return true;
     }
     if (m.kind === 'api_root') {

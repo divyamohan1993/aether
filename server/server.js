@@ -390,6 +390,20 @@ async function persistDispatch(d) {
     logJson('WARNING', { fn: 'persistDispatch', requestId: d.requestId, msg: 'dedupe_failed', err: String(e) });
   }
   if (!cluster_id) cluster_id = d.id;
+  // SLA deadline is computed at persist time so the watchdog only has to
+  // schedule one Cloud Tasks tick. Failures during scheduling never
+  // block the persist; the dispatch row still carries the deadline so a
+  // sweeper job (future work) could pick up orphans.
+  let sla_deadline_at = null;
+  let sla_seconds = null;
+  try {
+    const watchdogMod = await import('./tm/watchdog.js');
+    const urgency = d.triage?.urgency || 'UNCLEAR';
+    sla_seconds = watchdogMod.slaSecondsFor(urgency);
+    sla_deadline_at = watchdogMod.computeSlaDeadlineIso(d.receivedAt, urgency);
+  } catch (e) {
+    logJson('WARNING', { fn: 'persistDispatch', requestId: d.requestId, msg: 'sla_compute_failed', err: String(e) });
+  }
   const doc = {
     id: d.id,
     received_at: d.receivedAt,
@@ -426,9 +440,33 @@ async function persistDispatch(d) {
     cluster_primary_id,
     cluster_match_score,
     cluster_match_reasons,
+    sla_deadline_at,
+    sla_seconds,
+    sla_step: 0,
+    sla_history: [],
+    c2_compromised: false,
     created_at: new Date()
   };
   await fs.setDoc('tm_dispatches', d.id, doc);
+  // Watchdog scheduling is best-effort. Cloud Tasks failures must not
+  // drop the dispatch; the row is already persisted and a human can
+  // still triage. No-op when the dispatch does not require review.
+  if (requiresReview && sla_deadline_at) {
+    try {
+      const watchdogMod = await import('./tm/watchdog.js');
+      watchdogMod.scheduleSlaTick(d.id, sla_deadline_at, 0).catch((err) => {
+        logJson('WARNING', {
+          fn: 'persistDispatch', requestId: d.requestId,
+          msg: 'sla_schedule_failed', err: String(err)
+        });
+      });
+    } catch (e) {
+      logJson('WARNING', {
+        fn: 'persistDispatch', requestId: d.requestId,
+        msg: 'sla_schedule_module_load_failed', err: String(e)
+      });
+    }
+  }
 }
 
 async function callVertex({ audioBuf, audioMime, langHint, geoHint, caller, location, requestId }) {
@@ -690,7 +728,8 @@ async function handleRequest(req, res) {
       return;
     }
     if (pathname === '/tm' || pathname.startsWith('/tm/')
-        || pathname === '/api/v1/tm' || pathname.startsWith('/api/v1/tm/')) {
+        || pathname === '/api/v1/tm' || pathname.startsWith('/api/v1/tm/')
+        || pathname.startsWith('/api/v1/internal/')) {
       const tm = await loadTmRouter();
       const handled = await tm.route(req, res, url, { requestId, ip, startedAt });
       if (handled) return;

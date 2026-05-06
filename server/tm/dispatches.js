@@ -142,9 +142,14 @@ function appendChain(existing, entry) {
 
 // Escalate: actor must outrank caller AND must have at least one parent
 // (cannot escalate from NDMA root). Re-sign verified by router.
+//
+// SYSTEM_AI (watchdog auto-escalation) bypasses the "no_supervisor at
+// tier 100" gate and the peer/superior caller gate. The escalation_chain
+// entry is tagged so audits surface the auto-action.
 export async function escalate(actor, id, body, signatureB64) {
   if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
-  if (Number(actor.tier) >= 100) {
+  const isSystem = actor.uid === 'SYSTEM_AI';
+  if (!isSystem && Number(actor.tier) >= 100) {
     throw new ScopeError('no_supervisor', 'You are at the top of the chain.');
   }
   return _runTransaction(async (tx) => {
@@ -154,28 +159,30 @@ export async function escalate(actor, id, body, signatureB64) {
       throw new ScopeError('out_of_scope', 'Dispatch is outside your subtree.');
     }
     const callerTier = Number(doc.caller_tier);
-    if (Number.isFinite(callerTier) && callerTier >= actor.tier) {
+    if (!isSystem && Number.isFinite(callerTier) && callerTier >= actor.tier) {
       throw new ScopeError('caller_at_or_above_actor', 'Cannot escalate a dispatch from your peer or superior.');
     }
     const note = typeof body?.note === 'string' && body.note.length <= 500 ? body.note : null;
     const entry = {
       actor_uid: actor.uid,
       actor_tier: actor.tier,
-      action: 'escalate',
+      action: isSystem ? 'auto_escalate' : 'escalate',
       target_tier: actor.tier,
       ts: new Date().toISOString()
     };
     if (note) entry.note = note;
     const chain = appendChain(doc.escalation_chain, entry);
+    const nextStatus = isSystem ? 'auto_escalated' : 'escalated';
     tx.update('tm_dispatches', id, {
       escalation_chain: chain,
-      escalation_status: 'escalated',
+      escalation_status: nextStatus,
       requires_review: false,
       updated_at: new Date()
     });
     await auditRecord(actor.uid, 'dispatch.escalate', `tm_dispatches/${id}`,
-      { caller_uid: doc.caller_uid, caller_tier: callerTier, note }, signatureB64 || null);
-    return projectDispatch(id, { ...doc, escalation_chain: chain, escalation_status: 'escalated', requires_review: false });
+      { caller_uid: doc.caller_uid, caller_tier: callerTier, note,
+        system_actor: isSystem }, signatureB64 || null);
+    return projectDispatch(id, { ...doc, escalation_chain: chain, escalation_status: nextStatus, requires_review: false });
   });
 }
 
