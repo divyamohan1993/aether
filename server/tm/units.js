@@ -4,10 +4,19 @@
 // scope filtering reuses the existing isInScope semantics.
 
 import { randomUUID } from 'node:crypto';
+import * as _firestoreReal from './firestore.js';
+import * as _auditReal from './audit.js';
 import { getDoc, setDoc, queryDocs, runTransaction } from './firestore.js';
 import { record as auditRecord } from './audit.js';
 import { isInScope, isValidScope, TIER } from './users.js';
 import { ApiError, ScopeError, NotFoundError, ConflictError } from './_errors.js';
+
+// Test seams. Real callers see the real modules. Tests can swap in fakes
+// to exercise bulkCreate without hitting Firestore.
+let _fsModule = _firestoreReal;
+let _auditModule = _auditReal;
+export function _setFirestoreForTest(mock) { _fsModule = mock || _firestoreReal; }
+export function _setAuditForTest(mock) { _auditModule = mock || _auditReal; }
 
 export const UNIT_TYPES = Object.freeze([
   'ambulance', 'fire_engine', 'police', 'sdrf_team',
@@ -105,8 +114,8 @@ export async function get(actor, unitId) {
 // scope inside the actor's subtree, name uniqueness within that scope.
 export async function create(actor, body) {
   if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
-  if (Number(actor.tier) < TIER.district) {
-    throw new ScopeError('tier_too_low', 'Only district tier and above can create units.');
+  if (Number(actor.tier) < TIER.ddma) {
+    throw new ScopeError('tier_too_low', 'Only ddma tier and above can create units.');
   }
   const type = String(body?.type || '');
   const name = String(body?.name || '').trim();
@@ -192,8 +201,8 @@ export async function update(actor, unitId, body, signatureB64) {
       patch.location = body.location || null;
     }
     if (body?.name !== undefined) {
-      if (Number(actor.tier) < TIER.district) {
-        throw new ScopeError('tier_too_low', 'Only district tier and above can rename units.');
+      if (Number(actor.tier) < TIER.ddma) {
+        throw new ScopeError('tier_too_low', 'Only ddma tier and above can rename units.');
       }
       const name = String(body.name || '').trim();
       if (!isValidName(name)) throw new ApiError('bad_name', 'Invalid name.', 400);
@@ -225,8 +234,8 @@ export async function update(actor, unitId, body, signatureB64) {
 // Soft-delete a unit. Sets status='offline' and archived=true.
 export async function archive(actor, unitId, signatureB64) {
   if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
-  if (Number(actor.tier) < TIER.district) {
-    throw new ScopeError('tier_too_low', 'Only district tier and above can archive units.');
+  if (Number(actor.tier) < TIER.ddma) {
+    throw new ScopeError('tier_too_low', 'Only ddma tier and above can archive units.');
   }
   return runTransaction(async (tx) => {
     const doc = await tx.get('tm_units', unitId);
@@ -264,4 +273,200 @@ export async function listAvailableInScope(scopePath, limit = 200) {
   return out;
 }
 
-export const _internal = { projectUnit, statusRank, isValidName, isValidPhone };
+// Bulk roster import. NDMA/DDMA onboards 200+ SDRF responders, ambulances
+// and drones in one operation when an event is declared. The single-row
+// `create()` helper is too slow for that.
+//
+// Body: { rows: [{type, name, contact_phone, scope_path, capacity?, lat?, lng?}] }
+// Returns: { summary, rows: [{row_index, status, unit_id?, error?}] }
+//
+// Status values per row:
+//   created           -> new unit written
+//   exists            -> active unit with same (name, scope_path) already present
+//   duplicate_in_batch-> earlier row in this same upload already created it
+//   invalid           -> validation failed; payload error in `error`
+//
+// Idempotent on (name, scope_path) within unarchived units. Capped at 1000
+// rows per call. Tier requirement: ddma (60) and above.
+const BULK_MAX_ROWS = 1000;
+const BULK_CHUNK = 100;
+
+function validateBulkRow(actor, row) {
+  if (!row || typeof row !== 'object') {
+    return { ok: false, code: 'bad_row', message: 'row must be an object' };
+  }
+  const type = String(row.type || '');
+  const name = String(row.name || '').trim();
+  const phone = String(row.contact_phone || '').trim();
+  const scopePath = String(row.scope_path || actor.scope_path);
+  const capacity = row.capacity == null ? null : Number(row.capacity);
+  const hasLat = row.lat !== undefined && row.lat !== null;
+  const hasLng = row.lng !== undefined && row.lng !== null;
+  let location = null;
+  if (hasLat || hasLng) {
+    location = { lat: Number(row.lat), lng: Number(row.lng) };
+  } else if (row.location && typeof row.location === 'object') {
+    location = { lat: Number(row.location.lat), lng: Number(row.location.lng) };
+  }
+
+  if (!UNIT_TYPES.includes(type)) return { ok: false, code: 'bad_type', message: 'Invalid type.' };
+  if (!isValidName(name)) return { ok: false, code: 'bad_name', message: 'Invalid name.' };
+  if (!isValidPhone(phone)) return { ok: false, code: 'bad_phone', message: 'Invalid contact phone.' };
+  if (!isValidScope(scopePath)) return { ok: false, code: 'bad_scope', message: 'Invalid scope_path.' };
+  if (!isInScope(actor.scope_path, scopePath)) return { ok: false, code: 'out_of_scope', message: 'Scope is outside your subtree.' };
+  if (capacity !== null && (!Number.isFinite(capacity) || capacity < 0 || capacity > 500)) {
+    return { ok: false, code: 'bad_capacity', message: 'Capacity must be 0-500.' };
+  }
+  if (location !== null) {
+    const lat = location.lat, lng = location.lng;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      return { ok: false, code: 'bad_location', message: 'Invalid location.' };
+    }
+  }
+  return {
+    ok: true,
+    type,
+    name,
+    phone,
+    scopePath,
+    capacity: capacity === null ? null : Math.floor(capacity),
+    location
+  };
+}
+
+export async function bulkCreate(actor, body) {
+  if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
+  if (Number(actor.tier) < TIER.ddma) {
+    throw new ScopeError('tier_too_low', 'Only ddma tier and above can bulk import units.');
+  }
+  const rows = Array.isArray(body?.rows) ? body.rows : null;
+  if (!rows) throw new ApiError('bad_request', 'rows[] required.', 400);
+  if (rows.length === 0) throw new ApiError('bad_request', 'rows[] must contain at least one row.', 400);
+  if (rows.length > BULK_MAX_ROWS) {
+    throw new ApiError('payload_too_large', `rows[] capped at ${BULK_MAX_ROWS}.`, 413);
+  }
+
+  const fs = _fsModule;
+  const audit = _auditModule;
+  const results = new Array(rows.length);
+
+  // Per-row validation up front. Invalid rows are recorded immediately
+  // and skipped for the create phase.
+  const validated = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = validateBulkRow(actor, rows[i]);
+    if (!r.ok) {
+      results[i] = { row_index: i, status: 'invalid', error: r.code, message: r.message };
+    } else {
+      validated.push({ index: i, ...r });
+    }
+  }
+
+  // Pre-fetch active unit names per distinct target scope so we can
+  // mark duplicates as `exists` without spending a transaction read on
+  // each row.
+  const scopes = new Set(validated.map((v) => v.scopePath));
+  const existingByScope = new Map();
+  for (const sp of scopes) {
+    const upper = sp + '/￿';
+    let rowsAt = [];
+    try {
+      rowsAt = await fs.queryDocs('tm_units', [
+        { field: 'scope_path', op: '>=', value: sp },
+        { field: 'scope_path', op: '<=', value: upper }
+      ], { limit: 500 });
+    } catch {
+      rowsAt = [];
+    }
+    const m = new Map();
+    for (const r of rowsAt) {
+      if (r.data?.archived === true) continue;
+      if (r.data?.scope_path !== sp) continue;
+      const k = String(r.data?.name || '').toLowerCase();
+      if (k) m.set(k, r.id);
+    }
+    existingByScope.set(sp, m);
+  }
+
+  // Decide per row + dedupe within the upload itself.
+  const toCreate = [];
+  const seenInBatch = new Map(); // `${scope}::${name}` -> unit_id
+  for (const v of validated) {
+    const existing = existingByScope.get(v.scopePath);
+    const lname = v.name.toLowerCase();
+    if (existing && existing.has(lname)) {
+      results[v.index] = { row_index: v.index, status: 'exists', unit_id: existing.get(lname) };
+      continue;
+    }
+    const batchKey = v.scopePath + '::' + lname;
+    if (seenInBatch.has(batchKey)) {
+      results[v.index] = { row_index: v.index, status: 'duplicate_in_batch', unit_id: seenInBatch.get(batchKey) };
+      continue;
+    }
+    const unitId = randomUUID();
+    seenInBatch.set(batchKey, unitId);
+    toCreate.push({ ...v, unitId });
+  }
+
+  // Chunked transaction commits for the unit docs. Audit rows must flow
+  // through audit.record() so the hash chain stays intact, so we collect
+  // the per-row audit payloads and emit them after the unit txns commit.
+  // Trade-off: a unit txn may succeed while a later audit.record() fails;
+  // in that path audit-chain falls back to a chain_break:true row, which
+  // verify will surface. Chain-break beats silent unchained writes.
+  const now = new Date();
+  const auditQueue = [];
+  for (let i = 0; i < toCreate.length; i += BULK_CHUNK) {
+    const chunk = toCreate.slice(i, i + BULK_CHUNK);
+    await fs.runTransaction(async (tx) => {
+      for (const c of chunk) {
+        const doc = {
+          type: c.type,
+          name: c.name,
+          contact_phone: c.phone,
+          scope_path: c.scopePath,
+          status: 'available',
+          capacity: c.capacity,
+          location: c.location,
+          last_status_at: now,
+          created_at: now,
+          created_by_uid: actor.uid,
+          archived: false
+        };
+        tx.create('tm_units', doc, c.unitId);
+        auditQueue.push({
+          unitId: c.unitId,
+          payload: { type: c.type, name: c.name, scope_path: c.scopePath, status: 'available' }
+        });
+        results[c.index] = { row_index: c.index, status: 'created', unit_id: c.unitId };
+      }
+    });
+  }
+  for (const a of auditQueue) {
+    try {
+      await audit.record(actor.uid, 'unit.bulk_create', `tm_units/${a.unitId}`, a.payload, null);
+    } catch (e) {
+      /* audit.record() best-effort fallback already wrote chain_break */
+    }
+  }
+
+  const summary = {
+    total: rows.length,
+    created: results.filter((r) => r && r.status === 'created').length,
+    exists: results.filter((r) => r && r.status === 'exists').length,
+    duplicate_in_batch: results.filter((r) => r && r.status === 'duplicate_in_batch').length,
+    invalid: results.filter((r) => r && r.status === 'invalid').length
+  };
+
+  // One summary audit row for the whole upload. Best-effort.
+  try {
+    await audit.record(actor.uid, 'unit.bulk_summary', `tm_units/bulk:${randomUUID()}`,
+      summary, body?.signature_b64 || null);
+  } catch {
+    /* swallowed; per-row audits already captured */
+  }
+
+  return { summary, rows: results };
+}
+
+export const _internal = { projectUnit, statusRank, isValidName, isValidPhone, validateBulkRow };

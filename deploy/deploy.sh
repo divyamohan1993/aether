@@ -47,7 +47,53 @@ gcloud services enable \
   aiplatform.googleapis.com \
   logging.googleapis.com \
   cloudtrace.googleapis.com \
+  cloudtasks.googleapis.com \
+  secretmanager.googleapis.com \
   --project="${PROJECT_ID}" >/dev/null
+
+# Watchdog Cloud Tasks queue. asia-south1 (Mumbai) is the closest GA
+# region to Firestore Delhi (asia-south2 has no Cloud Tasks GA at the
+# time of writing). Idempotent: describe first, create only on miss.
+TASKS_LOCATION="${CLOUD_TASKS_LOCATION:-asia-south1}"
+TASKS_QUEUE="${CLOUD_TASKS_QUEUE:-aether-watchdog}"
+log "Ensuring Cloud Tasks queue ${TASKS_QUEUE} in ${TASKS_LOCATION}"
+if ! gcloud tasks queues describe "${TASKS_QUEUE}" --location="${TASKS_LOCATION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud tasks queues create "${TASKS_QUEUE}" \
+    --location="${TASKS_LOCATION}" \
+    --project="${PROJECT_ID}" \
+    --max-attempts=3 \
+    --max-dispatches-per-second=10 \
+    --max-concurrent-dispatches=20
+fi
+
+# Watchdog HMAC secret. Generated once and stored in Secret Manager so
+# the watchdog and the /api/v1/internal/sla_tick callback share the same
+# bytes across Cloud Run instances.
+log "Ensuring Secret Manager secret aether-watchdog-hmac"
+if ! gcloud secrets describe aether-watchdog-hmac --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud secrets create aether-watchdog-hmac \
+    --replication-policy=automatic \
+    --project="${PROJECT_ID}" >/dev/null
+  python3 -c 'import secrets,sys; sys.stdout.write(secrets.token_urlsafe(48))' \
+    | gcloud secrets versions add aether-watchdog-hmac \
+        --data-file=- --project="${PROJECT_ID}" >/dev/null
+  log "  generated initial WATCHDOG_HMAC_SECRET version"
+fi
+
+# SYSTEM_AI ML-DSA-65 keypair secrets. Operator must mint and store the
+# keypair the first time. We do NOT generate it here because ML-DSA key
+# generation belongs in a controlled offline ceremony.
+log "Ensuring Secret Manager secrets tm-system-ai-priv / tm-system-ai-pub"
+for secret in tm-system-ai-priv tm-system-ai-pub; do
+  if ! gcloud secrets describe "${secret}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+    gcloud secrets create "${secret}" \
+      --replication-policy=automatic \
+      --project="${PROJECT_ID}" >/dev/null
+    log "  created ${secret} (no version yet)"
+    log "  TODO: mint ML-DSA-65 keypair offline, then run:"
+    log "    echo -n <base64> | gcloud secrets versions add ${secret} --data-file=- --project=${PROJECT_ID}"
+  fi
+done
 
 log "Ensuring Artifact Registry repo ${REPO}"
 if ! gcloud artifacts repositories describe "${REPO}" --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
@@ -67,7 +113,7 @@ if ! gcloud iam service-accounts describe "${SA_EMAIL}" --project="${PROJECT_ID}
 fi
 
 log "Granting least-privilege roles to ${SA_EMAIL}"
-for role in roles/aiplatform.user roles/logging.logWriter roles/cloudtrace.agent; do
+for role in roles/aiplatform.user roles/logging.logWriter roles/cloudtrace.agent roles/cloudtasks.enqueuer roles/secretmanager.secretAccessor; do
   gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --member="serviceAccount:${SA_EMAIL}" \
     --role="${role}" \
@@ -99,12 +145,57 @@ gcloud run deploy "${SERVICE}" \
   --timeout=60 \
   --port=8080 \
   --execution-environment=gen2 \
-  --set-env-vars="GCP_PROJECT=${PROJECT_ID},VERTEX_REGION=${VERTEX_REGION},VERTEX_MODEL=${VERTEX_MODEL},NODE_ENV=production,LOG_LEVEL=info,FIRESTORE_DB=(default),TM_BOOTSTRAP_ALLOW=${TM_BOOTSTRAP_ALLOW:-0}" \
-  --set-secrets="TM_SERVER_PUB_B64=tm-server-pub:latest,TM_SERVER_PRIV_B64=tm-server-priv:latest"
+  --set-env-vars="GCP_PROJECT=${PROJECT_ID},VERTEX_REGION=${VERTEX_REGION},VERTEX_MODEL=${VERTEX_MODEL},NODE_ENV=production,LOG_LEVEL=info,FIRESTORE_DB=(default),TM_BOOTSTRAP_ALLOW=${TM_BOOTSTRAP_ALLOW:-0},VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:ops@aether.dmj.one},CLOUD_TASKS_QUEUE=${TASKS_QUEUE},CLOUD_TASKS_LOCATION=${TASKS_LOCATION}" \
+  --set-secrets="TM_SERVER_PUB_B64=tm-server-pub:latest,TM_SERVER_PRIV_B64=tm-server-priv:latest,VAPID_PUBLIC_KEY_B64=vapid-pub:latest,VAPID_PRIVATE_KEY_B64=vapid-priv:latest,WATCHDOG_HMAC_SECRET=aether-watchdog-hmac:latest,SYSTEM_AI_PRIV_B64=tm-system-ai-priv:latest,SYSTEM_AI_PUB_B64=tm-system-ai-pub:latest"
 
 URL="$(gcloud run services describe "${SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)')"
 
 log "Deployed: ${URL}"
+
+# Wave 2 (bg-sync-push) secret refs.
+#
+# VAPID keys for Web Push (RFC 8292). Used by server/tm/notify.js to
+# sign the VAPID JWT and by the PWA to subscribe via pushManager. The
+# subject is just a contact mailto so push providers can reach an
+# operator on policy questions; it is not secret.
+#
+#   gcloud secrets create vapid-pub  --replication-policy=automatic
+#   gcloud secrets create vapid-priv --replication-policy=automatic
+#   # one-shot keypair generator (run locally, then load into Secret Manager):
+#   node -e "const c=require('crypto');const k=c.generateKeyPairSync('ec',{namedCurve:'P-256'});const j=k.privateKey.export({format:'jwk'});const u=s=>Buffer.from(s,'base64url');const x=u(j.x),y=u(j.y),d=u(j.d);const pub=Buffer.concat([Buffer.from([0x04]),x,y]).toString('base64url');console.log('VAPID_PUB:',pub);console.log('VAPID_PRIV:',d.toString('base64url'))"
+#   echo -n "$VAPID_PUB"  | gcloud secrets versions add vapid-pub  --data-file=-
+#   echo -n "$VAPID_PRIV" | gcloud secrets versions add vapid-priv --data-file=-
+#   gcloud secrets add-iam-policy-binding vapid-pub  --member="serviceAccount:${SA_EMAIL}" --role=roles/secretmanager.secretAccessor
+#   gcloud secrets add-iam-policy-binding vapid-priv --member="serviceAccount:${SA_EMAIL}" --role=roles/secretmanager.secretAccessor
+#
+# Without these secrets the runtime generates an ephemeral pair on
+# cold start and logs a WARNING; push will work for the lifetime of
+# the instance only.
+
+# Wave 2 (bg-sync-push) Firestore TTL setup.
+#
+# tm_clip_seen rows expire 24 h after creation. The collection is
+# created lazily; provision the TTL policy once via:
+#   gcloud firestore fields ttls update created_at \
+#     --collection-group=tm_clip_seen \
+#     --enable-ttl --project="${PROJECT_ID}" --database='(default)'
+#
+# tm_user_subscriptions rows expire 90 d after last_seen_at:
+#   gcloud firestore fields ttls update last_seen_at \
+#     --collection-group=tm_user_subscriptions \
+#     --enable-ttl --project="${PROJECT_ID}" --database='(default)'
+
+# TODO(criticality-dedup): provision Firestore composite index for
+# tm_dispatches on (geohash7 ASC, received_at DESC). The dedup cluster
+# scan in server/tm/dedupe.js queries by geohash bucket within a 15 min
+# window and needs this composite to run efficiently. Until the index
+# exists, findCluster catches the missing-index error and returns null
+# so SOS persistence keeps working without dedup. Add via:
+#   gcloud firestore indexes composite create \
+#     --collection-group=tm_dispatches \
+#     --field-config=field-path=geohash7,order=ascending \
+#     --field-config=field-path=received_at,order=descending \
+#     --project="${PROJECT_ID}" --database='(default)'
 
 # Idle cost discipline: delete superseded Cloud Run revisions so we never
 # accumulate billable references to old container images. Cloud Run does

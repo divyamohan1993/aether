@@ -15,6 +15,7 @@ import * as dispatches from './dispatches.js';
 import * as units from './units.js';
 import * as assignments from './assignments.js';
 import * as dss from './dss.js';
+import * as audit from './audit.js';
 import { FirestoreError } from './firestore.js';
 import { ApiError, ScopeError, NotFoundError, ConflictError } from './_errors.js';
 
@@ -86,6 +87,17 @@ function sendError(res, status, code, message, extraHeaders = {}) {
   sendJson(res, status, { error: { code, message } }, extraHeaders);
 }
 
+// Forwards the rotated action key from a verified HMAC sig back to the
+// client as response headers. The client swaps these in for the next
+// request; old key has a 30s grace window on the server.
+function nextKeyHeaders(verified) {
+  if (!verified || !verified.next_action_key_b64) return {};
+  return {
+    'X-Next-Action-Key': verified.next_action_key_b64,
+    'X-Next-Action-Key-Id': verified.next_action_key_id
+  };
+}
+
 async function readJsonBody(req) {
   const lengthHeader = req.headers['content-length'];
   if (lengthHeader) {
@@ -129,6 +141,9 @@ function mapError(e) {
   }
   if (e && e.name === 'AuthError') {
     return { status: e.status || 401, code: e.code || 'unauthorized', message: e.message || 'Unauthorized.' };
+  }
+  if (e && (e.name === 'AuditAccessError' || e.name === 'AuditWriteError')) {
+    return { status: e.status || 403, code: e.code || 'forbidden', message: e.message || 'Forbidden.' };
   }
   if (e instanceof ScopeError) return { status: 403, code: e.code || 'forbidden', message: e.message || 'Forbidden.' };
   if (e instanceof NotFoundError) return { status: 404, code: e.code || 'not_found', message: e.message || 'Not found.' };
@@ -287,6 +302,7 @@ function matchTm(pathname) {
   if (pathname.startsWith('/api/v1/tm/')) return { kind: 'api', sub: pathname.slice('/api/v1/tm/'.length) };
   if (pathname === '/tm' || pathname === '/tm/') return { kind: 'web', sub: '' };
   if (pathname.startsWith('/tm/')) return { kind: 'web', sub: pathname.slice('/tm/'.length) };
+  if (pathname.startsWith('/api/v1/internal/')) return { kind: 'internal', sub: pathname.slice('/api/v1/internal/'.length) };
   return null;
 }
 
@@ -298,6 +314,36 @@ async function dispatchApi(req, res, sub, url, ctx) {
 
   // Public auth subroutes.
   if (sub.startsWith('auth/') || sub === 'server-pubkey') {
+    // VAPID pubkey + push subscribe carve-outs sit under /auth/* but
+    // need different gating. vapid_pubkey is fully public (it is the
+    // public key, after all). push_subscribe is authenticated because
+    // it ties a subscription to a uid; an unauthenticated subscribe
+    // would let anyone pin notifications to any uid.
+    if (sub === 'auth/vapid_pubkey') {
+      if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
+      const m = await import('./notify.js');
+      return sendJson(res, 200, { public_key_b64: m.getPublicKeyB64() });
+    }
+    if (sub === 'auth/push_subscribe') {
+      // Authenticated. Skip the public auth-rate bucket so a logged-in
+      // PWA does not share a budget with the login challenge flow.
+      const actorEarly = await authenticate(req);
+      const m = await import('./notify.js');
+      if (method === 'POST') {
+        const body = await readJsonBody(req);
+        const sub2 = body && typeof body === 'object' ? body : null;
+        if (!m.isValidSubscription(sub2)) {
+          return sendError(res, 400, 'subscription_invalid', 'Subscription payload is malformed.');
+        }
+        await m.saveSubscription(actorEarly.uid, sub2);
+        return sendJson(res, 200, { ok: true });
+      }
+      if (method === 'DELETE') {
+        await m.deleteSubscription(actorEarly.uid);
+        return sendJson(res, 200, { ok: true });
+      }
+      return sendError(res, 405, 'method_not_allowed', 'Use POST or DELETE.', { Allow: 'POST, DELETE' });
+    }
     const rate = checkAuthRate(ctx.ip);
     if (!rate.ok) {
       sendError(res, 429, 'rate_limited', 'Too many auth requests.', { 'Retry-After': String(rate.retryAfter) });
@@ -335,6 +381,24 @@ async function dispatchApi(req, res, sub, url, ctx) {
   // Authenticated routes.
   const actor = await authenticate(req);
 
+  // Presence heartbeat. Wave 2 watchdog reads tm_user_presence to detect
+  // C2 compromise. bumpPresence is rate-limited per uid, so spamming
+  // requests does not blow Firestore's free-tier write quota.
+  if (actor && actor.uid) {
+    users.bumpPresence(actor.uid).catch(() => { /* best-effort */ });
+  }
+
+  // Autonomous-mode clear. Any NDMA-tier authenticated call cancels the
+  // watchdog's autonomous mode. Best-effort: never blocks the request.
+  if (actor && Number(actor.tier) >= 100) {
+    try {
+      const watchdogMod = await import('./watchdog.js');
+      if (typeof watchdogMod.clearAutonomousModeIfNdma === 'function') {
+        watchdogMod.clearAutonomousModeIfNdma(actor);
+      }
+    } catch { /* swallow */ }
+  }
+
   if (sub === 'me') {
     if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
     return sendJson(res, 200, await users.getMe(actor));
@@ -353,11 +417,9 @@ async function dispatchApi(req, res, sub, url, ctx) {
     if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
     const body = await readJsonBody(req);
     const mod = await getAuth();
-    if (typeof mod.requireFreshUserSig === 'function') {
-      const payload = `invite|${body?.email || ''}|${body?.tier || ''}|${body?.parent_uid || ''}|${body?.scope_path || ''}`;
-      await mod.requireFreshUserSig(actor, 'user.invite', payload, body?.signature_b64);
-    }
-    return sendJson(res, 200, await users.inviteUser(actor, body, body?.signature_b64));
+    const target = `invite|${body?.email || ''}|${body?.tier || ''}|${body?.parent_uid || ''}|${body?.scope_path || ''}`;
+    const verified = await mod.requireFreshHmacSig(actor, 'user.invite', target, req.headers);
+    return sendJson(res, 200, await users.inviteUser(actor, body, body?.signature_b64), nextKeyHeaders(verified));
   }
 
   if (sub.startsWith('users/')) {
@@ -372,10 +434,8 @@ async function dispatchApi(req, res, sub, url, ctx) {
       const newTier = Number(body?.new_tier);
       const sig = body?.signature_b64;
       const mod = await getAuth();
-      if (typeof mod.requireFreshUserSig === 'function') {
-        await mod.requireFreshUserSig(actor, 'user.delegate', `delegate|${uid}|${newTier}`, sig);
-      }
-      return sendJson(res, 200, await users.delegate(actor, uid, newTier, sig));
+      const verified = await mod.requireFreshHmacSig(actor, 'user.delegate', `delegate|${uid}|${newTier}`, req.headers);
+      return sendJson(res, 200, await users.delegate(actor, uid, newTier, sig), nextKeyHeaders(verified));
     }
     if (action === 'suspend') {
       if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
@@ -421,10 +481,8 @@ async function dispatchApi(req, res, sub, url, ctx) {
       const body = await readJsonBody(req).catch(() => ({}));
       const sig = body?.signature_b64;
       const mod = await getAuth();
-      if (typeof mod.requireFreshUserSig === 'function') {
-        await mod.requireFreshUserSig(actor, 'project.archive', `project.archive|${pid}`, sig);
-      }
-      return sendJson(res, 200, await projects.archive(actor, pid, sig));
+      const verified = await mod.requireFreshHmacSig(actor, 'project.archive', `project.archive|${pid}`, req.headers);
+      return sendJson(res, 200, await projects.archive(actor, pid, sig), nextKeyHeaders(verified));
     }
     return sendError(res, 405, 'method_not_allowed', 'Use GET, PATCH, or DELETE.', { Allow: 'GET, PATCH, DELETE' });
   }
@@ -454,14 +512,13 @@ async function dispatchApi(req, res, sub, url, ctx) {
     if (method === 'PATCH') {
       const body = await readJsonBody(req);
       let sig = null;
-      if (body?.signature_b64 && body?.assignee_uid !== undefined) {
-        sig = body.signature_b64;
+      let verified = null;
+      if (body?.assignee_uid !== undefined) {
+        sig = body?.signature_b64 || null;
         const mod = await getAuth();
-        if (typeof mod.requireFreshUserSig === 'function') {
-          await mod.requireFreshUserSig(actor, 'task.assign', `task.assign|${tid}|${body.assignee_uid || ''}`, sig);
-        }
+        verified = await mod.requireFreshHmacSig(actor, 'task.assign', `task.assign|${tid}|${body.assignee_uid || ''}`, req.headers);
       }
-      return sendJson(res, 200, await tasks.update(actor, tid, body, sig));
+      return sendJson(res, 200, await tasks.update(actor, tid, body, sig), nextKeyHeaders(verified));
     }
     if (method === 'DELETE') {
       return sendJson(res, 200, await tasks.archive(actor, tid));
@@ -485,9 +542,25 @@ async function dispatchApi(req, res, sub, url, ctx) {
     const status = url.searchParams.get('status') || null;
     const requiresReview = url.searchParams.get('requires_review') === '1' || url.searchParams.get('requires_review') === 'true';
     const includeMine = mineParam === '1' || mineParam === 'true';
+    // criticality-dedup lane: direct_only flag passed through to listTeam.
+    const directOnly = url.searchParams.get('direct_only') === '1' || url.searchParams.get('direct_only') === 'true';
     return sendJson(res, 200, {
-      dispatches: await dispatches.listTeam(actor, { limit, status, requires_review: requiresReview, mine: includeMine })
+      dispatches: await dispatches.listTeam(actor, { limit, status, requires_review: requiresReview, mine: includeMine, direct_only: directOnly })
     });
+  }
+
+  // criticality-dedup lane: side-by-side criticality comparison endpoint.
+  // Restricted to ddma+ (tier >= 60) so volunteers and field tiers cannot
+  // bulk-pull dispatch summaries. listTeam already enforces scope, but
+  // compare() runs scope checks per id as well.
+  if (sub === 'dispatches/compare') {
+    if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
+    if (Number(actor.tier) < 60) {
+      return sendError(res, 403, 'forbidden', 'compare requires district tier or higher.');
+    }
+    const idsParam = url.searchParams.get('ids') || '';
+    const ids = idsParam.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+    return sendJson(res, 200, { dispatches: await dispatches.compare(actor, ids) });
   }
 
   if (sub.startsWith('dispatches/')) {
@@ -505,15 +578,15 @@ async function dispatchApi(req, res, sub, url, ctx) {
       const body = await readJsonBody(req);
       const sig = body?.action_signature_b64 || body?.signature_b64;
       const mod = await getAuth();
-      if (typeof mod.requireFreshUserSig === 'function') {
-        await mod.requireFreshUserSig(actor, 'dispatch.escalate', `dispatch.escalate|${did}`, sig);
-      }
-      return sendJson(res, 200, await dispatches.escalate(actor, did, body, sig));
+      const verified = await mod.requireFreshHmacSig(actor, 'dispatch.escalate', `dispatch.escalate|${did}`, req.headers);
+      return sendJson(res, 200, await dispatches.escalate(actor, did, body, sig), nextKeyHeaders(verified));
     }
     if (action === 'review') {
       if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
       const body = await readJsonBody(req).catch(() => ({}));
-      return sendJson(res, 200, await dispatches.markReviewed(actor, did, body));
+      const mod = await getAuth();
+      const verified = await mod.requireFreshHmacSig(actor, 'dispatch.review', `dispatch.review|${did}`, req.headers);
+      return sendJson(res, 200, await dispatches.markReviewed(actor, did, body), nextKeyHeaders(verified));
     }
     if (action === 'status') {
       if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
@@ -531,10 +604,8 @@ async function dispatchApi(req, res, sub, url, ctx) {
       const body = await readJsonBody(req);
       const sig = body?.action_signature_b64 || body?.signature_b64;
       const mod = await getAuth();
-      if (typeof mod.requireFreshUserSig === 'function') {
-        await mod.requireFreshUserSig(actor, 'dispatch.assign', `dispatch.assign|${did}|${body?.unit_id || ''}`, sig);
-      }
-      return sendJson(res, 200, await assignments.assignUnit(actor, did, body, sig));
+      const verified = await mod.requireFreshHmacSig(actor, 'dispatch.assign', `dispatch.assign|${did}|${body?.unit_id || ''}`, req.headers);
+      return sendJson(res, 200, await assignments.assignUnit(actor, did, body, sig), nextKeyHeaders(verified));
     }
     return sendError(res, 404, 'not_found', 'No such dispatch route.');
   }
@@ -556,6 +627,12 @@ async function dispatchApi(req, res, sub, url, ctx) {
     return sendError(res, 405, 'method_not_allowed', 'Use GET or POST.', { Allow: 'GET, POST' });
   }
 
+  if (sub === 'units/bulk') {
+    if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
+    const body = await readJsonBody(req);
+    return sendJson(res, 200, await units.bulkCreate(actor, body));
+  }
+
   if (sub.startsWith('units/')) {
     const uid = decodeURIComponent(sub.slice('units/'.length));
     if (!uid || uid.includes('/')) return sendError(res, 404, 'not_found', 'No such unit route.');
@@ -564,25 +641,46 @@ async function dispatchApi(req, res, sub, url, ctx) {
       const body = await readJsonBody(req);
       const wantsSig = body?.scope_path !== undefined || body?.contact_phone !== undefined || body?.name !== undefined;
       let sig = null;
+      let verified = null;
       if (wantsSig) {
-        sig = body?.action_signature_b64 || body?.signature_b64;
+        sig = body?.action_signature_b64 || body?.signature_b64 || null;
         const mod = await getAuth();
-        if (typeof mod.requireFreshUserSig === 'function') {
-          await mod.requireFreshUserSig(actor, 'unit.update', `unit.update|${uid}`, sig);
-        }
+        verified = await mod.requireFreshHmacSig(actor, 'unit.update', `unit.update|${uid}`, req.headers);
       }
-      return sendJson(res, 200, await units.update(actor, uid, body, sig));
+      return sendJson(res, 200, await units.update(actor, uid, body, sig), nextKeyHeaders(verified));
     }
     if (method === 'DELETE') {
       const body = await readJsonBody(req).catch(() => ({}));
       const sig = body?.action_signature_b64 || body?.signature_b64;
       const mod = await getAuth();
-      if (typeof mod.requireFreshUserSig === 'function') {
-        await mod.requireFreshUserSig(actor, 'unit.archive', `unit.archive|${uid}`, sig);
-      }
-      return sendJson(res, 200, await units.archive(actor, uid, sig));
+      const verified = await mod.requireFreshHmacSig(actor, 'unit.archive', `unit.archive|${uid}`, req.headers);
+      return sendJson(res, 200, await units.archive(actor, uid, sig), nextKeyHeaders(verified));
     }
     return sendError(res, 405, 'method_not_allowed', 'Use GET, PATCH, or DELETE.', { Allow: 'GET, PATCH, DELETE' });
+  }
+
+  if (sub === 'audit/verify') {
+    if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
+    const fromSeqRaw = parseInt(url.searchParams.get('from_seq') || '0', 10);
+    const fromSeq = Number.isFinite(fromSeqRaw) && fromSeqRaw >= 0 ? fromSeqRaw : 0;
+    const limitRaw = parseInt(url.searchParams.get('limit') || '1000', 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 1000) : 1000;
+    return sendJson(res, 200, await audit.handleVerify(actor, { fromSeq, limit }));
+  }
+
+  if (sub === 'audit/list') {
+    if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
+    const filters = {
+      actor_uid: url.searchParams.get('actor_uid') || undefined,
+      action: url.searchParams.get('action') || undefined,
+      target_ref: url.searchParams.get('target_ref') || undefined,
+      since: url.searchParams.get('since') || undefined,
+      until: url.searchParams.get('until') || undefined
+    };
+    const limitRaw = parseInt(url.searchParams.get('limit') || '50', 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 50;
+    const includeSig = url.searchParams.get('include_signatures') === '1' || url.searchParams.get('include_signatures') === 'true';
+    return sendJson(res, 200, await audit.handleList(actor, filters, { limit, include_signatures: includeSig }));
   }
 
   if (sub.startsWith('assignments/')) {
@@ -590,7 +688,10 @@ async function dispatchApi(req, res, sub, url, ctx) {
     if (!aid || aid.includes('/')) return sendError(res, 404, 'not_found', 'No such assignment route.');
     if (method === 'PATCH') {
       const body = await readJsonBody(req);
-      return sendJson(res, 200, await assignments.updateAssignment(actor, aid, body));
+      const status = String(body?.status || '');
+      const mod = await getAuth();
+      const verified = await mod.requireFreshHmacSig(actor, 'assignment.update', `assignment.update|${aid}|${status}`, req.headers);
+      return sendJson(res, 200, await assignments.updateAssignment(actor, aid, body), nextKeyHeaders(verified));
     }
     return sendError(res, 405, 'method_not_allowed', 'Use PATCH.', { Allow: 'PATCH' });
   }
@@ -624,6 +725,67 @@ async function dispatchWeb(req, res, sub) {
 }
 
 // ---------------------------------------------------------------------------
+// Internal endpoints. /api/v1/internal/sla_tick is hit by Cloud Tasks
+// after a watchdog timer fires. The body is HMAC-signed with
+// WATCHDOG_HMAC_SECRET; auth bearer is NOT required because Cloud Tasks
+// cannot mint a session.
+// ---------------------------------------------------------------------------
+async function dispatchInternal(req, res, sub, ctx) {
+  if (sub === 'sla_tick') {
+    if (req.method !== 'POST') {
+      return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
+    }
+    // Read raw body so HMAC verification runs against the exact bytes
+    // the sender signed. JSON.parse afterwards.
+    const lengthHeader = req.headers['content-length'];
+    if (lengthHeader) {
+      const len = parseInt(lengthHeader, 10);
+      if (Number.isFinite(len) && len > 16384) {
+        return sendError(res, 413, 'payload_too_large', 'Internal body too large.');
+      }
+    }
+    let total = 0;
+    const chunks = [];
+    for await (const chunk of req) {
+      total += chunk.length;
+      if (total > 16384) {
+        return sendError(res, 413, 'payload_too_large', 'Internal body too large.');
+      }
+      chunks.push(chunk);
+    }
+    const rawBody = Buffer.concat(chunks, total).toString('utf8');
+    let watchdogMod;
+    try {
+      watchdogMod = await import('./watchdog.js');
+    } catch (e) {
+      logJson('ERROR', { fn: 'dispatchInternal', requestId: ctx?.requestId, msg: 'watchdog_import_failed', err: String(e) });
+      return sendError(res, 503, 'service_unavailable', 'Watchdog module unavailable.');
+    }
+    const sig = req.headers['x-watchdog-sig'];
+    if (typeof sig !== 'string' || sig.length === 0) {
+      logJson('WARNING', { fn: 'dispatchInternal', requestId: ctx?.requestId, msg: 'sla_tick_missing_sig' });
+      return sendError(res, 401, 'unauthorized', 'Missing watchdog signature.');
+    }
+    if (!watchdogMod.verifyCallbackSig(rawBody, sig)) {
+      logJson('WARNING', { fn: 'dispatchInternal', requestId: ctx?.requestId, msg: 'sla_tick_bad_sig' });
+      return sendError(res, 401, 'unauthorized', 'Watchdog signature invalid.');
+    }
+    let body;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return sendError(res, 400, 'bad_json', 'sla_tick body is not valid JSON.');
+    }
+    const result = await watchdogMod.handleSlaTick(body);
+    if (result?.ok === false) {
+      return sendError(res, result.status || 500, result.code || 'sla_tick_failed', 'sla_tick rejected.');
+    }
+    return sendJson(res, 200, result || { ok: true });
+  }
+  return sendError(res, 404, 'not_found', 'No such internal route.');
+}
+
+// ---------------------------------------------------------------------------
 // Public entry. Returns true if the request was handled.
 // ---------------------------------------------------------------------------
 export async function route(req, res, url, ctx) {
@@ -633,6 +795,10 @@ export async function route(req, res, url, ctx) {
   try {
     if (m.kind === 'web') {
       await dispatchWeb(req, res, m.sub);
+      return true;
+    }
+    if (m.kind === 'internal') {
+      await dispatchInternal(req, res, m.sub, ctx);
       return true;
     }
     if (m.kind === 'api_root') {
@@ -645,6 +811,8 @@ export async function route(req, res, url, ctx) {
           'POST /api/v1/tm/auth/bootstrap',
           'POST /api/v1/tm/auth/challenge',
           'POST /api/v1/tm/auth/verify',
+          'GET /api/v1/tm/auth/vapid_pubkey',
+          'POST|DELETE /api/v1/tm/auth/push_subscribe',
           'GET /api/v1/tm/me',
           'GET|POST /api/v1/tm/users',
           'POST /api/v1/tm/users/invite',
@@ -657,6 +825,7 @@ export async function route(req, res, url, ctx) {
           'GET|PATCH|DELETE /api/v1/tm/tasks/:tid',
           'GET /api/v1/tm/dashboard',
           'GET /api/v1/tm/dispatches',
+          'GET /api/v1/tm/dispatches/compare?ids=a,b,c',
           'GET /api/v1/tm/dispatches/:id',
           'POST /api/v1/tm/dispatches/:id/escalate',
           'POST /api/v1/tm/dispatches/:id/review',
@@ -664,8 +833,11 @@ export async function route(req, res, url, ctx) {
           'GET /api/v1/tm/dispatches/:id/suggestions',
           'POST /api/v1/tm/dispatches/:id/assign',
           'GET|POST /api/v1/tm/units',
+          'POST /api/v1/tm/units/bulk',
           'GET|PATCH|DELETE /api/v1/tm/units/:unit_id',
-          'PATCH /api/v1/tm/assignments/:aid'
+          'PATCH /api/v1/tm/assignments/:aid',
+          'GET /api/v1/tm/audit/verify',
+          'GET /api/v1/tm/audit/list'
         ]
       });
       return true;

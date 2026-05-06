@@ -111,7 +111,22 @@ export function score(dispatch, unit) {
 
 // Rank candidate units against a dispatch. Returns the top three by score.
 // `units` must be the already scope-filtered list from server/tm/units.js.
+//
+// Duplicate clusters short-circuit. The cluster primary already carries
+// active assignments, so suggesting a fresh unit for every duplicate
+// would dispatch redundant resources to the same incident. Returning
+// one advisory row pointing at the primary lets the dispatcher merge
+// or escalate without the unit-suggestion ladder.
 export function suggest(dispatch, units, k = 3) {
+  if (dispatch && dispatch.cluster_role === 'duplicate' && dispatch.cluster_primary_id) {
+    return [{
+      advisory: 'duplicate_of_primary',
+      cluster_primary_id: dispatch.cluster_primary_id,
+      cluster_id: dispatch.cluster_id || null,
+      reason: 'This dispatch matches an active cluster primary. Review the primary before assigning new units.',
+      match_score: Number.isFinite(Number(dispatch.cluster_match_score)) ? Number(dispatch.cluster_match_score) : null
+    }];
+  }
   if (!Array.isArray(units) || units.length === 0) return [];
   const scored = [];
   for (const u of units) {
