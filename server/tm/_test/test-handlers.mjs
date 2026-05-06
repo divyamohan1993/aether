@@ -2337,6 +2337,214 @@ setAuthUsers(fakeUsers);
   }
 }
 
+// 35. multi-device-keys lane. registerDevice + listDevices roundtrip,
+//     revokeDevice HMAC re-sign required, bad-sig rejection, scope
+//     isolation across uids.
+// ---------------------------------------------------------------------------
+{
+  const devicesMod = await import('../devices.js');
+  const { registerDevice, listDevices, revokeDevice, _setFirestoreForTest: setDevicesFs } = devicesMod;
+
+  // Minimal in-memory Firestore for the device collection.
+  class DevFs {
+    constructor() { this.col = new Map(); }
+    _c(name) { if (!this.col.has(name)) this.col.set(name, new Map()); return this.col.get(name); }
+    async setDoc(c, id, data) { this._c(c).set(id, JSON.parse(JSON.stringify(data))); }
+    async getDoc(c, id) {
+      const v = this._c(c).get(id);
+      return v ? JSON.parse(JSON.stringify(v)) : null;
+    }
+    async queryDocs(c, filters, opts) {
+      const col = this._c(c);
+      const out = [];
+      for (const [id, data] of col.entries()) {
+        let pass = true;
+        for (const f of (filters || [])) {
+          if (f.op === '==' && data[f.field] !== f.value) { pass = false; break; }
+        }
+        if (pass) out.push({ id, data: JSON.parse(JSON.stringify(data)) });
+      }
+      const lim = opts?.limit || 200;
+      return out.slice(0, lim);
+    }
+  }
+
+  const devFs = new DevFs();
+  setDevicesFs(devFs);
+
+  const actor = { uid: 'user-mdk-1', tier: 40, scope_path: 'ndma/HP/Shimla' };
+
+  // 33.1 register first device.
+  const pubkey1 = b64Enc(new Uint8Array(32).fill(1));
+  const dev1 = await registerDevice(actor, { label: 'Pixel 7', pubkey_b64: pubkey1 });
+  ok('registerDevice returned device_id', typeof dev1.device_id === 'string' && dev1.device_id.length > 0);
+  ok('registerDevice returned label', dev1.label === 'Pixel 7');
+  ok('registerDevice computed thumbprint',
+    typeof dev1.pubkey_b64_thumbprint === 'string' && dev1.pubkey_b64_thumbprint.length === 16
+    && /^[0-9a-f]+$/.test(dev1.pubkey_b64_thumbprint));
+  ok('registerDevice stamped timestamps',
+    typeof dev1.registered_at === 'string' && typeof dev1.last_seen_at === 'string');
+  ok('registerDevice not revoked', dev1.revoked === false);
+
+  // 33.2 register second device.
+  const pubkey2 = b64Enc(new Uint8Array(32).fill(2));
+  const dev2 = await registerDevice(actor, { label: 'Lenovo K8', pubkey_b64: pubkey2 });
+  ok('second registerDevice has different device_id', dev2.device_id !== dev1.device_id);
+  ok('second device thumbprint differs', dev2.pubkey_b64_thumbprint !== dev1.pubkey_b64_thumbprint);
+
+  // 33.3 listDevices returns both rows for the actor.
+  const list1 = await listDevices(actor);
+  ok('listDevices returns 2 rows', Array.isArray(list1) && list1.length === 2);
+  ok('listDevices returns only this user',
+    list1.every((d) => d.uid === actor.uid));
+  const ids = list1.map((d) => d.device_id).sort();
+  const want = [dev1.device_id, dev2.device_id].sort();
+  ok('listDevices contains both device_ids',
+    ids[0] === want[0] && ids[1] === want[1]);
+
+  // 33.4 listDevices isolated by uid: a sibling user sees nothing.
+  const sibling = { uid: 'user-mdk-2', tier: 40, scope_path: 'ndma/HP/Shimla' };
+  const sibList = await listDevices(sibling);
+  ok('sibling user listDevices returns 0', sibList.length === 0);
+
+  // 33.5 revokeDevice rejects missing signature.
+  await expectThrowAsync(
+    'revokeDevice rejects empty sig',
+    () => revokeDevice(actor, dev1.device_id, ''),
+    'no_action_sig'
+  );
+  await expectThrowAsync(
+    'revokeDevice rejects null sig',
+    () => revokeDevice(actor, dev1.device_id, null),
+    'no_action_sig'
+  );
+
+  // 33.6 revokeDevice flips the row.
+  const revoked = await revokeDevice(actor, dev1.device_id, 'fake-sig-b64');
+  ok('revokeDevice returns revoked: true', revoked.revoked === true);
+  ok('revokeDevice stamped revoked_at', typeof revoked.revoked_at === 'string' && revoked.revoked_at.length > 0);
+  const list2 = await listDevices(actor);
+  const persistedRev = list2.find((d) => d.device_id === dev1.device_id);
+  ok('listDevices reflects revoked: true', persistedRev?.revoked === true);
+  const persistedActive = list2.find((d) => d.device_id === dev2.device_id);
+  ok('other device stays active', persistedActive?.revoked === false);
+
+  // 33.7 revoking an unknown device fails 404-style.
+  await expectThrowAsync(
+    'revokeDevice rejects unknown id',
+    () => revokeDevice(actor, 'no-such-device-id', 'sig'),
+    'device_not_found'
+  );
+
+  // 33.8 cannot revoke another user's device.
+  await expectThrowAsync(
+    'revokeDevice rejects cross-user',
+    () => revokeDevice(sibling, dev2.device_id, 'sig'),
+    'device_not_found'
+  );
+
+  // 33.9 registerDevice rejects bad label.
+  await expectThrowAsync(
+    'registerDevice rejects empty label',
+    () => registerDevice(actor, { label: '', pubkey_b64: pubkey1 }),
+    'bad_label'
+  );
+  await expectThrowAsync(
+    'registerDevice rejects oversize label',
+    () => registerDevice(actor, { label: 'x'.repeat(60), pubkey_b64: pubkey1 }),
+    'bad_label'
+  );
+  await expectThrowAsync(
+    'registerDevice rejects empty pubkey',
+    () => registerDevice(actor, { label: 'OK', pubkey_b64: '' }),
+    'bad_pubkey'
+  );
+  await expectThrowAsync(
+    'registerDevice rejects null actor',
+    () => registerDevice(null, { label: 'X', pubkey_b64: pubkey1 }),
+    'unauthorized'
+  );
+
+  // 33.10 HMAC re-sign required for revoke. requireFreshHmacSigForDevice
+  // accepts only action='device.revoke' and verifies the canonical HMAC
+  // over the session-bound action key. Mirrors the wire path from the
+  // router for a real revoke call.
+  const authMod2 = await import('../auth.js');
+  const { requireFreshHmacSigForDevice } = authMod2;
+  ok('requireFreshHmacSigForDevice exported', typeof requireFreshHmacSigForDevice === 'function');
+
+  _clearReplayStoreForTest();
+  // Re-issue a session so we have a fresh action key and the auth-side
+  // user lookup hits a known uid.
+  const seedKey2 = globalThis.__seedAdminKey;
+  const ch33 = await handleChallenge({ email: 'commander@ndma.in' }, {});
+  const sigCh33 = ml_dsa65.sign(challengeMessageBytes('commander@ndma.in', ch33.challenge_b64), seedKey2.secretKey);
+  const session33 = await handleVerify({
+    email: 'commander@ndma.in', ch_id: ch33.ch_id, signature_b64: b64Enc(sigCh33)
+  }, {});
+  const actor33 = await authenticate({ headers: { authorization: 'Bearer ' + session33.token } });
+  const action_key_bytes = b64Dec(session33.action_key_b64);
+
+  const fakeDeviceId = 'd-' + Math.random().toString(16).slice(2, 12);
+  const tsRev = Math.floor(Date.now() / 1000);
+  const targetRev = `device.revoke|${fakeDeviceId}`;
+  const canonicalRev = canonicalActionMessage({
+    uid: actor33.uid, action: 'device.revoke', target: targetRev, ts: tsRev, key_id: session33.key_id
+  });
+  const sigRev = hmacB64u(action_key_bytes, canonicalRev);
+
+  const verifiedRev = await requireFreshHmacSigForDevice(
+    actor33, 'device.revoke', targetRev,
+    { 'x-action-sig': sigRev, 'x-action-ts': String(tsRev), 'x-action-key-id': session33.key_id }
+  );
+  ok('requireFreshHmacSigForDevice accepts good sig',
+    verifiedRev.uid === actor33.uid && verifiedRev.action === 'device.revoke');
+  ok('requireFreshHmacSigForDevice rotates key',
+    typeof verifiedRev.next_action_key_b64 === 'string'
+    && typeof verifiedRev.next_action_key_id === 'string');
+
+  // 33.11 wrong action name rejected.
+  await expectThrowAsync(
+    'requireFreshHmacSigForDevice rejects non-device action',
+    () => requireFreshHmacSigForDevice(actor33, 'user.delegate', 'x', { 'x-action-sig': 'a', 'x-action-ts': '1', 'x-action-key-id': 'k' }),
+    'bad_action'
+  );
+
+  // 33.12 bad sig rejected. Tamper with the target after signing the clean target.
+  _clearReplayStoreForTest();
+  const tsRev2 = Math.floor(Date.now() / 1000);
+  const cleanTarget = `device.revoke|${fakeDeviceId}-clean`;
+  const cleanCanon = canonicalActionMessage({
+    uid: actor33.uid, action: 'device.revoke', target: cleanTarget, ts: tsRev2, key_id: session33.key_id
+  });
+  const cleanSig = hmacB64u(action_key_bytes, cleanCanon);
+  await expectThrowAsync(
+    'requireFreshHmacSigForDevice rejects tampered target',
+    () => requireFreshHmacSigForDevice(actor33, 'device.revoke',
+      `device.revoke|${fakeDeviceId}-tamper`,
+      { 'x-action-sig': cleanSig, 'x-action-ts': String(tsRev2), 'x-action-key-id': session33.key_id }),
+    'action_sig_bad'
+  );
+
+  // 33.13 missing sig header rejected.
+  await expectThrowAsync(
+    'requireFreshHmacSigForDevice rejects missing sig',
+    () => requireFreshHmacSigForDevice(actor33, 'device.revoke', targetRev,
+      { 'x-action-ts': String(tsRev2), 'x-action-key-id': session33.key_id }),
+    'no_action_sig'
+  );
+
+  // 33.14 stale ts rejected (outside +/-60s skew).
+  await expectThrowAsync(
+    'requireFreshHmacSigForDevice rejects stale ts',
+    () => requireFreshHmacSigForDevice(actor33, 'device.revoke', targetRev,
+      { 'x-action-sig': sigRev, 'x-action-ts': '1000', 'x-action-key-id': session33.key_id }),
+    'stale_action'
+  );
+}
+
+
+
 if (failed === 0) {
   process.stdout.write('OK\n');
   process.exit(0);

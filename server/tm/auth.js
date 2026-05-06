@@ -943,6 +943,147 @@ async function handleVerify(body, _ctx) {
   };
 }
 
+// multi-device-keys lane.
+//
+// Device-revoke action is not in canonical.CRITICAL_ACTIONS (canonical.js
+// is read-only for this lane), so we run the same per-action HMAC gate
+// here with an explicit allow-list of {device.revoke}. The verification
+// flow matches requireFreshHmacSig: header-based sig over a canonical
+// message, +/-60s skew, replay store, key rotation. Returning the same
+// shape lets the router re-use nextKeyHeaders().
+async function requireFreshHmacSigForDevice(actor, action, target, headers) {
+  if (!actor || typeof actor.uid !== 'string') {
+    throw new AuthError('no_session', 'actor required for device action signature.', 401);
+  }
+  if (action !== 'device.revoke') {
+    throw new AuthError('bad_action', 'requireFreshHmacSigForDevice only handles device.revoke.', 400);
+  }
+  if (typeof target !== 'string' || target.length === 0) {
+    throw new AuthError('bad_action', 'target required.', 400);
+  }
+  if (typeof actor.token_id !== 'string' || actor.token_id.length === 0) {
+    throw new AuthError('no_session', 'session token id missing on actor.', 401);
+  }
+  const sigB64u = getActionHeader(headers, ACTION_HEADER_SIG);
+  const tsRaw = getActionHeader(headers, ACTION_HEADER_TS);
+  const keyId = getActionHeader(headers, ACTION_HEADER_KEY_ID);
+  if (!sigB64u) throw new AuthError('no_action_sig', 'X-Action-Sig header required.', 400);
+  if (!tsRaw) throw new AuthError('no_action_ts', 'X-Action-Ts header required.', 400);
+  if (!keyId) throw new AuthError('no_action_key_id', 'X-Action-Key-Id header required.', 400);
+  const ts = Number(tsRaw);
+  if (!Number.isFinite(ts) || !Number.isInteger(ts) || ts <= 0) {
+    throw new AuthError('bad_action_ts', 'X-Action-Ts must be epoch seconds.', 400);
+  }
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - ts) > ACTION_TS_SKEW_SECS) {
+    throw new AuthError('stale_action', `X-Action-Ts outside +/-${ACTION_TS_SKEW_SECS}s window.`, 400);
+  }
+  const entry = sessionCache.get(actor.token_id);
+  if (!entry) {
+    throw new AuthError('no_action_key', 'session action key missing; re-login required.', 401);
+  }
+  const users = await getUsers();
+  if (typeof users.getMe !== 'function') {
+    throw new AuthError('tm_users_module_incomplete', 'users.js missing required exports.', 503);
+  }
+  let userRow;
+  try {
+    userRow = await users.getMe(actor);
+  } catch (e) {
+    if (e?.status === 404 || e?.code === 'user_not_found') {
+      throw new AuthError('user_gone', 'session uid not found in tm_users.', 401);
+    }
+    throw e;
+  }
+  if (!userRow) throw new AuthError('user_gone', 'session uid not found in tm_users.', 401);
+  if (userRow.status === 'suspended') {
+    throw new AuthError('user_suspended', 'user is suspended.', 403);
+  }
+
+  let activeKey = null;
+  let activeKeyId = null;
+  if (keyId === entry.key_id) {
+    activeKey = entry.action_key_b64;
+    activeKeyId = entry.key_id;
+  } else if (
+    entry.prev_key_id && keyId === entry.prev_key_id
+    && typeof entry.prev_grace_until === 'number'
+    && now <= entry.prev_grace_until
+  ) {
+    activeKey = entry.prev_action_key_b64;
+    activeKeyId = entry.prev_key_id;
+  } else {
+    throw new AuthError('action_key_unknown', 'X-Action-Key-Id does not match an active key.', 401);
+  }
+
+  const canonical = canonicalActionMessage({
+    uid: actor.uid,
+    action,
+    target,
+    ts,
+    key_id: activeKeyId
+  });
+  const expected = hmacB64u(b64Dec(activeKey), canonical);
+  if (!timingSafeEqB64u(sigB64u, expected)) {
+    throw new AuthError('action_sig_bad', 'action signature did not verify.', 401);
+  }
+
+  const replayKey = `${actor.uid}|${action}|${target}|${ts}`;
+  const replayExp = replayStore.get(replayKey);
+  if (replayExp && replayExp > now) {
+    throw new AuthError('action_replay', 'action signature already used (replay).', 409);
+  }
+  replayStore.set(replayKey, now + ACTION_REPLAY_TTL_SECS);
+  evictReplayIfNeeded();
+
+  const nextKeyB64 = b64Enc(randomBytes32());
+  const nextKeyId = newKeyId();
+  entry.prev_action_key_b64 = entry.action_key_b64;
+  entry.prev_key_id = entry.key_id;
+  entry.prev_grace_until = now + ACTION_KEY_GRACE_SECS;
+  entry.action_key_b64 = nextKeyB64;
+  entry.key_id = nextKeyId;
+  persistSession(actor.token_id, entry).catch(() => {});
+
+  return {
+    uid: actor.uid,
+    action,
+    target,
+    ts,
+    key_id: activeKeyId,
+    next_action_key_b64: nextKeyB64,
+    next_action_key_id: nextKeyId
+  };
+}
+
+// multi-device-keys lane.
+//
+// Thin handler wrappers so the router only depends on auth.js. Each
+// handler defers to devices.js for the actual collection access.
+async function handleDeviceList(actor, _ctx) {
+  const devices = await import('./devices.js');
+  if (typeof devices.listDevices !== 'function') {
+    throw new AuthError('tm_devices_module_incomplete', 'devices.js missing listDevices.', 503);
+  }
+  return { devices: await devices.listDevices(actor) };
+}
+
+async function handleDeviceRegister(actor, body, _ctx) {
+  const devices = await import('./devices.js');
+  if (typeof devices.registerDevice !== 'function') {
+    throw new AuthError('tm_devices_module_incomplete', 'devices.js missing registerDevice.', 503);
+  }
+  return await devices.registerDevice(actor, body);
+}
+
+async function handleDeviceRevoke(actor, deviceId, signatureB64, _ctx) {
+  const devices = await import('./devices.js');
+  if (typeof devices.revokeDevice !== 'function') {
+    throw new AuthError('tm_devices_module_incomplete', 'devices.js missing revokeDevice.', 503);
+  }
+  return await devices.revokeDevice(actor, deviceId, signatureB64);
+}
+
 export {
   signSession,
   verifySession,
@@ -977,6 +1118,10 @@ export {
   requireFreshHmacSig,
   requireFreshUserSig,
   requireFreshSystemSig,
+  requireFreshHmacSigForDevice,
+  handleDeviceList,
+  handleDeviceRegister,
+  handleDeviceRevoke,
   canonicalActionTarget,
   hmacB64u,
   CHALLENGE_DOMAIN,
