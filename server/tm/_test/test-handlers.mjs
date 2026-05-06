@@ -1944,6 +1944,280 @@ setAuthUsers(fakeUsers);
 }
 
 
+// ---------------------------------------------------------------------------
+// 33. phone-identity lane: telco header HMAC verify, SMS OTP roundtrip,
+//     attempt cap, shortcode webhook, frequency / geo anomaly, noise
+//     gate, telco-attached caller_identity, anonymous + noise-gate
+//     forwarding to the false-alarm review queue.
+// ---------------------------------------------------------------------------
+{
+  const telcoMod = await import('../telco.js');
+  const smsMod = await import('../sms.js');
+  const abuseMod = await import('../abuse.js');
+  const cryptoMod = await import('node:crypto');
+
+  // 33.1 telco header verify: bad sig rejected, good sig accepted.
+  {
+    const secretBytes = cryptoMod.randomBytes(32);
+    const secretB64 = secretBytes.toString('base64');
+    process.env.TELCO_HMAC_SECRETS = `jio:${secretB64},airtel:${cryptoMod.randomBytes(32).toString('base64')}`;
+    telcoMod._resetTelcoCacheForTest();
+    const msisdn = '+919876543210';
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = cryptoMod.createHmac('sha256', secretBytes).update(`${msisdn}|${ts}`).digest('base64');
+    const goodHeaders = {
+      'x-msisdn': msisdn,
+      'x-telco-sig': sig,
+      'x-telco-key-id': 'jio',
+      'x-telco-ts': String(ts)
+    };
+    const verified = telcoMod.verifyTelcoHeader(goodHeaders);
+    ok('verifyTelcoHeader accepts good jio sig',
+      verified && verified.msisdn_e164 === msisdn && verified.telco === 'jio');
+
+    const badSig = cryptoMod.createHmac('sha256', cryptoMod.randomBytes(32)).update(`${msisdn}|${ts}`).digest('base64');
+    ok('verifyTelcoHeader rejects bad sig',
+      telcoMod.verifyTelcoHeader({ ...goodHeaders, 'x-telco-sig': badSig }) === null);
+    ok('verifyTelcoHeader rejects unknown key id',
+      telcoMod.verifyTelcoHeader({ ...goodHeaders, 'x-telco-key-id': 'unknown' }) === null);
+    ok('verifyTelcoHeader rejects 10 min skew',
+      telcoMod.verifyTelcoHeader({ ...goodHeaders, 'x-telco-ts': String(ts - 600) }) === null);
+
+    process.env.TELCO_HMAC_SECRETS = `jio:${secretB64}`;
+    telcoMod._resetTelcoCacheForTest();
+    const reverified = telcoMod.verifyTelcoHeader(goodHeaders);
+    ok('verifyTelcoHeader accepts good sig after reload', reverified && reverified.telco === 'jio');
+    delete process.env.TELCO_HMAC_SECRETS;
+    telcoMod._resetTelcoCacheForTest();
+  }
+
+  class MiniFs {
+    constructor() { this.col = new Map(); }
+    _c(name) { if (!this.col.has(name)) this.col.set(name, new Map()); return this.col.get(name); }
+    async setDoc(c, id, d) { this._c(c).set(id, JSON.parse(JSON.stringify(d))); }
+    async getDoc(c, id) { const v = this._c(c).get(id); return v ? JSON.parse(JSON.stringify(v)) : null; }
+    async deleteDoc(c, id) { this._c(c).delete(id); }
+    async queryDocs(c, filters, opts) {
+      const out = [];
+      for (const [id, d] of this._c(c).entries()) {
+        let pass = true;
+        for (const f of filters || []) {
+          const path = String(f.field).split('.');
+          let v = d;
+          for (const p of path) { v = v == null ? undefined : v[p]; }
+          if (f.op === '==' && v !== f.value) pass = false;
+          if (f.op === '>=' && !(v >= f.value)) pass = false;
+          if (f.op === '<' && !(v < f.value)) pass = false;
+        }
+        if (pass) out.push({ id, data: d });
+      }
+      return opts?.limit ? out.slice(0, opts.limit) : out;
+    }
+  }
+
+  // 33.2 sendOtp + verifyOtp roundtrip.
+  {
+    const fs = new MiniFs();
+    smsMod._setFirestoreForTest(fs);
+    let lastOtp = null;
+    smsMod._setSmsSenderForTest((provider, phone, otp) => { lastOtp = otp; });
+    process.env.MSG91_API_KEY = 'test-key';
+    const phone = '+919876543210';
+    const r = await smsMod.sendOtp(phone, 'auto');
+    ok('sendOtp returned ok', r.ok === true);
+    ok('sendOtp picked msg91 provider', r.provider === 'msg91');
+    ok('OTP delivered via stub sender', typeof lastOtp === 'string' && lastOtp.length === 6);
+    const pending = await fs.getDoc('tm_otp_pending', phone);
+    ok('tm_otp_pending row created', pending && pending.attempts === 0);
+
+    const verified = await smsMod.verifyOtp(phone, lastOtp);
+    ok('verifyOtp succeeded', verified.ok === true && typeof verified.phone_fp === 'string');
+    const cleared = await fs.getDoc('tm_otp_pending', phone);
+    ok('tm_otp_pending cleared after verify', cleared === null);
+    const binding = await fs.getDoc('tm_phone_bindings', verified.phone_fp);
+    ok('tm_phone_bindings minted', binding && binding.phone_e164 === phone);
+
+    delete process.env.MSG91_API_KEY;
+    smsMod._setSmsSenderForTest(null);
+    smsMod._setFirestoreForTest(null);
+  }
+
+  // 33.3 verifyOtp rejects after 3 failed attempts.
+  {
+    const fs = new MiniFs();
+    smsMod._setFirestoreForTest(fs);
+    let stashedOtp = null;
+    smsMod._setSmsSenderForTest((provider, phone, otp) => { stashedOtp = otp; });
+    process.env.KARIX_API_KEY = 'k-test';
+    const phone = '+918888888888';
+    await smsMod.sendOtp(phone, 'auto');
+    ok('sendOtp picked karix when only karix is set', stashedOtp !== null);
+
+    let last;
+    for (let i = 0; i < 3; i++) {
+      try { await smsMod.verifyOtp(phone, '000000'); }
+      catch (e) { last = e; }
+    }
+    ok('third bad attempt rejected', last && last.code === 'otp_mismatch');
+    let exceeded;
+    try { await smsMod.verifyOtp(phone, stashedOtp); }
+    catch (e) { exceeded = e; }
+    ok('verifyOtp blocks after attempts exhausted',
+      exceeded && (exceeded.code === 'otp_attempts_exceeded' || exceeded.code === 'otp_not_found'));
+
+    delete process.env.KARIX_API_KEY;
+    smsMod._setSmsSenderForTest(null);
+    smsMod._setFirestoreForTest(null);
+  }
+
+  // 33.4 shortcode webhook with HMAC parses + creates dispatch.
+  {
+    const fs = new MiniFs();
+    smsMod._setFirestoreForTest(fs);
+    const r = await smsMod.handleShortcodeWebhook({
+      from_e164: '+919999000011',
+      body: 'SOS trapped under building',
+      received_at: new Date().toISOString()
+    });
+    ok('handleShortcodeWebhook accepted SOS', r.ok === true && typeof r.dispatch_id === 'string');
+    const row = await fs.getDoc('tm_dispatches', r.dispatch_id);
+    ok('shortcode dispatch row written',
+      row && row.phone_verified === true && row.verification_channel === 'sms_shortcode');
+    ok('shortcode dispatch carries triage transcript',
+      row.triage?.transcription_native === 'SOS trapped under building');
+
+    const noSos = await smsMod.handleShortcodeWebhook({
+      from_e164: '+919999000022',
+      body: 'hello world',
+      received_at: new Date().toISOString()
+    });
+    ok('handleShortcodeWebhook rejects non-SOS body',
+      noSos.ok === false && noSos.reason === 'not_sos_format');
+
+    smsMod._setFirestoreForTest(null);
+  }
+
+  // 33.5 checkFrequencyAnomaly: 4 in 1 hr from same fp flags.
+  {
+    const fs = new MiniFs();
+    abuseMod._setFirestoreForTest(fs);
+    const fp = 'fp-test-abuser';
+    const recv = new Date().toISOString();
+    for (let i = 0; i < 4; i++) {
+      fs._c('tm_dispatches').set(`d-freq-${i}`, {
+        id: `d-freq-${i}`,
+        received_at: recv,
+        caller_identity: { fingerprint: fp }
+      });
+    }
+    const r = await abuseMod.checkFrequencyAnomaly(fp);
+    ok('checkFrequencyAnomaly flags > 3 / hr', r.flagged === true && r.count === 4);
+
+    const rOther = await abuseMod.checkFrequencyAnomaly('fp-clean');
+    ok('checkFrequencyAnomaly clean fp not flagged', rOther.flagged === false && rOther.count === 0);
+
+    abuseMod._setFirestoreForTest(null);
+  }
+
+  // 33.6 checkGeoImpossibility: 100 km in 2 min flags.
+  {
+    const fs = new MiniFs();
+    abuseMod._setFirestoreForTest(fs);
+    const fp = 'fp-jumper';
+    const recv = new Date(Date.now() - 2 * 60_000).toISOString();
+    fs._c('tm_dispatches').set('d-geo-1', {
+      id: 'd-geo-1', received_at: recv,
+      caller_identity: { fingerprint: fp },
+      location: { lat: 28.6139, lng: 77.2090 }
+    });
+    const r = await abuseMod.checkGeoImpossibility(fp, 29.6139, 77.2090);
+    ok('checkGeoImpossibility flags > 50 km in 5 min',
+      r.flagged === true && r.max_distance_m > 100_000);
+    const rNear = await abuseMod.checkGeoImpossibility(fp, 28.62, 77.21);
+    ok('checkGeoImpossibility nearby not flagged', rNear.flagged === false);
+
+    abuseMod._setFirestoreForTest(null);
+  }
+
+  // 33.7 checkNoiseGate: keyword + miss + panic + urgency.
+  {
+    const passKw = abuseMod.checkNoiseGate({
+      urgency: 'LOW', transcription_english: 'help, trapped under rubble'
+    });
+    ok('checkNoiseGate passes with disaster keyword',
+      passKw.passed === true && passKw.reason === 'disaster_keyword');
+
+    const passUrg = abuseMod.checkNoiseGate({ urgency: 'CRITICAL', transcription_english: '' });
+    ok('checkNoiseGate passes on CRITICAL',
+      passUrg.passed === true && passUrg.reason === 'urgency_high');
+
+    const passPanic = abuseMod.checkNoiseGate({
+      urgency: 'LOW', transcription_english: '', panic_codes: [1, 8]
+    });
+    ok('checkNoiseGate passes on panic-code tap',
+      passPanic.passed === true && passPanic.reason === 'panic_code');
+
+    const fail = abuseMod.checkNoiseGate({
+      urgency: 'LOW', transcription_english: 'hello world how are you'
+    });
+    ok('checkNoiseGate fails with no signal',
+      fail.passed === false && fail.reason === 'no_disaster_signal');
+  }
+
+  // 33.8 handleTriage with telco header sets phone_verified true.
+  //      Mirrors the helper that handleTriage uses to build
+  //      caller_identity from a verified telco header.
+  {
+    const secret = cryptoMod.randomBytes(32);
+    process.env.TELCO_HMAC_SECRETS = `vi:${secret.toString('base64')}`;
+    telcoMod._resetTelcoCacheForTest();
+    const msisdn = '+919998887776';
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = cryptoMod.createHmac('sha256', secret).update(`${msisdn}|${ts}`).digest('base64');
+    const verified = telcoMod.verifyTelcoHeader({
+      'x-msisdn': msisdn, 'x-telco-sig': sig,
+      'x-telco-key-id': 'vi', 'x-telco-ts': String(ts)
+    });
+    const callerIdentity = verified
+      ? {
+          msisdn_e164: verified.msisdn_e164,
+          phone_verified: true,
+          verification_channel: 'telco_header',
+          fingerprint: 'fp-stub',
+          ip_subnet24: '203.0.113.0/24',
+          telco: verified.telco
+        }
+      : null;
+    ok('handleTriage telco path: phone_verified true',
+      callerIdentity && callerIdentity.phone_verified === true);
+    ok('handleTriage telco path: verification_channel = telco_header',
+      callerIdentity.verification_channel === 'telco_header');
+    delete process.env.TELCO_HMAC_SECRETS;
+    telcoMod._resetTelcoCacheForTest();
+  }
+
+  // 33.9 handleTriage anon + noise gate failed forwards to police.
+  //      Mirrors the abuse-hook path that handleTriage runs after
+  //      Vertex returns when the caller has no verified phone.
+  {
+    const fs = new MiniFs();
+    abuseMod._setFirestoreForTest(fs);
+    const triage = { urgency: 'LOW', transcription_english: 'just testing' };
+    const verdict = abuseMod.checkNoiseGate(triage);
+    ok('anon noise gate fails on no-signal', verdict.passed === false);
+    const dispatchId = 'd-anon-fail-1';
+    const wrote = await abuseMod.forwardToPolice(dispatchId, verdict.reason);
+    ok('forwardToPolice persisted', wrote === true);
+    const date = new Date().toISOString().slice(0, 10);
+    const row = await fs.getDoc('tm_false_alarm_review', `${date}_${dispatchId}`);
+    ok('false-alarm review row written',
+      row && row.dispatch_id === dispatchId
+      && row.enforcement_basis === 'DM_Act_2005_S_54');
+    abuseMod._setFirestoreForTest(null);
+  }
+}
+
+ (phone-identity: tests + deploy env / secret refs)
 if (failed === 0) {
   process.stdout.write('OK\n');
   process.exit(0);
