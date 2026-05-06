@@ -1,16 +1,39 @@
-// Project Aether · Task Manager · ML-DSA-65 auth core.
+// Project Aether · Task Manager · auth core.
 //
-// Server-side helpers: server keypair custody, session token issue and
-// verify, login challenge issue and consume, user signature verify.
+// Two-tier auth model (per NDMA_BUILD_SPEC.md "Auth model — two tiers"):
+//   1. Login: ML-DSA-65 challenge / response. Server issues a compact
+//      bearer (`<token_id>.<HMAC>`) plus a per-session 32-byte HMAC
+//      action_key returned ONCE in the verify response.
+//   2. Per-action: HMAC-SHA256(action_key, canonical(uid, action,
+//      target, ts, key_id)) sent in the `X-Action-Sig` header.
+//      ML-DSA does NOT touch per-action calls; the bandwidth saving
+//      is ~140× and is required for 2.5 kbps survivability.
+//
+// Bearer wire format: `<token_id_b64u>.<hmac_sig_b64u>`, ~88 chars.
+// Server-side `tm_sessions/<token_id>` doc holds claims + action_key
+// with a Firestore TTL on `exp`. An in-memory LRU cache fronts
+// Firestore so steady-state authenticated calls are zero-IO.
+//
 // Pure ESM, Node 22+.
 
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHmac, timingSafeEqual, createHash } from 'node:crypto';
 import { ml_dsa65 } from '@noble/post-quantum/ml-dsa.js';
 
+import { canonicalActionMessage, isCriticalAction } from './canonical.js';
+
 const SESSION_TTL_SECS = 30 * 60;
+const SESSION_REFRESH_GRACE_SECS = 60;
 const CHALLENGE_TTL_SECS = 60;
 const CHALLENGE_DOMAIN = 'aether-tm:v1:';
-const SESSION_HEADER = { alg: 'ML-DSA-65', typ: 'AETHER' };
+const ACTION_TS_SKEW_SECS = 60;
+const ACTION_REPLAY_TTL_SECS = 5 * 60;
+const ACTION_REPLAY_MAX = 10_000;
+const ACTION_KEY_GRACE_SECS = 30;
+const SESSION_CACHE_MAX = 5_000;
+const BEARER_HMAC_DOMAIN = 'aether-tm:bearer-hmac:v1';
+const ACTION_HEADER_SIG = 'x-action-sig';
+const ACTION_HEADER_TS = 'x-action-ts';
+const ACTION_HEADER_KEY_ID = 'x-action-key-id';
 
 function utf8(s) { return new TextEncoder().encode(s); }
 function utf8Dec(b) { return new TextDecoder('utf-8', { fatal: true }).decode(b); }
@@ -56,9 +79,19 @@ function eqBytes(a, b) {
   return diff === 0;
 }
 
+function timingSafeEqB64u(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
 let SERVER_PRIV = null;
 let SERVER_PUB = null;
 let SERVER_KEY_FRESH = false;
+let BEARER_HMAC_SECRET = null;
 
 function loadServerKeypair() {
   if (SERVER_PRIV && SERVER_PUB) return;
@@ -87,12 +120,14 @@ function loadServerKeypair() {
     SERVER_PRIV = priv;
     SERVER_PUB = pub;
     SERVER_KEY_FRESH = false;
+    deriveBearerSecret();
     return;
   }
   const k = ml_dsa65.keygen();
   SERVER_PRIV = k.secretKey;
   SERVER_PUB = k.publicKey;
   SERVER_KEY_FRESH = true;
+  deriveBearerSecret();
   const line = {
     ts: new Date().toISOString(),
     severity: 'WARNING',
@@ -103,6 +138,18 @@ function loadServerKeypair() {
     privkey_b64: b64Enc(SERVER_PRIV)
   };
   process.stdout.write(JSON.stringify(line) + '\n');
+}
+
+function deriveBearerSecret() {
+  // Derive a 32-byte HMAC secret deterministically from the ML-DSA
+  // private key so we do not need a new env var. Using the key
+  // material under a domain separator means rotating the ML-DSA pair
+  // also rotates the bearer secret, which is the desired behaviour.
+  if (!SERVER_PRIV) return;
+  const h = createHash('sha256');
+  h.update(BEARER_HMAC_DOMAIN);
+  h.update(SERVER_PRIV);
+  BEARER_HMAC_SECRET = h.digest();
 }
 
 loadServerKeypair();
@@ -153,6 +200,88 @@ function _setFirestoreForTest(mock) {
   _firestore = mock;
 }
 
+// ---------------------------------------------------------------------------
+// Compact bearer model.
+//
+//   bearer = `<token_id_b64u>.<bearer_hmac_b64u>`
+//   token_id  = 32 random bytes (base64url, 43 chars)
+//   bearer_hmac = HMAC_SHA256(BEARER_HMAC_SECRET, token_id_b64u)
+//
+// Claims (uid, tier, scope_path, iat, exp, action_key_b64, key_id) live
+// in `tm_sessions/<token_id_b64u>` (Firestore, TTL on exp). The
+// in-memory `sessionCache` map keeps hot sessions zero-IO; cache
+// misses fall through to Firestore.
+// ---------------------------------------------------------------------------
+
+const sessionCache = new Map();
+
+function evictSessionCacheIfNeeded() {
+  if (sessionCache.size <= SESSION_CACHE_MAX) return;
+  const drop = Math.floor(SESSION_CACHE_MAX / 10);
+  const it = sessionCache.keys();
+  for (let i = 0; i < drop; i++) {
+    const { value, done } = it.next();
+    if (done) break;
+    sessionCache.delete(value);
+  }
+}
+
+function bearerHmacOf(tokenIdB64u) {
+  if (!BEARER_HMAC_SECRET) deriveBearerSecret();
+  const h = createHmac('sha256', BEARER_HMAC_SECRET);
+  h.update(tokenIdB64u);
+  return b64u(new Uint8Array(h.digest()));
+}
+
+function newKeyId() {
+  return b64u(new Uint8Array(randomBytes(6)));
+}
+
+async function persistSession(tokenIdB64u, claims) {
+  // Best-effort Firestore persistence. In-memory cache is the source
+  // of truth in steady state; Firestore is the cold-start fallback
+  // and the multi-instance handoff. Failures here log and swallow
+  // because losing one session record is recoverable (user re-logs).
+  let fs;
+  try { fs = await getFirestore(); }
+  catch { return; }
+  if (typeof fs.setDoc !== 'function') return;
+  try {
+    await fs.setDoc('tm_sessions', tokenIdB64u, {
+      uid: claims.uid,
+      tier: claims.tier,
+      scope_path: claims.scope_path,
+      iat: claims.iat,
+      exp: claims.exp,
+      action_key_b64: claims.action_key_b64,
+      key_id: claims.key_id,
+      updated_at: new Date().toISOString()
+    });
+  } catch (e) {
+    process.stdout.write(JSON.stringify({
+      ts: new Date().toISOString(),
+      severity: 'WARNING',
+      fn: 'tm.auth.persistSession',
+      msg: 'session_persist_failed',
+      err: String(e?.message || e)
+    }) + '\n');
+  }
+}
+
+async function loadSessionFromFirestore(tokenIdB64u) {
+  let fs;
+  try { fs = await getFirestore(); }
+  catch { return null; }
+  if (typeof fs.getDoc !== 'function') return null;
+  try {
+    const doc = await fs.getDoc('tm_sessions', tokenIdB64u);
+    if (!doc) return null;
+    return doc;
+  } catch {
+    return null;
+  }
+}
+
 function signSession(payload) {
   if (!payload || typeof payload !== 'object') {
     throw mkErr('BAD_PAYLOAD', 'session payload must be a plain object');
@@ -167,59 +296,109 @@ function signSession(payload) {
     throw mkErr('BAD_PAYLOAD', 'session payload.scope_path required');
   }
   const now = Math.floor(Date.now() / 1000);
-  const full = {
+  const tokenIdBytes = randomBytes32();
+  const tokenIdB64u = b64u(tokenIdBytes);
+  const action_key_b64 = payload.action_key_b64 || b64Enc(randomBytes32());
+  const key_id = payload.key_id || newKeyId();
+  const claims = {
     uid: payload.uid,
     tier: payload.tier,
     scope_path: payload.scope_path,
     iat: payload.iat ?? now,
-    exp: payload.exp ?? (now + SESSION_TTL_SECS)
+    exp: payload.exp ?? (now + SESSION_TTL_SECS),
+    action_key_b64,
+    key_id
   };
-  const headerB64 = b64u(utf8(JSON.stringify(SESSION_HEADER)));
-  const payloadB64 = b64u(utf8(JSON.stringify(full)));
-  const signingInput = utf8(headerB64 + '.' + payloadB64);
-  const sig = ml_dsa65.sign(signingInput, getServerPrivInternal());
-  const sigB64 = b64u(sig);
-  return `${headerB64}.${payloadB64}.${sigB64}`;
+  sessionCache.set(tokenIdB64u, {
+    ...claims,
+    prev_action_key_b64: null,
+    prev_key_id: null,
+    prev_grace_until: 0
+  });
+  evictSessionCacheIfNeeded();
+  // Fire-and-forget Firestore persist so cold-start instances can
+  // pick up the session. The local cache is authoritative until then.
+  persistSession(tokenIdB64u, claims).catch(() => {});
+  const sigB64u = bearerHmacOf(tokenIdB64u);
+  return `${tokenIdB64u}.${sigB64u}`;
 }
 
-function verifySession(token) {
+async function verifySession(token) {
   if (typeof token !== 'string' || token.length === 0) {
     throw mkErr('SESSION_MALFORMED', 'session token missing', 401);
   }
   const parts = token.split('.');
-  if (parts.length !== 3) throw mkErr('SESSION_MALFORMED', 'session token must have three parts', 401);
-  const [headerB64, payloadB64, sigB64] = parts;
-  let header;
-  let payload;
-  try {
-    header = JSON.parse(utf8Dec(b64uDec(headerB64)));
-    payload = JSON.parse(utf8Dec(b64uDec(payloadB64)));
-  } catch {
-    throw mkErr('SESSION_MALFORMED', 'session token header or payload is not valid base64url JSON', 401);
+  if (parts.length !== 2) {
+    throw mkErr('SESSION_MALFORMED', 'session token must have two parts', 401);
   }
-  if (!header || header.alg !== 'ML-DSA-65' || header.typ !== 'AETHER') {
-    throw mkErr('SESSION_BAD_HEADER', 'session token header rejected', 401);
+  const [tokenIdB64u, sigB64u] = parts;
+  if (tokenIdB64u.length === 0 || sigB64u.length === 0) {
+    throw mkErr('SESSION_MALFORMED', 'session token parts empty', 401);
   }
-  let sig;
-  try {
-    sig = b64uDec(sigB64);
-  } catch {
-    throw mkErr('SESSION_MALFORMED', 'session token signature not valid base64url', 401);
-  }
-  const signingInput = utf8(headerB64 + '.' + payloadB64);
-  if (!ml_dsa65.verify(sig, signingInput, getServerPub())) {
+  const expected = bearerHmacOf(tokenIdB64u);
+  if (!timingSafeEqB64u(sigB64u, expected)) {
     throw mkErr('SESSION_BAD_SIG', 'session token signature failed verification', 401);
   }
-  if (typeof payload.exp !== 'number' || typeof payload.iat !== 'number') {
-    throw mkErr('SESSION_BAD_CLAIMS', 'session token missing iat/exp', 401);
+  let entry = sessionCache.get(tokenIdB64u);
+  if (!entry) {
+    const doc = await loadSessionFromFirestore(tokenIdB64u);
+    if (!doc) throw mkErr('SESSION_NOT_FOUND', 'session token not found', 401);
+    entry = {
+      uid: doc.uid,
+      tier: doc.tier,
+      scope_path: doc.scope_path,
+      iat: doc.iat,
+      exp: doc.exp,
+      action_key_b64: doc.action_key_b64,
+      key_id: doc.key_id,
+      prev_action_key_b64: null,
+      prev_key_id: null,
+      prev_grace_until: 0
+    };
+    sessionCache.set(tokenIdB64u, entry);
+    evictSessionCacheIfNeeded();
   }
   const now = Math.floor(Date.now() / 1000);
-  if (payload.exp <= now) throw mkErr('SESSION_EXPIRED', 'session token expired', 401);
-  if (payload.iat > now + 60) throw mkErr('SESSION_FUTURE', 'session token iat in the future', 401);
-  if (typeof payload.uid !== 'string' || typeof payload.scope_path !== 'string' || typeof payload.tier !== 'number') {
+  if (typeof entry.exp !== 'number' || typeof entry.iat !== 'number') {
+    throw mkErr('SESSION_BAD_CLAIMS', 'session token missing iat/exp', 401);
+  }
+  if (entry.exp <= now) {
+    sessionCache.delete(tokenIdB64u);
+    throw mkErr('SESSION_EXPIRED', 'session token expired', 401);
+  }
+  if (entry.iat > now + 60) throw mkErr('SESSION_FUTURE', 'session token iat in the future', 401);
+  if (typeof entry.uid !== 'string' || typeof entry.scope_path !== 'string' || typeof entry.tier !== 'number') {
     throw mkErr('SESSION_BAD_CLAIMS', 'session token claims malformed', 401);
   }
-  return payload;
+  // Sliding refresh: extend exp on every authenticated call so an
+  // active user never gets bounced to login mid-task. The Firestore
+  // doc is rewritten lazily; the cache is authoritative.
+  const newExp = now + SESSION_TTL_SECS;
+  if (newExp - entry.exp > SESSION_REFRESH_GRACE_SECS) {
+    entry.exp = newExp;
+    persistSession(tokenIdB64u, entry).catch(() => {});
+  }
+  return {
+    uid: entry.uid,
+    tier: entry.tier,
+    scope_path: entry.scope_path,
+    iat: entry.iat,
+    exp: entry.exp,
+    token_id: tokenIdB64u,
+    key_id: entry.key_id
+  };
+}
+
+function _setSessionEntryForTest(tokenIdB64u, entry) {
+  sessionCache.set(tokenIdB64u, entry);
+}
+
+function _getSessionEntryForTest(tokenIdB64u) {
+  return sessionCache.get(tokenIdB64u);
+}
+
+function _clearSessionCacheForTest() {
+  sessionCache.clear();
 }
 
 function verifyUserSig(pubkey_b64, message_bytes, sig_b64) {
@@ -296,10 +475,31 @@ async function consumeChallenge(ch_id) {
 }
 
 // ---------------------------------------------------------------------------
-// Router-facing handlers and AuthError. The router lazy-imports this module
-// and calls these functions directly. They throw AuthError on failure; the
-// router maps `name === 'AuthError'` to the supplied `status`.
+// Per-action HMAC.
 // ---------------------------------------------------------------------------
+
+const replayStore = new Map();
+
+function evictReplayIfNeeded() {
+  if (replayStore.size <= ACTION_REPLAY_MAX) return;
+  const drop = Math.floor(ACTION_REPLAY_MAX / 10);
+  const it = replayStore.keys();
+  for (let i = 0; i < drop; i++) {
+    const { value, done } = it.next();
+    if (done) break;
+    replayStore.delete(value);
+  }
+}
+
+function hmacB64u(keyBytes, message) {
+  const h = createHmac('sha256', keyBytes);
+  h.update(message);
+  return b64u(new Uint8Array(h.digest()));
+}
+
+function _clearReplayStoreForTest() {
+  replayStore.clear();
+}
 
 class AuthError extends Error {
   constructor(code, message, status) {
@@ -348,7 +548,7 @@ async function authenticate(req) {
   if (token.length === 0) throw new AuthError('auth_empty', 'Bearer token is empty.', 401);
   let payload;
   try {
-    payload = verifySession(token);
+    payload = await verifySession(token);
   } catch (e) {
     const code = e?.code || 'session_invalid';
     const status = e?.status || 401;
@@ -366,36 +566,65 @@ function mapSessionCode(code) {
     case 'SESSION_BAD_CLAIMS': return 'session_bad_claims';
     case 'SESSION_EXPIRED': return 'session_expired';
     case 'SESSION_FUTURE': return 'session_future';
+    case 'SESSION_NOT_FOUND': return 'session_not_found';
     default: return 'session_invalid';
   }
 }
 
-function canonicalActionTarget(uid, action, target) {
-  if (typeof uid !== 'string' || uid.length === 0) {
-    throw new AuthError('bad_action', 'actor.uid required for re-sign.', 400);
-  }
-  if (typeof action !== 'string' || action.length === 0) {
-    throw new AuthError('bad_action', 'action required for re-sign.', 400);
-  }
-  if (typeof target !== 'string') {
-    throw new AuthError('bad_action', 'target required for re-sign.', 400);
-  }
-  return JSON.stringify({ uid, action, target });
+function getActionHeader(headers, name) {
+  if (!headers || typeof headers !== 'object') return null;
+  const v = headers[name] ?? headers[name.toUpperCase()] ?? headers[name.replace(/-/g, '_')];
+  if (typeof v !== 'string' || v.length === 0) return null;
+  return v;
 }
 
-// 4-arg form used by router.js. The canonical signed bytes are
-// `JSON.stringify({uid: actor.uid, action, target})` as documented in
-// _iface.md (router-call-site canonical action message format).
-async function requireFreshUserSig(actor, action, target, signature_b64) {
+// requireFreshHmacSig — the ONLY per-action signature gate.
+//
+// `actor` is the verified session payload from `authenticate()`. It
+// MUST carry `token_id` so we can look up the session-bound action key
+// from the in-memory cache. `headers` are the raw request headers; we
+// pull `X-Action-Sig`, `X-Action-Ts`, and `X-Action-Key-Id` directly so
+// no per-call body shape change is needed.
+//
+// Returns `{ uid, action, target, ts, key_id, next_action_key_b64,
+// next_action_key_id }`. The caller forwards the next-key fields to
+// the response so the client can rotate.
+async function requireFreshHmacSig(actor, action, target, headers) {
   if (!actor || typeof actor.uid !== 'string') {
-    throw new AuthError('no_session', 'actor required for re-sign.', 401);
+    throw new AuthError('no_session', 'actor required for action signature.', 401);
   }
-  if (typeof signature_b64 !== 'string' || signature_b64.length === 0) {
-    throw new AuthError('no_action_sig', 'signature_b64 required.', 400);
+  if (typeof action !== 'string' || action.length === 0) {
+    throw new AuthError('bad_action', 'action required.', 400);
   }
-  const canonical = canonicalActionTarget(actor.uid, action, target);
+  if (!isCriticalAction(action)) {
+    throw new AuthError('bad_action', 'action is not on the critical-actions list.', 400);
+  }
+  if (typeof target !== 'string') {
+    throw new AuthError('bad_action', 'target required.', 400);
+  }
+  if (typeof actor.token_id !== 'string' || actor.token_id.length === 0) {
+    throw new AuthError('no_session', 'session token id missing on actor.', 401);
+  }
+  const sigB64u = getActionHeader(headers, ACTION_HEADER_SIG);
+  const tsRaw = getActionHeader(headers, ACTION_HEADER_TS);
+  const keyId = getActionHeader(headers, ACTION_HEADER_KEY_ID);
+  if (!sigB64u) throw new AuthError('no_action_sig', 'X-Action-Sig header required.', 400);
+  if (!tsRaw) throw new AuthError('no_action_ts', 'X-Action-Ts header required.', 400);
+  if (!keyId) throw new AuthError('no_action_key_id', 'X-Action-Key-Id header required.', 400);
+  const ts = Number(tsRaw);
+  if (!Number.isFinite(ts) || !Number.isInteger(ts) || ts <= 0) {
+    throw new AuthError('bad_action_ts', 'X-Action-Ts must be epoch seconds.', 400);
+  }
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - ts) > ACTION_TS_SKEW_SECS) {
+    throw new AuthError('stale_action', `X-Action-Ts outside ±${ACTION_TS_SKEW_SECS}s window.`, 400);
+  }
+  const entry = sessionCache.get(actor.token_id);
+  if (!entry) {
+    throw new AuthError('no_action_key', 'session action key missing; re-login required.', 401);
+  }
   const users = await getUsers();
-  if (typeof users.lookupByEmail !== 'function' || typeof users.getMe !== 'function') {
+  if (typeof users.getMe !== 'function') {
     throw new AuthError('tm_users_module_incomplete', 'users.js missing required exports.', 503);
   }
   let userRow;
@@ -411,17 +640,84 @@ async function requireFreshUserSig(actor, action, target, signature_b64) {
   if (userRow.status === 'suspended') {
     throw new AuthError('user_suspended', 'user is suspended.', 403);
   }
-  if (typeof userRow.pubkey_b64 !== 'string' || userRow.pubkey_b64.length === 0) {
-    throw new AuthError('user_no_pubkey', 'tm_users record missing pubkey_b64.', 500);
+
+  let activeKey = null;
+  let activeKeyId = null;
+  if (keyId === entry.key_id) {
+    activeKey = entry.action_key_b64;
+    activeKeyId = entry.key_id;
+  } else if (
+    entry.prev_key_id && keyId === entry.prev_key_id
+    && typeof entry.prev_grace_until === 'number'
+    && now <= entry.prev_grace_until
+  ) {
+    activeKey = entry.prev_action_key_b64;
+    activeKeyId = entry.prev_key_id;
+  } else {
+    throw new AuthError('action_key_unknown', 'X-Action-Key-Id does not match an active key.', 401);
   }
-  let ok;
-  try {
-    ok = verifyUserSig(userRow.pubkey_b64, utf8(canonical), signature_b64);
-  } catch (e) {
-    throw new AuthError('action_sig_bad', e?.message || 'action signature rejected.', 400);
+
+  const canonical = canonicalActionMessage({
+    uid: actor.uid,
+    action,
+    target,
+    ts,
+    key_id: activeKeyId
+  });
+  const expected = hmacB64u(b64Dec(activeKey), canonical);
+  if (!timingSafeEqB64u(sigB64u, expected)) {
+    throw new AuthError('action_sig_bad', 'action signature did not verify.', 401);
   }
-  if (!ok) throw new AuthError('action_sig_bad', 'action signature did not verify.', 401);
-  return { uid: actor.uid, action, target, message: canonical, signature_b64 };
+
+  const replayKey = `${actor.uid}|${action}|${target}|${ts}`;
+  const replayExp = replayStore.get(replayKey);
+  if (replayExp && replayExp > now) {
+    throw new AuthError('action_replay', 'action signature already used (replay).', 409);
+  }
+  replayStore.set(replayKey, now + ACTION_REPLAY_TTL_SECS);
+  evictReplayIfNeeded();
+
+  // Rotate the action key. Old key remains valid for ACTION_KEY_GRACE_SECS
+  // so an in-flight client request that pre-dates the rotation still
+  // succeeds.
+  const nextKeyB64 = b64Enc(randomBytes32());
+  const nextKeyId = newKeyId();
+  entry.prev_action_key_b64 = entry.action_key_b64;
+  entry.prev_key_id = entry.key_id;
+  entry.prev_grace_until = now + ACTION_KEY_GRACE_SECS;
+  entry.action_key_b64 = nextKeyB64;
+  entry.key_id = nextKeyId;
+  persistSession(actor.token_id, entry).catch(() => {});
+
+  return {
+    uid: actor.uid,
+    action,
+    target,
+    ts,
+    key_id: activeKeyId,
+    next_action_key_b64: nextKeyB64,
+    next_action_key_id: nextKeyId
+  };
+}
+
+// Backwards-compatible alias for any caller that still uses the old
+// name. Same behaviour: HMAC, not ML-DSA.
+const requireFreshUserSig = requireFreshHmacSig;
+
+function canonicalActionTarget(uid, action, target) {
+  // Pre-existing helper used by `handleRegister` for the ML-DSA-signed
+  // *invite*. Invites still ride ML-DSA because they are signed at
+  // mint time and stored alongside the invite, not on every request.
+  if (typeof uid !== 'string' || uid.length === 0) {
+    throw new AuthError('bad_action', 'actor.uid required for invite signature.', 400);
+  }
+  if (typeof action !== 'string' || action.length === 0) {
+    throw new AuthError('bad_action', 'action required for invite signature.', 400);
+  }
+  if (typeof target !== 'string') {
+    throw new AuthError('bad_action', 'target required for invite signature.', 400);
+  }
+  return JSON.stringify({ uid, action, target });
 }
 
 function asNonEmptyString(v, code, msg) {
@@ -431,7 +727,13 @@ function asNonEmptyString(v, code, msg) {
 
 async function handleRegister(body, _ctx) {
   if (!body || typeof body !== 'object') throw new AuthError('bad_request', 'body required.', 400);
-  const invite_id = asNonEmptyString(body.invite_id, 'bad_request', 'invite_id required.');
+  // Accept either `invite_id` (canonical) or `invite_token` (legacy
+  // client). Both refer to the same Firestore doc.
+  const invite_id = asNonEmptyString(
+    body.invite_id ?? body.invite_token,
+    'bad_request',
+    'invite_id required.'
+  );
   asNonEmptyString(body.name, 'bad_request', 'name required.');
   asNonEmptyString(body.pubkey_b64, 'bad_request', 'pubkey_b64 required.');
 
@@ -469,7 +771,10 @@ async function handleRegister(body, _ctx) {
   if (typeof users.acceptInvite !== 'function') {
     throw new AuthError('tm_users_module_incomplete', 'users.js missing acceptInvite().', 503);
   }
-  return users.acceptInvite(body);
+  // Pass the resolved invite_id forward under both names so legacy
+  // helpers in users.js still see what they expect.
+  const forwarded = { ...body, invite_id, invite_token: invite_id };
+  return users.acceptInvite(forwarded);
 }
 
 async function handleBootstrap(body, _ctx) {
@@ -544,13 +849,23 @@ async function handleVerify(body, _ctx) {
   }
   if (!ok) throw failGeneric();
 
-  const token = signSession({ uid: user.uid, tier: user.tier, scope_path: user.scope_path });
-  const payload = verifySession(token);
+  const action_key_b64 = b64Enc(randomBytes32());
+  const key_id = newKeyId();
+  const token = signSession({
+    uid: user.uid,
+    tier: user.tier,
+    scope_path: user.scope_path,
+    action_key_b64,
+    key_id
+  });
+  const payload = await verifySession(token);
   await users.touchLastLogin(user.uid);
   return {
     token,
     exp: new Date(payload.exp * 1000).toISOString(),
     server_pubkey_b64: getServerPubB64(),
+    action_key_b64,
+    key_id,
     user: {
       uid: user.uid,
       email: user.email,
@@ -582,6 +897,10 @@ export {
   isServerKeyEphemeral,
   _setFirestoreForTest,
   _setUsersForTest,
+  _setSessionEntryForTest,
+  _getSessionEntryForTest,
+  _clearSessionCacheForTest,
+  _clearReplayStoreForTest,
   AuthError,
   authenticate,
   getServerPubkeyB64,
@@ -589,9 +908,14 @@ export {
   handleBootstrap,
   handleChallenge,
   handleVerify,
+  requireFreshHmacSig,
   requireFreshUserSig,
   canonicalActionTarget,
+  hmacB64u,
   CHALLENGE_DOMAIN,
   SESSION_TTL_SECS,
-  CHALLENGE_TTL_SECS
+  CHALLENGE_TTL_SECS,
+  ACTION_TS_SKEW_SECS,
+  ACTION_REPLAY_TTL_SECS,
+  ACTION_KEY_GRACE_SECS
 };
