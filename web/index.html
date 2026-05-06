@@ -91,17 +91,26 @@ footer .v{margin-top:.5rem;text-align:left;color:#bbb;font-size:.75rem;line-heig
 </main>
 <footer><p id="h"></p><details><summary id="ps"></summary><div class="v" id="pt"></div></details></footer>
 <script>
-(()=>{
+(async()=>{
 const D=document,N=navigator,$=i=>D.getElementById(i),CE=t=>D.createElement(t),A=(t,e,f)=>t.addEventListener(e,f);
 const S=$('s'),P=$('p'),BB=$('bb'),BN=$('bn'),BL=$('bl'),BI=$('bi'),BG=$('bg'),BO=$('bo'),QH=$('qh'),QL=$('ql'),SN=$('sn'),LV=$('lv'),TL=$('tl');
-const SS=()=>{try{return JSON.parse(sessionStorage.getItem('aether-tm-session'))}catch(e){return null}};
-const dj=t=>{try{const p=t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'),pad='='.repeat((4-p.length%4)%4);return JSON.parse(atob(p+pad))}catch(e){return null}};
-const sess=SS(),cl=sess?dj(sess.token):null;
-if(!sess||!cl||(cl.exp&&cl.exp*1000<Date.now())){location.replace('/tm/#/login?next=%2F');throw 0}
-const TIER={100:'NDMA',80:'State',60:'District',40:'Responder',20:'Volunteer'};
-const idB=CE('b');idB.textContent=sess.email||cl.uid;
-BI.append(idB,D.createTextNode(' · '+(TIER[cl.tier]||cl.tier)+' · '+cl.scope_path));
-A(BO,'click',()=>{sessionStorage.removeItem('aether-tm-session');location.replace('/tm/#/login?next=%2F')});
+// Bearer lives in IDB so the SW can read it during background sync.
+// The page caches the decrypted record once and mirrors writes back to
+// IDB to keep the SW's view in sync.
+const SDB='aether-tm',SDB_V=2;
+let _sessCache=null,_sessKey=null;
+const _sopen=()=>new Promise((res,rej)=>{const r=indexedDB.open(SDB,SDB_V);r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains('keyrings'))d.createObjectStore('keyrings',{keyPath:'email'});if(!d.objectStoreNames.contains('tm_session'))d.createObjectStore('tm_session');if(!d.objectStoreNames.contains('tm_session_key'))d.createObjectStore('tm_session_key')};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+const _skey=async d=>{if(_sessKey)return _sessKey;_sessKey=await new Promise((r,j)=>{const t=d.transaction('tm_session_key','readonly').objectStore('tm_session_key').get('k');t.onsuccess=()=>r(t.result||null);t.onerror=()=>j(t.error)});return _sessKey};
+const _sread=async()=>{try{const d=await _sopen(),k=await _skey(d);if(!k)return null;const rec=await new Promise((r,j)=>{const t=d.transaction('tm_session','readonly').objectStore('tm_session').get('s');t.onsuccess=()=>r(t.result||null);t.onerror=()=>j(t.error)});if(!rec||!rec.iv||!rec.ct)return null;const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:rec.iv},k,rec.ct);return JSON.parse(new TextDecoder().decode(pt))}catch{return null}};
+const _sclear=async()=>{try{const d=await _sopen();await new Promise((r,j)=>{const t=d.transaction('tm_session','readwrite').objectStore('tm_session').delete('s');t.onsuccess=()=>r();t.onerror=()=>j(t.error)})}catch{}};
+const SS=()=>_sessCache;
+const sess=await _sread();
+_sessCache=sess;
+if(!sess||!sess.token||(sess.exp&&Date.parse(sess.exp)<Date.now())){location.replace('/tm/#/login?next=%2F');throw 0}
+const TIER={100:'NDMA',90:'NatlOps',80:'State',70:'StateOps',60:'District',50:'DistrictOps',40:'Subdiv',30:'Tehsil',20:'Volunteer',10:'Survivor'};
+const idB=CE('b');idB.textContent=sess.email||sess.uid||'user';
+BI.append(idB,D.createTextNode(' · '+(TIER[sess.tier]||sess.tier||'?')+' · '+(sess.scope_path||'')));
+A(BO,'click',async()=>{await _sclear();location.replace('/tm/#/login?next=%2F')});
 const L={
 en:{b:'Hold to send SOS',r:'Recording',h:'Help is on the way. Stay where you are.',n:'No signal',rh:'Latest dispatch',rp:'No dispatches yet. Press the SOS button to send one.',q:'Queue',pd:'pending',pl:'Nothing pending. Recordings sent immediately.',sn:'Send now',rt:'Retry',ax:'Recording queued.',sx:'Sent.',fx:'Send failed.',pv:'Privacy',pt:'Voice clip, language, rough location, battery and signal go only to SDRF rescue. No accounts. No tracking. Audio deleted in 24 hours.',t:'Goes only to State Disaster Response Force. False reports cost lives.',ts:'Status',te:'No active requests. Updates appear here after you send an SOS.'},
 hi:{b:'SOS भेजने के लिए दबाए रखें',r:'रिकॉर्ड हो रहा है',h:'मदद आ रही है. वहीं रहें.',n:'कोई सिग्नल नहीं',rh:'अंतिम सूचना',rp:'अभी कोई सूचना नहीं. SOS दबाकर भेजें.',q:'क़तार',pd:'बाकी',pl:'कुछ बाकी नहीं.',sn:'अभी भेजें',rt:'पुनः प्रयास',ax:'क़तार में जोड़ा गया.',sx:'भेज दिया.',fx:'भेज नहीं सके.',pv:'निजता',pt:'आवाज़, भाषा, मोटा स्थान, बैटरी, नेटवर्क केवल बचाव दल को. ऑडियो 24 घंटे में हटती है.',t:'केवल राज्य आपदा बल को. झूठी सूचना से जान जाती है.',ts:'स्थिति',te:'कोई सक्रिय अनुरोध नहीं.'},
@@ -195,7 +204,11 @@ const pollOne=async id=>{
     await tPut(cur);
   }catch(e){}
 };
-const pollAll=async()=>{
+// Push delivery from the SW replaces 15 s polling. The fallback below
+// covers two cases: (a) iOS Safari with no Push API, where we keep a
+// 60 s tick because that is still 4x lighter than the old loop, and
+// (b) a missed push, which the page catches on 'pageshow' or 'online'.
+const refreshAll=async()=>{
   if(!N.onLine||D.visibilityState!=='visible')return;
   const now=Date.now();
   for(const it of await tAll()){
@@ -205,9 +218,45 @@ const pollAll=async()=>{
   }
   await renderT();
 };
+const HAS_PUSH='PushManager' in self && 'serviceWorker' in N;
 let pollTm=null;
-const startPoll=()=>{if(pollTm)return;pollAll();pollTm=setInterval(pollAll,15000)};
+const startPoll=()=>{
+  if(pollTm)return;
+  refreshAll();
+  // Push-capable browsers do not run the interval. Push delivers the
+  // status_update message; the page only catches missed pushes via
+  // pageshow + online listeners (registered below).
+  if(!HAS_PUSH){pollTm=setInterval(refreshAll,60000)}
+};
 const stopPoll=()=>{if(pollTm){clearInterval(pollTm);pollTm=null}};
+// Push subscribe. Runs once after first authenticated load. The
+// VAPID public key endpoint is unauthenticated. The subscribe POST
+// is authenticated by the bearer.
+const _b64uToBytes=s=>{const pad='='.repeat((4-s.length%4)%4);const b=atob(s.replace(/-/g,'+').replace(/_/g,'/')+pad);const u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u};
+const pushSubscribe=async()=>{
+  if(!HAS_PUSH)return;
+  const s=SS();if(!s||!s.token)return;
+  try{
+    const reg=await N.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub){
+      const r=await fetch('/api/v1/tm/auth/vapid_pubkey');
+      if(!r.ok)return;
+      const {public_key_b64:pk}=await r.json();
+      if(!pk)return;
+      try{
+        sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:_b64uToBytes(pk)});
+      }catch(e){return}
+    }
+    const json=sub.toJSON();
+    await fetch('/api/v1/tm/auth/push_subscribe',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.token},body:JSON.stringify({endpoint:json.endpoint,keys:{p256dh:json.keys&&json.keys.p256dh,auth:json.keys&&json.keys.auth}})});
+  }catch{/* push is best-effort */}
+};
+const onStatusUpdate=async msg=>{
+  if(!msg||!msg.dispatch_id)return;
+  await pollOne(msg.dispatch_id);
+  await renderT();
+};
 const setRes=j=>{
   const tr=j.triage||{},u=tr.urgency||'UNCLEAR';
   const sm=String(tr.summary_for_dispatch||T.h);
@@ -222,12 +271,12 @@ const setRes=j=>{
 };
 const send=async r=>{
   const s=SS();if(!s){location.replace('/tm/#/login?next=%2F');throw new Error('no session')}
-  const h={'Content-Type':r.mime,'X-Client-Id':cid,'X-Client-Lang':r.lang||(N.language||'en-IN'),'X-Client-Timestamp':r.ts,'Authorization':'Bearer '+s.token};
+  const h={'Content-Type':r.mime,'X-Client-Id':cid,'X-Client-Clip-Id':r.clip_id||String(r.id),'X-Client-Lang':r.lang||(N.language||'en-IN'),'X-Client-Timestamp':r.ts,'Authorization':'Bearer '+s.token};
   if(r.geo){h['X-Client-Geo']=r.geo;if(r.geoAcc!=null)h['X-Client-Geo-Accuracy']=String(Math.round(r.geoAcc));if(r.geoSrc)h['X-Client-Geo-Source']=r.geoSrc}
   if(r.bat!=null)h['X-Client-Battery']=String(r.bat);
   if(r.net)h['X-Client-Network']=r.net;
   const x=await fetch('/api/v1/triage',{method:'POST',headers:h,body:r.blob});
-  if(x.status===401){sessionStorage.removeItem('aether-tm-session');location.replace('/tm/#/login?next=%2F');throw new Error('auth')}
+  if(x.status===401){await _sclear();location.replace('/tm/#/login?next=%2F');throw new Error('auth')}
   if(!x.ok)throw new Error('HTTP '+x.status);
   return x.json();
 };
@@ -257,8 +306,8 @@ const flush=async()=>{
     }
   }finally{busy=false;await renderQ()}
 };
-const retry=async i=>{const it=await qGet(i);if(!it||it.status==='sending')return;it.status='pending';it.lastError='';await qPut(it);await renderQ();flush()};
-const enq=async r=>{await qPut(r);await renderQ();live(T.ax);if('serviceWorker' in N&&'SyncManager' in self){try{const w=await N.serviceWorker.ready;await w.sync.register('flush')}catch(e){}}flush()};
+const retry=async i=>{const it=await qGet(i);if(!it||it.status==='sending')return;it.status='pending';it.lastError='';it.scheduled_at=0;await qPut(it);await renderQ();flush()};
+const enq=async r=>{r.clip_id=r.clip_id||(crypto.randomUUID?crypto.randomUUID():(Date.now()+'-'+Math.random().toString(36).slice(2,10)));r.attempt_count=0;r.scheduled_at=0;await qPut(r);await renderQ();live(T.ax);if('serviceWorker' in N&&'SyncManager' in self){try{const w=await N.serviceWorker.ready;await w.sync.register('flush-clips')}catch(e){}}flush()};
 A(SN,'click',()=>flush());
 let rs=0,mr,st,ch=[],tm,pt=0,tp=false;
 const start=async()=>{if(rs)return;
@@ -289,13 +338,25 @@ const kc=e=>e.key===' '||e.key==='Enter';
 A(S,'keydown',e=>{if(kc(e)&&!e.repeat){e.preventDefault();dn(e)}});
 A(S,'keyup',e=>{if(kc(e)){e.preventDefault();upE(e)}});
 A(S,'contextmenu',e=>e.preventDefault());
-A(self,'online',()=>{net();flush()});A(self,'offline',net);
+A(self,'offline',net);
 if(N.connection)A(N.connection,'change',net);
 A(D,'visibilitychange',()=>{if(D.visibilityState==='visible'&&N.onLine){flush();startPoll()}else stopPoll()});
 if('serviceWorker' in N){
+  // The SW v3 owns background sync. Register on load and forward the
+  // SW's flush + status_update + reauth messages into the page handlers.
   A(self,'load',()=>N.serviceWorker.register('sw.js').catch(()=>{}));
-  A(N.serviceWorker,'message',e=>{if(e.data&&e.data.k==='flush')flush()});
+  A(N.serviceWorker,'message',e=>{
+    const d=e.data||{};
+    if(d.k==='flush'||d.k==='nudge')flush();
+    else if(d.k==='status_update')onStatusUpdate(d);
+    else if(d.k==='queue_progress')renderQ();
+    else if(d.k==='reauth_required'){_sclear();location.replace('/tm/#/login?next=%2F')}
+  });
 }
-(async()=>{await renderQ();await renderT();if(N.onLine){flush();startPoll()}})();
+A(self,'pageshow',()=>{if(N.onLine)refreshAll()});
+A(self,'online',()=>{net();flush();refreshAll()});
+await renderQ();await renderT();
+if(N.onLine){flush();startPoll()}
+pushSubscribe();
 })();
 </script></body></html>

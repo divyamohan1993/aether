@@ -99,12 +99,45 @@ gcloud run deploy "${SERVICE}" \
   --timeout=60 \
   --port=8080 \
   --execution-environment=gen2 \
-  --set-env-vars="GCP_PROJECT=${PROJECT_ID},VERTEX_REGION=${VERTEX_REGION},VERTEX_MODEL=${VERTEX_MODEL},NODE_ENV=production,LOG_LEVEL=info,FIRESTORE_DB=(default),TM_BOOTSTRAP_ALLOW=${TM_BOOTSTRAP_ALLOW:-0}" \
-  --set-secrets="TM_SERVER_PUB_B64=tm-server-pub:latest,TM_SERVER_PRIV_B64=tm-server-priv:latest"
+  --set-env-vars="GCP_PROJECT=${PROJECT_ID},VERTEX_REGION=${VERTEX_REGION},VERTEX_MODEL=${VERTEX_MODEL},NODE_ENV=production,LOG_LEVEL=info,FIRESTORE_DB=(default),TM_BOOTSTRAP_ALLOW=${TM_BOOTSTRAP_ALLOW:-0},VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:ops@aether.dmj.one}" \
+  --set-secrets="TM_SERVER_PUB_B64=tm-server-pub:latest,TM_SERVER_PRIV_B64=tm-server-priv:latest,VAPID_PUBLIC_KEY_B64=vapid-pub:latest,VAPID_PRIVATE_KEY_B64=vapid-priv:latest"
 
 URL="$(gcloud run services describe "${SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)')"
 
 log "Deployed: ${URL}"
+
+# Wave 2 (bg-sync-push) secret refs.
+#
+# VAPID keys for Web Push (RFC 8292). Used by server/tm/notify.js to
+# sign the VAPID JWT and by the PWA to subscribe via pushManager. The
+# subject is just a contact mailto so push providers can reach an
+# operator on policy questions; it is not secret.
+#
+#   gcloud secrets create vapid-pub  --replication-policy=automatic
+#   gcloud secrets create vapid-priv --replication-policy=automatic
+#   # one-shot keypair generator (run locally, then load into Secret Manager):
+#   node -e "const c=require('crypto');const k=c.generateKeyPairSync('ec',{namedCurve:'P-256'});const j=k.privateKey.export({format:'jwk'});const u=s=>Buffer.from(s,'base64url');const x=u(j.x),y=u(j.y),d=u(j.d);const pub=Buffer.concat([Buffer.from([0x04]),x,y]).toString('base64url');console.log('VAPID_PUB:',pub);console.log('VAPID_PRIV:',d.toString('base64url'))"
+#   echo -n "$VAPID_PUB"  | gcloud secrets versions add vapid-pub  --data-file=-
+#   echo -n "$VAPID_PRIV" | gcloud secrets versions add vapid-priv --data-file=-
+#   gcloud secrets add-iam-policy-binding vapid-pub  --member="serviceAccount:${SA_EMAIL}" --role=roles/secretmanager.secretAccessor
+#   gcloud secrets add-iam-policy-binding vapid-priv --member="serviceAccount:${SA_EMAIL}" --role=roles/secretmanager.secretAccessor
+#
+# Without these secrets the runtime generates an ephemeral pair on
+# cold start and logs a WARNING; push will work for the lifetime of
+# the instance only.
+
+# Wave 2 (bg-sync-push) Firestore TTL setup.
+#
+# tm_clip_seen rows expire 24 h after creation. The collection is
+# created lazily; provision the TTL policy once via:
+#   gcloud firestore fields ttls update created_at \
+#     --collection-group=tm_clip_seen \
+#     --enable-ttl --project="${PROJECT_ID}" --database='(default)'
+#
+# tm_user_subscriptions rows expire 90 d after last_seen_at:
+#   gcloud firestore fields ttls update last_seen_at \
+#     --collection-group=tm_user_subscriptions \
+#     --enable-ttl --project="${PROJECT_ID}" --database='(default)'
 
 # TODO(criticality-dedup): provision Firestore composite index for
 # tm_dispatches on (geohash7 ASC, received_at DESC). The dedup cluster

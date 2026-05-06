@@ -171,7 +171,7 @@ function applyCors(req, res) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Client-Id, X-Client-Lang, X-Client-Geo, X-Client-Battery, X-Client-Network, X-Client-Timestamp');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Client-Id, X-Client-Clip-Id, X-Client-Lang, X-Client-Geo, X-Client-Geo-Accuracy, X-Client-Geo-Source, X-Client-Battery, X-Client-Network, X-Client-Timestamp, Authorization, X-Action-Sig, X-Action-Ts, X-Action-Key-Id');
     res.setHeader('Access-Control-Max-Age', '86400');
   }
 }
@@ -390,11 +390,22 @@ async function persistDispatch(d) {
     logJson('WARNING', { fn: 'persistDispatch', requestId: d.requestId, msg: 'dedupe_failed', err: String(e) });
   }
   if (!cluster_id) cluster_id = d.id;
+  // Resolve the caller's parent_uid so the dispatch doc carries enough
+  // context for the watchdog lane and the push notify hook can fire
+  // off the persisted row.
+  let caller_parent_uid = null;
+  try {
+    if (d.caller?.uid && typeof fs.getDoc === 'function') {
+      const u = await fs.getDoc('tm_users', d.caller.uid);
+      caller_parent_uid = u?.parent_uid || null;
+    }
+  } catch { /* parent_uid is best-effort */ }
   const doc = {
     id: d.id,
     received_at: d.receivedAt,
     request_id: d.requestId,
     caller_uid: d.caller?.uid || null,
+    caller_parent_uid,
     caller_email: d.caller?.email || null,
     caller_name: d.caller?.name || null,
     caller_tier: d.caller?.tier ?? null,
@@ -429,6 +440,23 @@ async function persistDispatch(d) {
     created_at: new Date()
   };
   await fs.setDoc('tm_dispatches', d.id, doc);
+  // Push notify hook. Fires the parent_uid only (scoped supervisor),
+  // never the whole subtree. Errors swallowed so the persist call site
+  // never blocks on a transient push channel hiccup.
+  try {
+    const notifyMod = await import('./tm/notify.js');
+    if (typeof notifyMod.notifyDispatchCreated === 'function') {
+      await notifyMod.notifyDispatchCreated({
+        id: d.id,
+        caller: d.caller,
+        caller_uid: d.caller?.uid || null,
+        caller_scope_path: d.caller?.scope_path || null,
+        triage: d.triage || null
+      });
+    }
+  } catch (e) {
+    logJson('WARNING', { fn: 'persistDispatch', requestId: d.requestId, msg: 'notify_failed', err: String(e) });
+  }
 }
 
 async function callVertex({ audioBuf, audioMime, langHint, geoHint, caller, location, requestId }) {
@@ -569,6 +597,38 @@ async function handleTriage(req, res, ctx) {
   const geoSource = sanitizeHeader(req.headers['x-client-geo-source']);
   const geoAccuracy = sanitizeHeader(req.headers['x-client-geo-accuracy']);
   const clientId = sanitizeHeader(req.headers['x-client-id']) || null;
+  // Idempotency key (Wave 2 background-sync). The PWA mints a UUIDv4 per
+  // queued clip so that a retry from the service worker does not re-run
+  // Vertex and does not create a duplicate dispatch row. The server-side
+  // marker lives in tm_clip_seen with a 24 h TTL.
+  const rawClipId = sanitizeHeader(req.headers['x-client-clip-id']);
+  const clipId = (typeof rawClipId === 'string' && /^[A-Za-z0-9_-]{8,128}$/.test(rawClipId))
+    ? rawClipId : null;
+  if (clipId) {
+    try {
+      const fsMod = await import('./tm/firestore.js').catch(() => null);
+      if (fsMod && typeof fsMod.getDoc === 'function') {
+        const seen = await fsMod.getDoc('tm_clip_seen', clipId);
+        if (seen && seen.dispatch_id) {
+          const fresh = (Date.now() - Date.parse(seen.created_at || 0)) < 5 * 60_000;
+          logJson('INFO', { fn: 'handleTriage', requestId: ctx.requestId, msg: 'clip_replay', clip_id: clipId, dispatch_id: seen.dispatch_id, fresh });
+          if (fresh && seen.cached_response) {
+            sendJson(res, 200, { ...seen.cached_response, replay: true });
+            return;
+          }
+          sendJson(res, 200, {
+            id: seen.dispatch_id,
+            received_at: seen.received_at || null,
+            replay: true,
+            triage: seen.triage_summary || null
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      logJson('WARNING', { fn: 'handleTriage', requestId: ctx.requestId, msg: 'clip_seen_lookup_failed', err: String(e) });
+    }
+  }
   const battery = sanitizeHeader(req.headers['x-client-battery']);
   const network = sanitizeHeader(req.headers['x-client-network']);
   const clientTs = sanitizeHeader(req.headers['x-client-timestamp']);
@@ -628,7 +688,7 @@ async function handleTriage(req, res, ctx) {
     }).catch((err) => logJson('WARNING', {
       fn: 'persistDispatch', requestId: ctx.requestId, msg: 'dispatch_persist_failed', err: String(err)
     }));
-    sendJson(res, 200, {
+    const responsePayload = {
       id,
       received_at: receivedAt,
       model: MODEL_ID,
@@ -636,7 +696,36 @@ async function handleTriage(req, res, ctx) {
       caller,
       location,
       triage
-    });
+    };
+    if (clipId) {
+      // Best-effort idempotency marker. createdAt drives the 24 h TTL.
+      // The cached_response is stripped to a thin shape so the doc
+      // stays well under Firestore's 1 MiB cap even on big triages.
+      const slimResponse = {
+        id,
+        received_at: receivedAt,
+        triage: {
+          urgency: triage?.urgency || null,
+          summary_for_dispatch: triage?.summary_for_dispatch || null,
+          incident_type: triage?.incident_type || null
+        }
+      };
+      import('./tm/firestore.js').then((fsMod) => {
+        if (typeof fsMod.setDoc === 'function') {
+          return fsMod.setDoc('tm_clip_seen', clipId, {
+            clip_id: clipId,
+            dispatch_id: id,
+            received_at: receivedAt,
+            cached_response: slimResponse,
+            triage_summary: slimResponse.triage,
+            created_at: new Date().toISOString()
+          });
+        }
+      }).catch((err) => logJson('WARNING', {
+        fn: 'handleTriage', requestId: ctx.requestId, msg: 'clip_seen_persist_failed', err: String(err)
+      }));
+    }
+    sendJson(res, 200, responsePayload);
   } catch (e) {
     const latencyMs = Date.now() - ctx.startedAt;
     logJson('ERROR', {

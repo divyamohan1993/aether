@@ -313,6 +313,36 @@ async function dispatchApi(req, res, sub, url, ctx) {
 
   // Public auth subroutes.
   if (sub.startsWith('auth/') || sub === 'server-pubkey') {
+    // VAPID pubkey + push subscribe carve-outs sit under /auth/* but
+    // need different gating. vapid_pubkey is fully public (it is the
+    // public key, after all). push_subscribe is authenticated because
+    // it ties a subscription to a uid; an unauthenticated subscribe
+    // would let anyone pin notifications to any uid.
+    if (sub === 'auth/vapid_pubkey') {
+      if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
+      const m = await import('./notify.js');
+      return sendJson(res, 200, { public_key_b64: m.getPublicKeyB64() });
+    }
+    if (sub === 'auth/push_subscribe') {
+      // Authenticated. Skip the public auth-rate bucket so a logged-in
+      // PWA does not share a budget with the login challenge flow.
+      const actorEarly = await authenticate(req);
+      const m = await import('./notify.js');
+      if (method === 'POST') {
+        const body = await readJsonBody(req);
+        const sub2 = body && typeof body === 'object' ? body : null;
+        if (!m.isValidSubscription(sub2)) {
+          return sendError(res, 400, 'subscription_invalid', 'Subscription payload is malformed.');
+        }
+        await m.saveSubscription(actorEarly.uid, sub2);
+        return sendJson(res, 200, { ok: true });
+      }
+      if (method === 'DELETE') {
+        await m.deleteSubscription(actorEarly.uid);
+        return sendJson(res, 200, { ok: true });
+      }
+      return sendError(res, 405, 'method_not_allowed', 'Use POST or DELETE.', { Allow: 'POST, DELETE' });
+    }
     const rate = checkAuthRate(ctx.ip);
     if (!rate.ok) {
       sendError(res, 429, 'rate_limited', 'Too many auth requests.', { 'Retry-After': String(rate.retryAfter) });
@@ -704,6 +734,8 @@ export async function route(req, res, url, ctx) {
           'POST /api/v1/tm/auth/bootstrap',
           'POST /api/v1/tm/auth/challenge',
           'POST /api/v1/tm/auth/verify',
+          'GET /api/v1/tm/auth/vapid_pubkey',
+          'POST|DELETE /api/v1/tm/auth/push_subscribe',
           'GET /api/v1/tm/me',
           'GET|POST /api/v1/tm/users',
           'POST /api/v1/tm/users/invite',

@@ -169,7 +169,7 @@ export async function assignUnit(actor, dispatchId, body, signatureB64) {
     await auditRecord(actor.uid, 'dispatch.assign', `tm_dispatches/${dispatchId}`,
       { aid, unit_id: unitId, unit_name: unit.name, eta, note }, signatureB64 || null);
 
-    return {
+    const result = {
       aid,
       dispatch_id: dispatchId,
       unit_id: unitId,
@@ -181,6 +181,22 @@ export async function assignUnit(actor, dispatchId, body, signatureB64) {
       worker_summary_text: summary,
       assignments
     };
+    // Push notify the dispatch caller (their PWA used to poll every
+    // 15 s; this replaces the polling) AND the caller's parent so
+    // the supervising tier sees movement on the dispatch without a
+    // refresh.
+    import('./notify.js').then((m) => {
+      if (typeof m.notifyAssignmentCreated === 'function') {
+        return m.notifyAssignmentCreated({
+          id: dispatchId,
+          caller_uid: dispatch.caller_uid || null,
+          caller_scope_path: dispatch.caller_scope_path || null,
+          worker_status: nextWorkerStatus,
+          triage: dispatch.triage || null
+        }, result);
+      }
+    }).catch(() => { /* notify is best-effort */ });
+    return result;
   });
 }
 
@@ -271,7 +287,7 @@ export async function updateAssignment(actor, aid, body) {
     await auditRecord(actor.uid, 'assignment.update', `tm_assignments/${aid}`,
       { dispatch_id: a.dispatch_id, status: nextStatus, eta_minutes: wantEta, note }, null);
 
-    return {
+    const result = {
       aid,
       dispatch_id: a.dispatch_id,
       status: nextStatus,
@@ -280,6 +296,20 @@ export async function updateAssignment(actor, aid, body) {
       worker_summary_text: summary,
       assignments
     };
+    // Push notify the dispatch caller on every assignment status
+    // change so the SOS PWA updates without a poll.
+    import('./notify.js').then((m) => {
+      if (typeof m.notifyAssignmentUpdated === 'function') {
+        return m.notifyAssignmentUpdated({
+          id: a.dispatch_id,
+          caller_uid: dispatch.caller_uid || null,
+          caller_scope_path: dispatch.caller_scope_path || null,
+          worker_status: workerStatus,
+          triage: dispatch.triage || null
+        }, result);
+      }
+    }).catch(() => { /* notify is best-effort */ });
+    return result;
   });
 }
 

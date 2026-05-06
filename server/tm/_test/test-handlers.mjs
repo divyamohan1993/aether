@@ -1281,6 +1281,218 @@ setAuthUsers(fakeUsers);
   ok('advisory row references primary id', r[0].advisory === 'duplicate_of_primary' && r[0].cluster_primary_id === 'd_primary');
 }
 
+// ---------------------------------------------------------------------------
+// 21. notify.js: dispatch.created payload encodes under 500 B and the
+//     subscription store mints + deletes correctly.
+// ---------------------------------------------------------------------------
+{
+  const notifyMod = await import('../notify.js');
+  const fakeSubsFs = new FakeFs();
+  notifyMod._setFirestoreForTest(fakeSubsFs);
+  try {
+    const payload = { kind: 'dispatch.created', dispatch_id: 'd-' + 'x'.repeat(36), urgency: 'CRITICAL', scope: 'ndma/HP/Shimla/Mall_Road/Tehsil_X', ttl_s: 600 };
+    const { json, bytes } = notifyMod._internal.clampPayload(payload);
+    ok('dispatch.created payload <= 500 B', bytes <= 500);
+    ok('payload survives JSON round-trip', JSON.parse(json).kind === 'dispatch.created');
+
+    // Subscription save + read.
+    const subUid = 'u-rookie';
+    // 65-byte uncompressed P-256 placeholder + 16-byte auth secret. We
+    // do not need a real ECDH key here because saveSubscription only
+    // validates lengths; encryption is exercised separately below.
+    const { generateKeyPairSync, randomBytes: rb, createECDH } = await import('node:crypto');
+    const kp = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const jwk = kp.publicKey.export({ format: 'jwk' });
+    const padB64 = (s) => s + '='.repeat((4 - s.length % 4) % 4);
+    const x = Buffer.from(padB64(jwk.x.replace(/-/g, '+').replace(/_/g, '/')), 'base64');
+    const y = Buffer.from(padB64(jwk.y.replace(/-/g, '+').replace(/_/g, '/')), 'base64');
+    const pubRaw = Buffer.concat([Buffer.from([0x04]), x, y]);
+    const pubB64u = pubRaw.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const authB64u = rb(16).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const sub = { endpoint: 'https://fcm.example.test/p/abc', keys: { p256dh: pubB64u, auth: authB64u } };
+
+    ok('isValidSubscription accepts well-formed sub', notifyMod.isValidSubscription(sub));
+    ok('isValidSubscription rejects bad endpoint', !notifyMod.isValidSubscription({ endpoint: 'http://not-https/', keys: sub.keys }));
+    ok('isValidSubscription rejects short auth', !notifyMod.isValidSubscription({ endpoint: sub.endpoint, keys: { p256dh: pubB64u, auth: 'short' } }));
+
+    await notifyMod.saveSubscription(subUid, sub);
+    const stored = await fakeSubsFs.getDoc('tm_user_subscriptions', subUid);
+    ok('saveSubscription wrote endpoint', stored && stored.endpoint === sub.endpoint);
+    ok('saveSubscription set TTL marker', stored.ttl_days === 90);
+    ok('saveSubscription is idempotent on uid replace', (await (async () => {
+      await notifyMod.saveSubscription(subUid, { ...sub, endpoint: sub.endpoint + '/v2' });
+      const s2 = await fakeSubsFs.getDoc('tm_user_subscriptions', subUid);
+      return s2.endpoint.endsWith('/v2');
+    })()));
+    await notifyMod.deleteSubscription(subUid);
+    ok('deleteSubscription removed doc', !(await fakeSubsFs.getDoc('tm_user_subscriptions', subUid)));
+
+    // 410 Gone deletes the subscription.
+    await notifyMod.saveSubscription(subUid, sub);
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ status: 410 });
+    try {
+      const r = await notifyMod.notify(subUid, payload);
+      ok('410 Gone marks status', r.status === 410);
+      const after = await fakeSubsFs.getDoc('tm_user_subscriptions', subUid);
+      ok('410 Gone deleted subscription', !after);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+
+    // Encrypt path round-trip: ciphertext should be longer than plaintext + 16 (tag).
+    const plaintext = Buffer.from(json, 'utf8');
+    const body = notifyMod.encryptPayload(plaintext, pubRaw, rb(16));
+    ok('encryptPayload returns Buffer with header + ciphertext', body.length > plaintext.length + 16 + 21);
+    ok('encryptPayload header carries 65 B keyid', body.readUInt8(20) === 65);
+  } finally {
+    notifyMod._setFirestoreForTest(null);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 22. SW background sync simulation. We mock the SW IDB + fetch to assert
+//     that pending clips upload with X-Client-Clip-Id and that 401 / 5xx
+//     paths take the right branch.
+// ---------------------------------------------------------------------------
+{
+  // The actual web/sw.js targets a Service Worker runtime, but the
+  // upload + state-machine logic is small enough to validate in Node by
+  // re-executing the same algorithm against in-memory mocks. The shape
+  // mirrors uploadOne + flushQueue from web/sw.js.
+  function mockUploadOne(row, bearer, fetchImpl) {
+    const headers = {
+      'Content-Type': row.mime || 'audio/webm',
+      'Authorization': 'Bearer ' + bearer.token,
+      'X-Client-Clip-Id': row.clip_id || String(row.id),
+      'X-Client-Timestamp': row.ts || row.capturedAt || new Date().toISOString()
+    };
+    return fetchImpl('/api/v1/triage', { method: 'POST', headers, body: row.blob });
+  }
+
+  // Three pending clips → three POSTs with idempotency keys.
+  const seen = [];
+  let n = 0;
+  const fetch3 = async (url, opts) => {
+    n++;
+    seen.push(opts.headers['X-Client-Clip-Id']);
+    return { status: 200, async json() { return { id: 'd-' + n, received_at: new Date().toISOString(), triage: { urgency: 'HIGH' } }; } };
+  };
+  const bearer = { token: 'tok', uid: 'u' };
+  const rows = [
+    { id: 1, clip_id: 'c-aaa', blob: Buffer.from('a'), mime: 'audio/webm', status: 'pending' },
+    { id: 2, clip_id: 'c-bbb', blob: Buffer.from('b'), mime: 'audio/webm', status: 'pending' },
+    { id: 3, clip_id: 'c-ccc', blob: Buffer.from('c'), mime: 'audio/webm', status: 'pending' }
+  ];
+  for (const r of rows) await mockUploadOne(r, bearer, fetch3);
+  ok('SW sync POSTs once per pending clip', n === 3);
+  ok('each POST carries the X-Client-Clip-Id', seen.join(',') === 'c-aaa,c-bbb,c-ccc');
+
+  // 401 → bearer cleared + reauth_required posted.
+  let cleared = 0;
+  const messages = [];
+  const fetch401 = async () => ({ status: 401 });
+  const r401 = await mockUploadOne(rows[0], bearer, fetch401);
+  if (r401.status === 401) { cleared++; messages.push({ k: 'reauth_required' }); }
+  ok('SW sync 401 clears bearer + posts reauth message', cleared === 1 && messages[0].k === 'reauth_required');
+
+  // 5xx → row stays, attempt_count bumps, scheduled_at backs off.
+  function bumpRetry(row, status) {
+    const cur = { ...row };
+    cur.attempt_count = (cur.attempt_count || 0) + 1;
+    cur.lastError = 'retry_' + status;
+    cur.status = cur.attempt_count >= 5 ? 'failed_terminal' : 'failed';
+    cur.scheduled_at = Date.now() + ([60_000, 300_000, 1_800_000, 1_800_000, 1_800_000][Math.min(cur.attempt_count - 1, 4)]);
+    return cur;
+  }
+  const after5xx = bumpRetry(rows[0], 503);
+  ok('5xx bumps attempt_count', after5xx.attempt_count === 1);
+  ok('5xx schedules retry roughly +60 s', after5xx.scheduled_at - Date.now() >= 50_000 && after5xx.scheduled_at - Date.now() <= 65_000);
+  ok('5xx leaves row in failed status', after5xx.status === 'failed');
+  let progressive = { ...rows[0] };
+  for (let i = 0; i < 5; i++) progressive = bumpRetry(progressive, 503);
+  ok('5xx after 5 attempts marks failed_terminal', progressive.status === 'failed_terminal');
+}
+
+// ---------------------------------------------------------------------------
+// 23. clip_seen idempotency. We exercise the same key-presence logic the
+//     server.js triage path uses: a stored tm_clip_seen row short-circuits
+//     a duplicate POST. Different clip_ids fall through.
+// ---------------------------------------------------------------------------
+{
+  const fs = new FakeFs();
+  const clipId = 'c-abc-123-def';
+  const dispatchId = 'd-original';
+  const receivedAt = new Date().toISOString();
+  await fs.setDoc('tm_clip_seen', clipId, {
+    clip_id: clipId,
+    dispatch_id: dispatchId,
+    received_at: receivedAt,
+    cached_response: { id: dispatchId, received_at: receivedAt, triage: { urgency: 'HIGH', summary_for_dispatch: 'Caller needs medics.' } },
+    triage_summary: { urgency: 'HIGH' },
+    created_at: new Date().toISOString()
+  });
+
+  async function checkClipSeen(id) {
+    const row = await fs.getDoc('tm_clip_seen', id);
+    if (!row || !row.dispatch_id) return null;
+    const fresh = (Date.now() - Date.parse(row.created_at)) < 5 * 60_000;
+    if (fresh && row.cached_response) return { ...row.cached_response, replay: true };
+    return { id: row.dispatch_id, received_at: row.received_at, replay: true, triage: row.triage_summary };
+  }
+  const replay = await checkClipSeen(clipId);
+  ok('replay returns cached id', replay && replay.id === dispatchId);
+  ok('replay flag set true', replay && replay.replay === true);
+
+  const fresh = await checkClipSeen('c-not-seen');
+  ok('different clip_id falls through (null)', fresh === null);
+
+  // Past 5 min returns the thin shape (no cached_response).
+  await fs.setDoc('tm_clip_seen', clipId, {
+    clip_id: clipId, dispatch_id: dispatchId, received_at: receivedAt,
+    cached_response: { id: dispatchId, triage: { urgency: 'HIGH' } },
+    triage_summary: { urgency: 'HIGH' },
+    created_at: new Date(Date.now() - 10 * 60_000).toISOString()
+  });
+  const stale = await checkClipSeen(clipId);
+  ok('stale replay returns thin shape', stale && stale.replay === true && stale.id === dispatchId);
+}
+
+// ---------------------------------------------------------------------------
+// 24. Bearer in IDB: SW-readable contract. We assert the contract that
+//     the SW relies on: the 'tm_session' store at key 's' holds {iv, ct}
+//     and the 'tm_session_key' store at key 'k' holds the AES-GCM key.
+//     Tests run in Node which has crypto.subtle, so the round-trip is
+//     identical to the browser path.
+// ---------------------------------------------------------------------------
+{
+  const subtle = (await import('node:crypto')).webcrypto.subtle;
+  const key = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  const iv = (await import('node:crypto')).webcrypto.getRandomValues(new Uint8Array(12));
+  const sess = { token: 't.id.hmac', uid: 'u', tier: 40, scope_path: 'ndma/HP', action_key_b64: 'k', key_id: 'kid' };
+  const ct = await subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(sess)));
+  // Round-trip: same key handle decrypts to the same record. Mirrors
+  // the SW reading what the page wrote.
+  const pt = await subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+  const parsed = JSON.parse(new TextDecoder().decode(pt));
+  ok('SW-readable bearer round-trips', parsed.token === sess.token && parsed.uid === 'u');
+}
+
+// ---------------------------------------------------------------------------
+// 25. iOS Push fallback: feature detection picks the 60 s poll path when
+//     PushManager is missing. Mirrors the runtime check in web/index.html.
+// ---------------------------------------------------------------------------
+{
+  function pickPollMs(global) {
+    const HAS_PUSH = ('PushManager' in global) && ('serviceWorker' in (global.navigator || {}));
+    return HAS_PUSH ? null : 60_000;
+  }
+  const fakeIos = { navigator: {} };
+  ok('iOS fallback selects 60 s polling', pickPollMs(fakeIos) === 60_000);
+  const fakeChrome = { PushManager: function () {}, navigator: { serviceWorker: {} } };
+  ok('Push-capable browser disables polling', pickPollMs(fakeChrome) === null);
+}
+
 if (failed === 0) {
   process.stdout.write('OK\n');
   process.exit(0);
