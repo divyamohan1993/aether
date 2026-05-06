@@ -33,11 +33,17 @@ const PRECACHE = [
   '/tm/',
   '/tm/tm.css',
   '/tm/tm.js',
-  '/tm/auth-client.js'
+  '/tm/auth-client.js',
+  // survivor-anon lane: /sos shell precache so a survivor who has visited
+  // once can re-open even when the network is fully gone.
+  '/sos-shell.html',
+  '/sos'
 ];
 
 const QDB = 'a';
-const QDB_V = 3;
+// survivor-anon lane: db version bumped to 4 to add q_anon, survivor_geo,
+// survivor_meta object stores. Existing q + tracked stores are kept.
+const QDB_V = 4;
 const SDB = 'aether-tm';
 const SDB_V = 2;
 
@@ -79,6 +85,10 @@ function openQDb() {
       const d = e.target.result;
       if (!d.objectStoreNames.contains('q')) d.createObjectStore('q', { keyPath: 'id', autoIncrement: true });
       if (!d.objectStoreNames.contains('tracked')) d.createObjectStore('tracked', { keyPath: 'id' });
+      // survivor-anon lane: anonymous heartbeat queue + last-known geo + meta.
+      if (!d.objectStoreNames.contains('q_anon')) d.createObjectStore('q_anon', { keyPath: 'id', autoIncrement: true });
+      if (!d.objectStoreNames.contains('survivor_geo')) d.createObjectStore('survivor_geo', { keyPath: 'ts' });
+      if (!d.objectStoreNames.contains('survivor_meta')) d.createObjectStore('survivor_meta');
     };
     o.onsuccess = (e) => res(e.target.result);
     o.onerror = () => rej(o.error);
@@ -289,21 +299,95 @@ async function flushQueue() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// survivor-anon lane: drain queued anonymous heartbeats. The sos-shell
+// posts beats to /api/v1/sos/anon directly when online; this handler
+// catches the offline tail. Beats are not idempotent on the server (each
+// is a state delta) so we only retry rows whose previous attempt was
+// transient. Permanent rejections drop the row.
+// ---------------------------------------------------------------------------
+const ANON_BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000, 30 * 60_000, 30 * 60_000];
+
+function nextAnonRetryAt(attempt) {
+  const i = Math.min(Math.max(attempt - 1, 0), ANON_BACKOFF_MS.length - 1);
+  return Date.now() + ANON_BACKOFF_MS[i];
+}
+
+let _flushingAnon = false;
+
+async function flushAnonQueue() {
+  if (_flushingAnon) return;
+  _flushingAnon = true;
+  try {
+    const qdb = await openQDb();
+    const rows = (await txAll(qdb, 'q_anon'))
+      .filter((r) => !r.scheduled_at || r.scheduled_at <= Date.now())
+      .sort((a, b) => (a.id || 0) - (b.id || 0));
+    for (const r of rows) {
+      let res;
+      try {
+        res = await fetch('/api/v1/sos/anon', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(r.body || {}),
+          keepalive: true
+        });
+      } catch {
+        // Network error. Bump attempt + backoff.
+        r.attempt_count = (r.attempt_count || 0) + 1;
+        r.scheduled_at = nextAnonRetryAt(r.attempt_count);
+        r.lastError = 'net';
+        if (r.attempt_count >= 5) {
+          await txDelete(qdb, 'q_anon', r.id);
+        } else {
+          await txPut(qdb, 'q_anon', r);
+        }
+        break;
+      }
+      if (res.status === 200) {
+        await txDelete(qdb, 'q_anon', r.id);
+        continue;
+      }
+      if (res.status >= 500 || res.status === 429 || res.status === 408) {
+        r.attempt_count = (r.attempt_count || 0) + 1;
+        r.scheduled_at = nextAnonRetryAt(r.attempt_count);
+        r.lastError = 'http_' + res.status;
+        if (r.attempt_count >= 5) await txDelete(qdb, 'q_anon', r.id);
+        else await txPut(qdb, 'q_anon', r);
+        break;
+      }
+      // Permanent (400, 413, 415). Drop the row; survivor will resend
+      // on next interaction with up-to-date fingerprint and shape.
+      await txDelete(qdb, 'q_anon', r.id);
+    }
+  } catch {
+    /* swallow; next sync tick re-tries */
+  } finally {
+    _flushingAnon = false;
+  }
+}
+
 self.addEventListener('sync', (e) => {
   if (e.tag === 'flush-clips') e.waitUntil(flushQueue());
+  // survivor-anon lane: separate sync tag so an authenticated flush
+  // does not block on a survivor heartbeat retry and vice versa.
+  if (e.tag === 'flush-anon') e.waitUntil(flushAnonQueue());
 });
 
 self.addEventListener('periodicsync', (e) => {
-  if (e.tag === 'periodic-flush') e.waitUntil(flushQueue());
+  if (e.tag === 'periodic-flush') e.waitUntil(Promise.all([flushQueue(), flushAnonQueue()]));
 });
 
 self.addEventListener('online', () => {
   flushQueue();
+  flushAnonQueue();
 });
 
 self.addEventListener('message', (e) => {
   const d = e.data || {};
   if (d.k === 'flush' || d.k === 'nudge') e.waitUntil(flushQueue());
+  // survivor-anon lane: explicit nudge from the /sos shell.
+  if (d.k === 'flush_anon') e.waitUntil(flushAnonQueue());
 });
 
 // ---------------------------------------------------------------------------
