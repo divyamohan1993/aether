@@ -43,10 +43,12 @@ const FORCE = process.argv.includes('--force');
 const NOW = () => new Date();
 
 const TIERS = Object.freeze({
-  ndma: 100, state: 80, district: 60, responder: 40, volunteer: 20
+  ndma: 100, sdma: 80, ddma: 60, subdivisional: 40, volunteer: 20
 });
 const TIER_NAME = Object.freeze({
-  100: 'NDMA', 80: 'State', 60: 'District', 40: 'Responder', 20: 'Volunteer'
+  100: 'NDMA', 90: 'National Ops', 80: 'SDMA', 70: 'State Ops',
+  60: 'DDMA', 50: 'District Ops', 40: 'Subdivisional', 30: 'Tehsil',
+  20: 'Volunteer', 10: 'Survivor'
 });
 
 // Five demo users, parent_uid links resolved at run time.
@@ -61,31 +63,31 @@ const SEEDS = [
     blurb: 'National view. Sees every state, district, responder and volunteer in the demo tree. Can delegate tier and archive any project.'
   },
   {
-    key: 'state',
+    key: 'sdma',
     email: 'demo.state@aether.dmj.one',
-    name: 'Demo State Officer',
-    tier: TIERS.state,
+    name: 'Demo SDMA Officer',
+    tier: TIERS.sdma,
     scope_path: 'demo/HP',
     parent: 'ndma',
-    blurb: 'Himachal Pradesh state subtree. Sees districts, responders and volunteers under HP. Can re-tier anyone below them.'
+    blurb: 'Himachal Pradesh SDMA subtree. Sees districts and field staff under HP. Can re-tier anyone below them.'
   },
   {
-    key: 'district',
+    key: 'ddma',
     email: 'demo.district@aether.dmj.one',
-    name: 'Demo District Magistrate',
-    tier: TIERS.district,
+    name: 'Demo DDMA Magistrate',
+    tier: TIERS.ddma,
     scope_path: 'demo/HP/Shimla',
-    parent: 'state',
-    blurb: 'Shimla district. Owns demo projects and the team running them. Can edit any task in scope.'
+    parent: 'sdma',
+    blurb: 'Shimla DDMA. Owns demo projects and the team running them. Can edit any task in scope.'
   },
   {
-    key: 'responder',
+    key: 'subdivisional',
     email: 'demo.responder@aether.dmj.one',
-    name: 'Demo Field Responder',
-    tier: TIERS.responder,
+    name: 'Demo Subdivisional Officer',
+    tier: TIERS.subdivisional,
     scope_path: 'demo/HP/Shimla/responder1',
-    parent: 'district',
-    blurb: 'On-the-ground field staff. Owns assigned tasks fully. Sees only their own subtree.'
+    parent: 'ddma',
+    blurb: 'Subdivisional officer. Owns assigned tasks fully. Sees only their own subtree.'
   },
   {
     key: 'volunteer',
@@ -93,7 +95,7 @@ const SEEDS = [
     name: 'Demo Volunteer',
     tier: TIERS.volunteer,
     scope_path: 'demo/HP/Shimla/responder1/vol1',
-    parent: 'responder',
+    parent: 'subdivisional',
     blurb: 'Read-only on assigned tasks. Status-only updates. Cannot create or delegate.'
   }
 ];
@@ -281,7 +283,7 @@ async function main() {
   }
 
   // Two demo projects scoped to demo/HP/Shimla, owned by the district user.
-  const districtUid = provisioned.district.uid;
+  const districtUid = provisioned.ddma.uid;
   const projectScope = 'demo/HP/Shimla';
   const proj1Id = 'demo-project-flood-2026';
   const proj2Id = 'demo-project-landslide-2026';
@@ -301,7 +303,7 @@ async function main() {
   );
 
   // Four demo tasks across both projects with mixed priorities and statuses.
-  const responderUid = provisioned.responder.uid;
+  const responderUid = provisioned.subdivisional.uid;
   const volunteerUid = provisioned.volunteer.uid;
   const taskScope = 'demo/HP/Shimla/responder1';
   await provisionTask(
@@ -353,7 +355,7 @@ async function main() {
       location: { lat: u.lat, lng: u.lng },
       last_status_at: unitNow,
       created_at: unitNow,
-      created_by_uid: provisioned.district.uid,
+      created_by_uid: districtUid,
       archived: false,
       is_demo: true
     });
