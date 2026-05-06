@@ -408,9 +408,14 @@ export async function bulkCreate(actor, body) {
     toCreate.push({ ...v, unitId });
   }
 
-  // Chunked transaction commits. Each row is one unit doc + one audit row,
-  // so 100 rows ≈ 200 ops, well under Firestore's 500-op transaction cap.
+  // Chunked transaction commits for the unit docs. Audit rows must flow
+  // through audit.record() so the hash chain stays intact, so we collect
+  // the per-row audit payloads and emit them after the unit txns commit.
+  // Trade-off: a unit txn may succeed while a later audit.record() fails;
+  // in that path audit-chain falls back to a chain_break:true row, which
+  // verify will surface. Chain-break beats silent unchained writes.
   const now = new Date();
+  const auditQueue = [];
   for (let i = 0; i < toCreate.length; i += BULK_CHUNK) {
     const chunk = toCreate.slice(i, i + BULK_CHUNK);
     await fs.runTransaction(async (tx) => {
@@ -429,17 +434,20 @@ export async function bulkCreate(actor, body) {
           archived: false
         };
         tx.create('tm_units', doc, c.unitId);
-        tx.create('tm_audit', {
-          ts: now,
-          actor_uid: actor.uid || 'unknown',
-          action: 'unit.bulk_create',
-          target_ref: `tm_units/${c.unitId}`,
-          payload_summary: { type: c.type, name: c.name, scope_path: c.scopePath, status: 'available' },
-          actor_signature_b64: null
+        auditQueue.push({
+          unitId: c.unitId,
+          payload: { type: c.type, name: c.name, scope_path: c.scopePath, status: 'available' }
         });
         results[c.index] = { row_index: c.index, status: 'created', unit_id: c.unitId };
       }
     });
+  }
+  for (const a of auditQueue) {
+    try {
+      await audit.record(actor.uid, 'unit.bulk_create', `tm_units/${a.unitId}`, a.payload, null);
+    } catch (e) {
+      /* audit.record() best-effort fallback already wrote chain_break */
+    }
   }
 
   const summary = {
