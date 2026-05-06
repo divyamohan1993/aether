@@ -93,7 +93,7 @@ footer .v{margin-top:.5rem;text-align:left;color:#bbb;font-size:.75rem;line-heig
 <main>
 <button class="sos" id="s" type="button" data-r="0" aria-pressed="false"></button>
 <button class="fm" id="fm" type="button" aria-pressed="false"></button>
-<label class="pn" id="vmBox" hidden style="display:flex;gap:.5rem;align-items:center;justify-content:space-between"><span id="vmLab"></span><input type="checkbox" id="vm" checked style="width:24px;height:24px;accent-color:#ff2a2a"></label>
+<label class="pn" id="vmBox" hidden style="display:flex;gap:.5rem;align-items:center;justify-content:space-between"><span id="vmLab"></span><input type="checkbox" id="vm" style="width:24px;height:24px;accent-color:#ff2a2a"></label>
 <section class="pn" aria-labelledby="rh"><h2 id="rh"></h2><div class="res empty" id="p" role="status" aria-live="polite" aria-atomic="true"></div></section>
 <section class="pn" aria-labelledby="th"><h2 id="th"></h2><ul class="tlist" id="tl" aria-live="polite" aria-atomic="false"></ul></section>
 <section class="pn" aria-labelledby="qh"><div class="qhead"><h2 id="qh"></h2><button class="snd" id="sn" type="button"></button></div><ul class="qlist" id="ql"></ul></section>
@@ -440,14 +440,14 @@ async function fmEnsureTemplate(stream){
  if(fmTemplate&&fmTemplate.length===13)return true;
  if(!('AudioContext' in self||'webkitAudioContext' in self))return false;
  fmEnrolling=true;
- live(T.fm_enroll||'Speak for 5 seconds to enrol your voice.');
+ live(T.fm_enroll||'Speak for 2 seconds to enrol your voice.');
  const AC=self.AudioContext||self.webkitAudioContext;
  const ctx=new AC();
  if(ctx.state==='suspended')await ctx.resume();
  const src=ctx.createMediaStreamSource(stream);
  const an=ctx.createAnalyser();an.fftSize=2048;an.smoothingTimeConstant=0;src.connect(an);
  const sr=ctx.sampleRate;fmEnrollSr=sr;
- const buf=new Float32Array(Math.ceil(sr*5));let off=0;
+ const buf=new Float32Array(Math.ceil(sr*2));let off=0;
  const tmp=new Float32Array(an.fftSize);
  await new Promise(res=>{
   const tick=()=>{

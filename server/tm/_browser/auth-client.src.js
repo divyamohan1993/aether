@@ -18,8 +18,16 @@ import { argon2id } from '@noble/hashes/argon2.js';
 
 import { canonicalActionMessage } from '../canonical.js';
 
-const ARGON_T = 3;
-const ARGON_M = 64 * 1024;
+// MVP login posture: Argon2id is dialled down so a field volunteer on a
+// 2 GB Android Go can log in in under two seconds. RFC 9106 second
+// recommendation (t=3, m=64 MiB) takes 8-20 s on those devices; that is
+// not survivable in an emergency. Trade-off: a stolen IndexedDB blob is
+// crackable on a single GPU in days for a 10-char passphrase. Mitigation
+// is the `passphrase length` and the fact that the encrypted priv key
+// only matters if the device itself is compromised. Production should
+// raise these back up if the deployment context allows the wait.
+const ARGON_T = 1;
+const ARGON_M = 16 * 1024;
 const ARGON_P = 1;
 const ARGON_DK = 32;
 const SALT_LEN = 16;

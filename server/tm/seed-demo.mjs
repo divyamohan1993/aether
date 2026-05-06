@@ -34,7 +34,10 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 const OUT_PATH = join(REPO_ROOT, 'web', 'demo', 'credentials.json');
 
 const DEMO_PASSPHRASE = 'aether-demo-2026';
-const ARGON = { t: 3, m: 64 * 1024, p: 1, dkLen: 32 };
+// MVP login posture: matches the browser bundle's reduced Argon2id
+// (t=1, m=16 MiB). Demo decrypt then finishes in ~1 s on Android Go.
+// Production should raise these.
+const ARGON = { t: 1, m: 16 * 1024, p: 1, dkLen: 32 };
 const SALT_LEN = 16;
 const IV_LEN = 12;
 
