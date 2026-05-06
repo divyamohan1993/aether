@@ -277,6 +277,7 @@ const STATIC_ROUTES = {
   '/': { file: 'index.html', mime: 'text/html; charset=utf-8' },
   '/index.html': { file: 'index.html', mime: 'text/html; charset=utf-8' },
   '/sw.js': { file: 'sw.js', mime: 'text/javascript; charset=utf-8' },
+  '/vad.js': { file: 'vad.js', mime: 'text/javascript; charset=utf-8' }, // field-vad lane
   '/manifest.webmanifest': { file: 'manifest.webmanifest', mime: 'application/manifest+json; charset=utf-8' },
   '/favicon.svg': { file: 'favicon.svg', mime: 'image/svg+xml; charset=utf-8' },
   '/icon-192.png': { file: 'icon-192.png', mime: 'image/png' },
