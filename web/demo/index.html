@@ -142,7 +142,7 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);color:v
 
 <section aria-labelledby="hApi">
  <h2 id="hApi">Live API endpoints</h2>
- <p>Every endpoint behind the demo is hit by the live site. Click <em>Try it</em> on any row to see a copyable curl one-liner. For the full reference, see <a href="/docs/api">/docs/api</a>.</p>
+ <p>Every endpoint behind the demo is hit by the live site. Click <em>Try it</em> on any row to see a copyable curl one-liner. For the full reference, see <a href="/docs#h-api">/docs#h-api</a>.</p>
 
  <h3>SOS Triage</h3>
  <table class="api" aria-label="SOS triage endpoints">
@@ -182,8 +182,7 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);color:v
 'use strict';
 
 var DEMO_PASSPHRASE = 'aether-demo-2026';
-var DB = 'aether-tm';
-var STORE = 'keyrings';
+var SS_PREFIX = 'aether-demo-keyring:';
 var CRED_URL = '/demo/credentials.json';
 
 var ACCOUNTS = [
@@ -276,34 +275,20 @@ function renderAccounts() {
 var credsPromise = null;
 function loadCreds() {
  if (credsPromise) return credsPromise;
- credsPromise = fetch(CRED_URL, { cache:'force-cache' }).then(function (r) {
+ credsPromise = fetch(CRED_URL, { cache:'no-store' }).then(function (r) {
   if (!r.ok) throw new Error('credentials_fetch_' + r.status);
   return r.json();
  });
  return credsPromise;
 }
 
-function openIdb() {
- return new Promise(function (res, rej) {
-  if (!('indexedDB' in self)) return rej(new Error('no_indexeddb'));
-  var req = indexedDB.open(DB, 1);
-  req.onupgradeneeded = function () {
-   if (!req.result.objectStoreNames.contains(STORE)) {
-    req.result.createObjectStore(STORE, { keyPath:'email' });
-   }
-  };
-  req.onsuccess = function () { res(req.result); };
-  req.onerror = function () { rej(req.error); };
- });
-}
-
+// Demo keys are ephemeral. Stash the encrypted blob in sessionStorage so
+// it dies with the tab and never collides with the TM IDB schema. The TM
+// login screen reads from the same sessionStorage slot when ?demo=1.
 function putKeyring(rec) {
- return openIdb().then(function (d) {
-  return new Promise(function (res, rej) {
-   var tx = d.transaction(STORE, 'readwrite').objectStore(STORE).put(rec);
-   tx.onsuccess = function () { res(); };
-   tx.onerror = function () { rej(tx.error); };
-  });
+ return new Promise(function (res, rej) {
+  try { sessionStorage.setItem(SS_PREFIX + rec.email, JSON.stringify(rec)); res(); }
+  catch (e) { rej(e); }
  });
 }
 

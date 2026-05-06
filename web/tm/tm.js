@@ -232,7 +232,17 @@ async function api(path,opts){
 // Shared IDB handle. v2 adds tm_session + tm_session_key stores for
 // the SW-readable bearer. The legacy 'keyrings' store stays untouched.
 function idb(){return _idbOpen();}
+// Demo flow stashes encrypted keyrings in sessionStorage (ephemeral, dies
+// with the tab) so they never collide with the IDB schema. Real users
+// keep their keyrings in IDB across sessions.
+const DEMO_SS_PREFIX='aether-demo-keyring:';
+function getDemoKeyring(email){
+ try{const raw=sessionStorage.getItem(DEMO_SS_PREFIX+email);return raw?JSON.parse(raw):null}
+ catch{return null}
+}
 async function getKeyring(email){
+ const ephem=getDemoKeyring(email);
+ if(ephem)return ephem;
  const d=await idb();
  return new Promise((res,rej)=>{
   const t=d.transaction(STORE).objectStore(STORE).get(email);
@@ -330,9 +340,15 @@ async function loadDemoCreds(){
  if(!r.ok)throw new Error('demo_unavailable');
  return await r.json();
 }
-async function importDemoToIDB(rec){
- const d=await idb();
- await new Promise((res,rej)=>{const tx=d.transaction('keyrings','readwrite');tx.objectStore('keyrings').put({email:rec.email,salt:rec.encrypted_priv.saltB64,iv:rec.encrypted_priv.ivB64,ct:rec.encrypted_priv.ctB64,pubkey_b64:rec.pubkey_b64,created_at:new Date().toISOString()});tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});
+function importDemoToSession(rec){
+ sessionStorage.setItem(DEMO_SS_PREFIX+rec.email,JSON.stringify({
+  email:rec.email,
+  salt:rec.encrypted_priv.saltB64,
+  iv:rec.encrypted_priv.ivB64,
+  ct:rec.encrypted_priv.ctB64,
+  pubkey_b64:rec.pubkey_b64,
+  created_at:new Date().toISOString()
+ }));
 }
 function viewLogin(){
  main.removeAttribute('aria-busy');
@@ -385,7 +401,7 @@ function viewLogin(){
    b.append(t,s);
    b.addEventListener('click',async()=>{dErr.textContent='';
     const all=dList.querySelectorAll('.demoChip');all.forEach(x=>x.disabled=true);
-    try{await importDemoToIDB(c);
+    try{importDemoToSession(c);
      $('#lEmail').value=c.email;$('#lPass').value=DEMO_PASS;
      await submit();
     }catch(err){dErr.textContent='Demo import failed: '+(err.message||String(err));all.forEach(x=>x.disabled=false)}
@@ -440,11 +456,15 @@ async function viewDash(){
   <p class=row><a class=btn href="#/tasks">${esc(T.dash_create)}</a></p>
  </section>`;
  try{
-  const d=await api('/dashboard');
-  const c=d.counts||{};
+  const [d,recent]=await Promise.all([
+   api('/dashboard'),
+   api('/tasks?limit=5').catch(()=>({tasks:[]}))
+  ]);
+  const bs=(d.tasks&&d.tasks.by_status)||{};
+  const c={open:bs.open||0,in_progress:bs.in_progress||0,blocked:bs.blocked||0,done:bs.done||0,overdue:(d.tasks&&d.tasks.overdue)||0};
   const tiles=[['open','t_open'],['in_progress','t_inp'],['blocked','t_blk'],['done','t_done'],['overdue','t_over']];
   $('#tiles').innerHTML=tiles.map(([k,lk])=>`<dl class="tile${k==='overdue'?' over':''}"><dt>${esc(T[lk])}</dt><dd>${Number(c[k]||0)}</dd></dl>`).join('');
-  const rec=d.recent||[];
+  const rec=(recent.tasks||recent.items||[]).slice(0,5);
   $('#recent').innerHTML=rec.length?renderRecent(rec):`<p class=empty>${esc(T.lbl_none)}</p>`;
   if(d.by_tier&&me&&me.tier===100){
    const rows=Object.entries(d.by_tier).map(([k,v])=>`<li><span>${esc(TIER_LABEL[k]||k)}</span><b>${Number(v)}</b></li>`).join('');

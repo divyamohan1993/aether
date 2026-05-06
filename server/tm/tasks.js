@@ -2,7 +2,7 @@
 
 import { randomUUID } from 'node:crypto';
 import {
-  getDoc, setDoc, queryDocs, runTransaction, countQuery
+  getDoc, setDoc, queryDocs, runTransaction
 } from './firestore.js';
 import { record as auditRecord } from './audit.js';
 import { isInScope, isValidScope } from './users.js';
@@ -253,8 +253,10 @@ export async function archive(actor, tid) {
   });
 }
 
-// Aggregate dashboard for the actor's subtree. Counts use
-// runAggregationQuery so we only pay for the totals, not the documents.
+// Aggregate dashboard for the actor's subtree. Reads tasks + projects
+// once with a single-field scope_path range query (no composite indexes
+// required) and buckets in memory. Subtrees are bounded by tm.js list
+// caps and Firestore document size, so this stays O(n) on a small n.
 export async function dashboard(actor) {
   if (!actor) throw new ApiError('unauthorized', 'No session.', 401);
   const upper = actor.scope_path + '/￿';
@@ -262,67 +264,56 @@ export async function dashboard(actor) {
     { field: 'scope_path', op: '>=', value: actor.scope_path },
     { field: 'scope_path', op: '<=', value: upper }
   ];
+  const inSubtree = (sp) => typeof sp === 'string'
+    && (sp === actor.scope_path || sp.startsWith(actor.scope_path + '/'));
 
-  const statuses = ['open', 'in_progress', 'blocked', 'done', 'cancelled'];
-  const priorities = ['low', 'med', 'high', 'critical'];
+  const counts = {
+    by_status:   { open: 0, in_progress: 0, blocked: 0, done: 0, cancelled: 0 },
+    by_priority: { low: 0, med: 0, high: 0, critical: 0 },
+    total: 0,
+    overdue: 0
+  };
 
-  const counts = { by_status: {}, by_priority: {}, total: 0, overdue: 0 };
-  const runs = [];
+  const [taskRows, projectRows] = await Promise.all([
+    queryDocs('tm_tasks', scopeFilters,
+      { orderBy: 'scope_path', limit: 1000 }),
+    queryDocs('tm_projects', scopeFilters,
+      { orderBy: 'scope_path', limit: 500 })
+  ]);
 
-  runs.push(countQuery('tm_tasks', scopeFilters)
-    .then((n) => { counts.total = n; })
-    .catch(() => { counts.total = 0; }));
-  for (const s of statuses) {
-    counts.by_status[s] = 0;
-    runs.push(countQuery('tm_tasks', [...scopeFilters,
-      { field: 'status', op: '==', value: s }])
-      .then((n) => { counts.by_status[s] = n; })
-      .catch(() => {}));
-  }
-  for (const p of priorities) {
-    counts.by_priority[p] = 0;
-    runs.push(countQuery('tm_tasks', [...scopeFilters,
-      { field: 'priority', op: '==', value: p }])
-      .then((n) => { counts.by_priority[p] = n; })
-      .catch(() => {}));
-  }
-  runs.push(countQuery('tm_tasks', [...scopeFilters,
-    { field: 'due_date', op: '<', value: new Date() },
-    { field: 'status', op: '!=', value: 'done' }
-  ]).then((n) => { counts.overdue = n; }).catch(() => { counts.overdue = 0; }));
-
-  const rowsForAssignees = queryDocs('tm_tasks',
-    [...scopeFilters, { field: 'status', op: '!=', value: 'done' }],
-    { orderBy: 'status', limit: 500 }
-  ).then((rows) => {
-    const m = new Map();
-    for (const r of rows) {
-      const sp = r.data.scope_path;
-      if (sp !== actor.scope_path && !sp.startsWith(actor.scope_path + '/')) continue;
-      const a = r.data.assignee_uid;
-      if (!a) continue;
-      m.set(a, (m.get(a) || 0) + 1);
+  const now = Date.now();
+  const assigneeOpen = new Map();
+  for (const r of taskRows) {
+    const d = r.data;
+    if (!inSubtree(d.scope_path)) continue;
+    counts.total += 1;
+    if (counts.by_status[d.status] !== undefined) counts.by_status[d.status] += 1;
+    if (counts.by_priority[d.priority] !== undefined) counts.by_priority[d.priority] += 1;
+    if (d.due_date && d.status !== 'done') {
+      const t = typeof d.due_date === 'string' ? Date.parse(d.due_date) : Number(d.due_date);
+      if (Number.isFinite(t) && t < now) counts.overdue += 1;
     }
-    return [...m.entries()]
-      .sort((x, y) => y[1] - x[1])
-      .slice(0, 5)
-      .map(([uid, n]) => ({ uid, open_count: n }));
-  }).catch(() => []);
+    if (d.status !== 'done' && d.assignee_uid) {
+      assigneeOpen.set(d.assignee_uid, (assigneeOpen.get(d.assignee_uid) || 0) + 1);
+    }
+  }
+  const top_assignees = [...assigneeOpen.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([uid, n]) => ({ uid, open_count: n }));
 
-  const projectsCount = countQuery('tm_projects', [
-    ...scopeFilters,
-    { field: 'status', op: '==', value: 'active' }
-  ]).catch(() => 0);
-
-  await Promise.all(runs);
-  const top = await rowsForAssignees;
-  const projects_active = await projectsCount;
+  let projects_active = 0;
+  for (const r of projectRows) {
+    const d = r.data;
+    if (!inSubtree(d.scope_path)) continue;
+    if (d.status === 'active') projects_active += 1;
+  }
 
   return {
     scope_path: actor.scope_path,
     tier: actor.tier,
     tasks: counts,
     projects_active,
-    top_assignees: top
+    top_assignees
   };
 }

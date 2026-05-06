@@ -254,21 +254,34 @@ export async function archive(actor, unitId, signatureB64) {
   });
 }
 
-// Helper used by assignments.js: list candidates inside a dispatch scope.
-// Returns only available units. Bounded read.
+// Helper used by assignments.js + DSS: list units that cover a dispatch
+// scope. A district unit covers every responder and volunteer below it,
+// so candidates are units whose scope_path is the dispatch's scope or
+// any ancestor of it (walk parents up to the scope root). Returns only
+// available, non-archived units. Bounded read.
 export async function listAvailableInScope(scopePath, limit = 200) {
   if (!isValidScope(scopePath)) return [];
-  const upper = scopePath + '/￿';
-  const rows = await queryDocs('tm_units', [
-    { field: 'scope_path', op: '>=', value: scopePath },
-    { field: 'scope_path', op: '<=', value: upper }
-  ], { orderBy: 'scope_path', limit: Math.min(Math.max(limit, 1), 500) }).catch(() => []);
+  const parts = String(scopePath).split('/');
+  const ancestors = [];
+  for (let i = 1; i <= parts.length; i++) ancestors.push(parts.slice(0, i).join('/'));
+  const cap = Math.min(Math.max(limit, 1), 500);
+  const seen = new Set();
   const out = [];
-  for (const r of rows) {
-    if (r.data.archived === true) continue;
-    if (r.data.status !== 'available') continue;
-    if (!isInScope(scopePath, r.data.scope_path)) continue;
-    out.push(projectUnit(r.id, r.data));
+  // Firestore '==' does the heavy lift; one round-trip per ancestor is
+  // cheap because ancestor depth is bounded by tier count (5).
+  const batches = await Promise.all(ancestors.map((sp) =>
+    queryDocs('tm_units', [
+      { field: 'scope_path', op: '==', value: sp }
+    ], { limit: cap }).catch(() => [])
+  ));
+  for (const rows of batches) {
+    for (const r of rows) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      if (r.data.archived === true) continue;
+      if (r.data.status !== 'available') continue;
+      out.push(projectUnit(r.id, r.data));
+    }
   }
   return out;
 }
