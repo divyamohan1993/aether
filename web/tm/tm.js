@@ -1,4 +1,4 @@
-import {generateKeypair,encryptPriv,decryptPriv,sign,hmacActionSig,canonicalActionMessage,b64,b64Dec,b64u,b64uDec,utf8,utf8Dec} from './auth-client.js';
+import {generateKeypair,encryptPriv,decryptPriv,sign,hmacActionSig,canonicalActionMessage,wrapKeyringForExport,unwrapKeyringFromImport,generateMnemonic,encodeQrPayload,decodeQrPayload,b64,b64Dec,b64u,b64uDec,utf8,utf8Dec} from './auth-client.js';
 
 const API='/api/v1/tm';
 const SS='aether-tm-session';
@@ -83,9 +83,44 @@ bn:{
  status_none:'পর্যালোচনার দরকার নেই',status_pending:'পর্যালোচনা বাকি',status_escalated:'উপরে পাঠানো',status_auto:'স্বয়ং উপরে পাঠানো',status_reviewed:'পর্যালোচিত',
  user_pol:'এসকেলেশন নীতি',pol_auto:'স্বয়ংক্রিয়',pol_manual:'হাতে পর্যালোচনা',pol_none:'পর্যালোচনা প্রয়োজন নেই'
 }};
-const lang=(navigator.language||'en').slice(0,2);
-const T=L[lang]||L.en;
-document.documentElement.lang=L[lang]?lang+'-IN':'en';
+// 15 locales. en/hi/ta/bn ship inline (above) so first paint never
+// blocks; the other 11 lazy-load from /i18n/<code>.json on switch and
+// shallow-merge into L[code]. The dispatcher's chosen locale persists
+// per-uid in tm_prefs (`locale:<uid>`).
+const LANGS=[['en','English'],['hi','हिंदी'],['ta','தமிழ்'],['bn','বাংলা'],['ml','മലയാളം'],['te','తెలుగు'],['mr','मराठी'],['or','ଓଡ଼ିଆ'],['gu','ગુજરાતી'],['pa','ਪੰਜਾਬੀ'],['kn','ಕನ್ನಡ'],['ur','اردو'],['as','অসমীয়া'],['ne','नेपाली'],['mai','मैथिली']];
+const LCODES=LANGS.map(x=>x[0]);
+let lang=(navigator.language||'en').slice(0,2);
+if(!LCODES.includes(lang))lang='en';
+let T=L[lang]||L.en;
+document.documentElement.lang=lang+'-IN';
+document.documentElement.dir=lang==='ur'?'rtl':'ltr';
+async function loadDispatcherPack(code){
+ if(L[code]&&Object.keys(L[code]).length>20)return L[code];
+ try{
+  const r=await fetch('/i18n/'+encodeURIComponent(code)+'.json',{cache:'force-cache'});
+  if(!r.ok)return null;
+  const j=await r.json();
+  // SOS shell strings overlap on the dispatcher only weakly. Merge
+  // them under their own keys (sos_*) so they do not clobber the
+  // dispatcher namespace, while leaving English fallbacks intact.
+  const mapped={};for(const k of Object.keys(j))mapped['sos_'+k]=j[k];
+  L[code]=Object.assign({},L.en||{},L[code]||{},mapped);
+  return L[code];
+ }catch{return null}
+}
+async function setDispatcherLocale(code){
+ if(!LCODES.includes(code))code='en';
+ if(code!=='en'&&code!=='hi'&&code!=='ta'&&code!=='bn'){await loadDispatcherPack(code)}
+ lang=code;T=L[code]||L.en;
+ document.documentElement.lang=lang+'-IN';
+ document.documentElement.dir=lang==='ur'?'rtl':'ltr';
+ const me=session&&session.get&&session.get();
+ if(me&&me.uid)await _prefPut('locale:'+me.uid,code);
+ const sel=document.querySelector('#langPick');if(sel)sel.value=code;
+ // Re-paint nav and route (which re-renders the current view with new T).
+ hydrateNav();
+ try{route()}catch{}
+}
 
 const $=s=>document.querySelector(s);
 const $$=s=>[...document.querySelectorAll(s)];
@@ -109,20 +144,26 @@ const STATUS_LABEL={open:T.t_open,in_progress:T.t_inp,blocked:T.t_blk,done:T.t_d
 // asynchronously. Encryption-at-rest uses a non-extractable AES-GCM
 // CryptoKey held in IDB; same blast radius as today (unprotected once
 // the device is unlocked) but accessible from the SW.
-const STORE_SESS='tm_session',STORE_SKEY='tm_session_key';
+const STORE_SESS='tm_session',STORE_SKEY='tm_session_key',STORE_PREFS='tm_prefs',STORE_VOICE='voice_template';
 let _sessCache=null,_sessKey=null;
 function _idbOpen(){return new Promise((res,rej)=>{
  if(!('indexedDB' in self))return rej(new Error('no idb'));
- const r=indexedDB.open(DB,2);
+ // v3 adds tm_prefs (locale per uid) + voice_template; both shared
+ // with the SOS PWA which opens the same DB at v3.
+ const r=indexedDB.open(DB,3);
  r.onupgradeneeded=()=>{
   const d=r.result;
   if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:'email'});
   if(!d.objectStoreNames.contains(STORE_SESS))d.createObjectStore(STORE_SESS);
   if(!d.objectStoreNames.contains(STORE_SKEY))d.createObjectStore(STORE_SKEY);
+  if(!d.objectStoreNames.contains(STORE_PREFS))d.createObjectStore(STORE_PREFS);
+  if(!d.objectStoreNames.contains(STORE_VOICE))d.createObjectStore(STORE_VOICE);
  };
  r.onsuccess=()=>res(r.result);
  r.onerror=()=>rej(r.error);
 });}
+async function _prefGet(k){try{const d=await _idbOpen();return await new Promise((r,j)=>{const t=d.transaction(STORE_PREFS,'readonly').objectStore(STORE_PREFS).get(k);t.onsuccess=()=>r(t.result==null?null:t.result);t.onerror=()=>j(t.error)})}catch{return null}}
+async function _prefPut(k,v){try{const d=await _idbOpen();await new Promise((r,j)=>{const t=d.transaction(STORE_PREFS,'readwrite').objectStore(STORE_PREFS).put(v,k);t.onsuccess=()=>r();t.onerror=()=>j(t.error)})}catch{}}
 async function _sessKeyEnsure(d){
  if(_sessKey)return _sessKey;
  const got=await new Promise((res,rej)=>{const t=d.transaction(STORE_SKEY,'readonly').objectStore(STORE_SKEY).get('k');t.onsuccess=()=>res(t.result||null);t.onerror=()=>rej(t.error)});
@@ -671,7 +712,11 @@ async function renderDispDetail(id,d){
   const ass=Array.isArray(d.assignments)?d.assignments:[];
   const sugs=sg.suggestions||[];
   const us=uList.units||[];
+  const wsText=d.worker_summary_text||'';
+  const wsLang=(d.worker_summary_lang||(d.triage&&d.triage.language_detected)||'').slice(0,2).toLowerCase();
+  const showXlate=wsText&&wsLang&&wsLang!==lang;
   host.innerHTML=`<div class=detList>
+   ${wsText?`<h3>${esc(T.ws_summary||'Worker summary')}</h3><p class=workerSum id=wsum-${esc(id)}>${esc(wsText)}${showXlate?` <button type=button class=xlateBtn data-id="${esc(id)}" data-lang="${esc(wsLang)}">${esc(T.xlate||'Translate')}</button>`:''}</p>`:''}
    <h3>${esc(T.dss_title)}</h3>
    ${sugs.length?`<div class=tblwrap><table class="tbl dssTbl"><thead><tr><th>${esc(T.unit_name)}</th><th>${esc(T.unit_type)}</th><th>${esc(T.dss_dist)}</th><th>${esc(T.dss_score)}</th><th>${esc(T.dss_reason)}</th><th></th></tr></thead><tbody>${
     sugs.map(s=>`<tr><td>${esc(s.unit_name)}</td><td>${esc(UNIT_LABEL[s.unit_type]||s.unit_type)}</td><td>${s.distance_km==null?'<span class=muted>—</span>':esc(s.distance_km+' km')}</td><td>${esc(s.score.toFixed(2))}</td><td class=muted>${esc(s.reason||'')}</td><td><button type=button class=dssAsn data-uid="${esc(s.unit_id)}">${esc(T.dss_assign)}</button></td></tr>`).join('')
@@ -692,6 +737,20 @@ async function renderDispDetail(id,d){
    <h3>Chain</h3>
    <pre class=triagePre>${chainJson}</pre>
   </div>`;
+  host.querySelectorAll('.xlateBtn').forEach(b=>b.addEventListener('click',async()=>{
+   // TODO: surface ?locale at the dispatch route. Today the
+   // server's i18n.summaryFor takes a locale arg via the i18n module
+   // but the GET /dispatches/<id> route does not yet thread the
+   // ?locale query param into that call. The link is wired so the
+   // moment the route accepts ?locale, this becomes a one-line
+   // server change.
+   b.disabled=true;
+   try{
+    const r=await api('/dispatches/'+encodeURIComponent(id)+'?locale='+encodeURIComponent(lang));
+    const txt=r&&r.worker_summary_text;
+    if(txt){const p=document.getElementById('wsum-'+id);if(p)p.textContent=txt}
+   }catch(err){alert((err&&err.message)||T.err_net);b.disabled=false}
+  }));
   host.querySelectorAll('.dssAsn').forEach(b=>b.addEventListener('click',()=>doAssign(id,b.dataset.uid,null,null)));
   const f=host.querySelector('form.manualAsn');
   if(f)f.addEventListener('submit',e=>{
@@ -892,6 +951,189 @@ function setNavCurrent(path){
  });
 }
 
+// ---------------------------------------------------------------------------
+// Multi-device key sync (QR-bridge). Two flows on the same screen plus
+// the device list. Outgoing wraps the IDB keyring under a 4-word
+// mnemonic and renders the payload string for the new device to take in
+// either by scan (if a real QR is available downstream) or by paste.
+// Incoming pastes the payload, types the mnemonic, unwraps, writes the
+// keyring locally and POSTs /api/v1/tm/auth/devices/register so the
+// origin device can list and revoke this entry.
+// ---------------------------------------------------------------------------
+let _qrTimer=null;
+function _stopQrTimer(){if(_qrTimer){clearInterval(_qrTimer);_qrTimer=null}}
+function _fmtTimeShort(iso){if(!iso)return '';try{return new Date(iso).toLocaleString()}catch{return String(iso)}}
+async function viewDevices(){
+ const me=session.get();
+ main.setAttribute('aria-busy','true');
+ _stopQrTimer();
+ main.innerHTML=`<section aria-labelledby=hDev>
+  <h1 id=hDev>${esc(T.dev_title||'Devices')}</h1>
+  <p class=muted>${esc(T.dev_help||'Add another phone or laptop. The 4-word mnemonic stays with you.')}</p>
+
+  <details open>
+   <summary>${esc(T.dev_outgoing||'Add a new device (this device shares its keys)')}</summary>
+   <div class=devOut>
+    <p class=muted>${esc(T.dev_outgoing_help||'Generate a one-time mnemonic and payload. Open this page on the new device and paste the payload + mnemonic. The payload expires in 5 minutes.')}</p>
+    <div class=row>
+     <button type=button id=devGen>${esc(T.dev_generate||'Generate one-time payload')}</button>
+     <button type=button id=devClear hidden>${esc(T.dev_clear||'Done')}</button>
+    </div>
+    <div id=devOutBox hidden>
+     <p><b>${esc(T.dev_mnemonic||'Mnemonic (write this down or read aloud)')}</b></p>
+     <p class=mnemonic id=devMn aria-live=polite></p>
+     <p class=row>
+      <button type=button id=devCopyMn>${esc(T.dev_copy_mn||'Copy mnemonic')}</button>
+      <span class=muted id=devCountdown role=timer aria-live=polite></span>
+     </p>
+     <p><b>${esc(T.dev_payload||'Payload (copy or scan)')}</b></p>
+     <textarea id=devPay readonly rows=5 spellcheck=false aria-label="${esc(T.dev_payload||'Payload')}"></textarea>
+     <p class=row>
+      <button type=button id=devCopyPay>${esc(T.dev_copy_pay||'Copy payload')}</button>
+      <button type=button id=devSavePng>${esc(T.dev_save_png||'Download as PNG')}</button>
+     </p>
+     <canvas id=devCanvas hidden width=512 height=512 aria-hidden=true></canvas>
+    </div>
+   </div>
+  </details>
+
+  <details>
+   <summary>${esc(T.dev_incoming||'Add this device (paste the payload from another device)')}</summary>
+   <div class=devIn>
+    <form id=devInForm novalidate>
+     <label for=devLabel>${esc(T.dev_label||'Label for this device')}<input id=devLabel name=label maxlength=40 required value="${esc(T.dev_label_default||'New device')}"></label>
+     <label for=devInPay>${esc(T.dev_paste||'Payload')}<textarea id=devInPay rows=4 required spellcheck=false></textarea></label>
+     <p class=row><button type=button id=devScan hidden>${esc(T.dev_scan||'Scan with camera')}</button></p>
+     <label for=devInMn>${esc(T.dev_type_mn||'Mnemonic (4 words)')}<input id=devInMn autocomplete=off spellcheck=false required></label>
+     <p id=devInErr role=alert class=err></p>
+     <button type=submit>${esc(T.dev_add||'Add this device')}</button>
+    </form>
+   </div>
+  </details>
+
+  <h2>${esc(T.dev_list||'Existing devices')}</h2>
+  <div id=devList></div>
+ </section>`;
+ // Outgoing flow.
+ const devGen=$('#devGen'),devClear=$('#devClear'),devOutBox=$('#devOutBox');
+ const devMn=$('#devMn'),devPay=$('#devPay'),devCountdown=$('#devCountdown'),devCanvas=$('#devCanvas');
+ const resetOutgoing=()=>{_stopQrTimer();devOutBox.hidden=true;devClear.hidden=true;devMn.textContent='';devPay.value='';devCountdown.textContent=''};
+ devClear.addEventListener('click',resetOutgoing);
+ devGen.addEventListener('click',async()=>{
+  if(!me||!me.email){devGen.disabled=false;return}
+  devGen.disabled=true;
+  try{
+   const rec=await getKeyring(me.email);
+   if(!rec){alert(T.dev_no_keyring||'No keyring on this device. Sign in first.');devGen.disabled=false;return}
+   const mnemonic=generateMnemonic(4);
+   const wrapped=await wrapKeyringForExport({salt:rec.salt,iv:rec.iv,ct:rec.ct,pubkey_b64:rec.pubkey_b64},mnemonic);
+   const payload=encodeQrPayload(wrapped);
+   devMn.textContent=mnemonic;
+   devPay.value=payload;
+   devOutBox.hidden=false;devClear.hidden=false;
+   const expiresAt=Date.now()+5*60*1000;
+   const tick=()=>{
+    const left=expiresAt-Date.now();
+    if(left<=0){_stopQrTimer();devCountdown.textContent=T.dev_expired||'Expired. Generate a fresh payload.';devPay.value='';return}
+    const m=Math.floor(left/60000),s=Math.floor((left%60000)/1000);
+    devCountdown.textContent=(T.dev_expires_in||'Expires in')+' '+m+':'+String(s).padStart(2,'0');
+   };tick();_qrTimer=setInterval(tick,1000);
+  }catch(err){alert((err&&err.message)||T.err_net)}
+  finally{devGen.disabled=false}
+ });
+ $('#devCopyMn').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(devMn.textContent||'');flash($('#devList'),T.dev_copied||'Copied.','ok')}catch{}});
+ $('#devCopyPay').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(devPay.value||'');flash($('#devList'),T.dev_copied||'Copied.','ok')}catch{}});
+ $('#devSavePng').addEventListener('click',()=>{
+  // Render the payload as a labeled PNG so users on a low-bandwidth
+  // path can save and ship the file out-of-band (e.g. AirDrop, USB).
+  // The payload is the text content; a real QR encoder is deferred so
+  // this stays under the 8 KB budget the spec calls out.
+  const ctx=devCanvas.getContext('2d');
+  ctx.fillStyle='#000';ctx.fillRect(0,0,devCanvas.width,devCanvas.height);
+  ctx.fillStyle='#fff';ctx.font='14px monospace';ctx.textBaseline='top';
+  const text=devPay.value;const cols=64;
+  for(let i=0;i<text.length;i+=cols){
+   ctx.fillText(text.slice(i,i+cols),8,8+(i/cols)*16);
+   if(8+(i/cols)*16>devCanvas.height-20)break;
+  }
+  const url=devCanvas.toDataURL('image/png');
+  const a=document.createElement('a');a.href=url;a.download='aether-keyshare.png';a.click();
+ });
+ // Incoming flow.
+ const devInForm=$('#devInForm'),devInPay=$('#devInPay'),devInMn=$('#devInMn'),devInErr=$('#devInErr'),devLabel=$('#devLabel'),devScan=$('#devScan');
+ if('BarcodeDetector' in self){
+  devScan.hidden=false;
+  devScan.addEventListener('click',async()=>{
+   try{
+    const det=new self.BarcodeDetector({formats:['qr_code']});
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    const video=document.createElement('video');video.srcObject=stream;video.setAttribute('playsinline','');await video.play();
+    const finish=val=>{stream.getTracks().forEach(t=>t.stop());if(val)devInPay.value=val};
+    let attempts=0;
+    const poll=async()=>{
+     attempts++;
+     try{const codes=await det.detect(video);if(codes&&codes.length){finish(codes[0].rawValue||'');return}}catch{}
+     if(attempts<60)setTimeout(poll,250);else finish('');
+    };poll();
+   }catch(err){alert((err&&err.message)||T.err_net)}
+  });
+ }
+ devInForm.addEventListener('submit',async e=>{
+  e.preventDefault();devInErr.textContent='';
+  const payStr=devInPay.value.trim(),mn=devInMn.value.trim(),label=devLabel.value.trim();
+  if(!payStr||!mn||!label){devInErr.textContent=T.err_required||'All fields required.';return}
+  const btn=devInForm.querySelector('button[type=submit]');btn.disabled=true;
+  try{
+   const obj=decodeQrPayload(payStr);
+   const rec=await unwrapKeyringFromImport(obj,mn);
+   const email=(me&&me.email)||(prompt(T.dev_email_prompt||'Email for these keys:')||'').trim().toLowerCase();
+   if(!email){devInErr.textContent=T.err_required||'Email required.';btn.disabled=false;return}
+   await putKeyring({email,salt:rec.salt,iv:rec.iv,ct:rec.ct,pubkey_b64:obj.pubkey_b64,created_at:new Date().toISOString()});
+   if(me&&me.token){
+    await api('/auth/devices/register',{method:'POST',body:{label,pubkey_b64:obj.pubkey_b64}});
+   }
+   devInForm.reset();
+   flash($('#devList'),T.dev_added||'Device added. Sign in with your normal passphrase.','ok');
+   await loadDeviceList();
+  }catch(err){devInErr.textContent=(err&&err.message)||T.err_net;btn.disabled=false}
+ });
+ await loadDeviceList();
+ main.removeAttribute('aria-busy');
+}
+async function loadDeviceList(){
+ const host=$('#devList');if(!host)return;
+ try{
+  const r=await api('/auth/devices');
+  const items=r.devices||r.items||[];
+  if(!items.length){host.innerHTML=`<p class=empty>${esc(T.lbl_none)}</p>`;return}
+  host.innerHTML=`<div class=tblwrap><table class=tbl><thead><tr><th>${esc(T.dev_label||'Label')}</th><th>${esc(T.dev_thumb||'Key')}</th><th>${esc(T.dev_registered||'Registered')}</th><th>${esc(T.dev_last_seen||'Last seen')}</th><th></th></tr></thead><tbody>${
+   items.map(d=>{
+    const rev=d.revoked?` <span class=tag>${esc(T.dev_revoked||'revoked')}</span>`:'';
+    return `<tr><td>${esc(d.label||'')}${rev}</td><td><code>${esc(d.pubkey_b64_thumbprint||'')}</code></td><td>${esc(_fmtTimeShort(d.registered_at))}</td><td>${esc(_fmtTimeShort(d.last_seen_at))}</td><td>${d.revoked?'':`<button type=button class=devRev data-d="${esc(d.device_id)}">${esc(T.dev_revoke||'Revoke')}</button>`}</td></tr>`;
+   }).join('')
+  }</tbody></table></div>`;
+  $$('#devList .devRev').forEach(b=>b.addEventListener('click',async()=>{
+   const did=b.dataset.d;
+   if(!requireActionKey())return;
+   const s=session.get();
+   if(!s||!s.action_key_b64){alert(T.err_creds);return}
+   b.disabled=true;
+   try{
+    // One sig serves both the per-action header and the row's audit
+    // record; otherwise api() and the body would carry two HMACs over
+    // the same target with different ts and the audit would not
+    // re-verify against the stored row.
+    const ts=Math.floor(Date.now()/1000);
+    const keyBytes=b64Dec(s.action_key_b64);
+    const sig=await hmacActionSig(keyBytes,{uid:s.uid,action:'device.revoke',target:'device.revoke|'+did,ts,key_id:s.key_id});
+    keyBytes.fill(0);
+    await api('/auth/devices/'+encodeURIComponent(did)+'/revoke',{method:'POST',body:{signature_b64:sig},headers:{'X-Action-Sig':sig,'X-Action-Ts':String(ts),'X-Action-Key-Id':s.key_id}});
+    await loadDeviceList();
+   }catch(err){alert((err&&err.message)||T.err_net);b.disabled=false}
+  }));
+ }catch(err){flash(host,(err&&err.message)||T.err_net,'err')}
+}
+
 function route(){
  const h=location.hash||'#/';
  const path=h.replace(/^#/,'').split('?')[0]||'/';
@@ -911,15 +1153,46 @@ function route(){
  if(path==='/dispatches')return viewDispatches();
  if(path==='/units')return viewUnits();
  if(path==='/users')return viewUsers();
+ if(path==='/devices')return viewDevices();
  main.innerHTML=`<p class=empty>${esc(T.lbl_none)}</p>`;
 }
 
+// Inject the locale picker + Devices link into the existing nav. The
+// host page (tm/index.html) is fixed; we extend it from JS so a fresh
+// deploy ships the new surface without touching that file.
+function ensureNavExtras(){
+ const nav=document.getElementById('nav');if(!nav)return;
+ if(!document.getElementById('navDevices')){
+  const a=document.createElement('a');
+  a.id='navDevices';a.href='#/devices';a.dataset.r='devices';a.textContent=T.nav_devices||'Devices';
+  const logout=document.getElementById('btnLogout');
+  if(logout)nav.insertBefore(a,logout);else nav.append(a);
+ }
+ if(!document.getElementById('langPick')){
+  const sel=document.createElement('select');
+  sel.id='langPick';sel.className='langPick';sel.setAttribute('aria-label',T.lp_lab||'Language');
+  for(const [c,n] of LANGS){const o=document.createElement('option');o.value=c;o.textContent=n;if(c===lang)o.selected=true;sel.append(o)}
+  sel.addEventListener('change',()=>setDispatcherLocale(sel.value));
+  const logout=document.getElementById('btnLogout');
+  if(logout)nav.insertBefore(sel,logout);else nav.append(sel);
+ }else{
+  document.getElementById('langPick').value=lang;
+ }
+}
+function hydrateNav(){
+ ensureNavExtras();
+ const map={dash:'nav_dash',projects:'nav_proj',tasks:'nav_task',units:'nav_units',disp:'nav_disp',users:'nav_user',devices:'nav_devices'};
+ $$('#nav a').forEach(a=>{
+  const k=a.dataset.r;
+  const tk=map[k]||('nav_'+k);
+  if(k&&T[tk])a.textContent=T[tk];
+ });
+ const lo=$('#btnLogout');if(lo)lo.textContent=T.btn_logout||'Log out';
+ const sel=$('#langPick');if(sel)sel.setAttribute('aria-label',T.lp_lab||'Language');
+}
+
 $('#btnLogout').addEventListener('click',()=>{session.clear();usersCache=null;location.hash='#/login'});
-$$('#nav a').forEach(a=>{
- const k=a.dataset.r;
- if(k&&T['nav_'+k])a.textContent=T['nav_'+k];
-});
-$('#btnLogout').textContent=T.btn_logout;
+hydrateNav();
 
 window.addEventListener('hashchange',route);
 // Await the IDB-backed session before routing so the first paint sees
@@ -930,6 +1203,15 @@ window.addEventListener('hashchange',route);
   const legacy=sessionStorage.getItem(SS);
   if(legacy){try{const obj=JSON.parse(legacy);if(obj&&obj.token)await _sessWrite(obj);_sessCache=obj}catch{}sessionStorage.removeItem(SS)}
   if(!_sessCache)await session.init();
+ }catch{}
+ // Restore per-uid locale once the session is loaded. Falls back to
+ // the navigator-derived first paint locale if nothing was stored.
+ try{
+  const me=session.get();
+  if(me&&me.uid){
+   const saved=await _prefGet('locale:'+me.uid);
+   if(saved&&LCODES.includes(saved)&&saved!==lang){await setDispatcherLocale(saved);return}
+  }
  }catch{}
  route();
 })();
