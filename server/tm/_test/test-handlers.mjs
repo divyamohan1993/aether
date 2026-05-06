@@ -2777,6 +2777,42 @@ setAuthUsers(fakeUsers);
 }
 
 
+// 59. wave-3b web integration. The SOS PWA + dispatcher both lazy-load
+//     /i18n/<code>.json on locale switch. The 11 packs (ml/te/mr/or/gu/
+//     pa/kn/ur/as/ne/mai) must exist, parse, and carry the 19 keys the
+//     SOS shell renders. en/hi/ta/bn stay inline so we do not check
+//     them here. Pre-compressed siblings (.br, .gz) must also exist so
+//     the Cloud Run static handler can ship them at q11/9.
+{
+  const path = await import('node:path');
+  const fs = await import('node:fs');
+  const __filename = (await import('node:url')).fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const repoRoot = path.resolve(__dirname, '..', '..', '..');
+  const packsDir = path.join(repoRoot, 'web', 'i18n');
+  const lazyLocales = ['ml', 'te', 'mr', 'or', 'gu', 'pa', 'kn', 'ur', 'as', 'ne', 'mai'];
+  const requiredKeys = [
+    'b', 'r', 'h', 'n', 'rh', 'rp', 'q', 'pd', 'pl', 'sn', 'rt',
+    'ax', 'sx', 'fx', 'pv', 'pt', 't', 'ts', 'te'
+  ];
+  for (const lc of lazyLocales) {
+    const jsonPath = path.join(packsDir, lc + '.json');
+    const brPath = jsonPath + '.br';
+    const gzPath = jsonPath + '.gz';
+    ok(`i18n pack ${lc}.json exists`, fs.existsSync(jsonPath));
+    ok(`i18n pack ${lc}.json.br exists`, fs.existsSync(brPath));
+    ok(`i18n pack ${lc}.json.gz exists`, fs.existsSync(gzPath));
+    let parsed = null;
+    try { parsed = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); }
+    catch (err) { ok(`i18n pack ${lc}.json parses`, false, err.message); continue; }
+    ok(`i18n pack ${lc}.json parses`, parsed && typeof parsed === 'object');
+    for (const k of requiredKeys) {
+      ok(`i18n pack ${lc}.json has key ${k}`, typeof parsed[k] === 'string' && parsed[k].length > 0);
+    }
+  }
+}
+
+
 if (failed === 0) {
   process.stdout.write('OK\n');
   process.exit(0);
