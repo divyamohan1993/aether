@@ -347,6 +347,49 @@ async function persistDispatch(d) {
   const workerStatus = 'received';
   const workerHistory = [{ status: workerStatus, ts: d.receivedAt }];
   const workerSummary = 'Request received. Dispatcher reviewing now.';
+  // Criticality + dedup. Failures here log a warning and proceed with
+  // sane defaults so a single broken pipeline cannot drop a dispatch.
+  let criticality_score = 0;
+  let criticality_breakdown = null;
+  try {
+    const critMod = await import('./tm/criticality.js');
+    const r = critMod.criticalityScore(d.triage || {}, d.receivedAt, Date.now());
+    criticality_score = r.score;
+    criticality_breakdown = r.breakdown;
+  } catch (e) {
+    logJson('WARNING', { fn: 'persistDispatch', requestId: d.requestId, msg: 'criticality_failed', err: String(e) });
+  }
+  let geohash7 = null;
+  let transcript_minhash_b64 = null;
+  let cluster_id = null;
+  let cluster_role = 'primary';
+  let cluster_primary_id = null;
+  let cluster_match_score = null;
+  let cluster_match_reasons = null;
+  try {
+    const dedupeMod = await import('./tm/dedupe.js');
+    if (d.location && Number.isFinite(d.location.lat) && Number.isFinite(d.location.lng)) {
+      geohash7 = dedupeMod.geohash7(d.location.lat, d.location.lng);
+    }
+    const transcriptText = d.triage?.transcription_english || '';
+    transcript_minhash_b64 = dedupeMod.transcriptMinHash(transcriptText, 64);
+    if (geohash7) {
+      const match = await dedupeMod.findCluster(
+        { id: d.id, geohash7, location: d.location, triage: d.triage, transcript_minhash_b64 },
+        { firestoreModule: fs, nowMs: Date.now() }
+      );
+      if (match) {
+        cluster_id = match.cluster_id;
+        cluster_role = 'duplicate';
+        cluster_primary_id = match.cluster_primary_id;
+        cluster_match_score = match.match_score;
+        cluster_match_reasons = match.match_reasons;
+      }
+    }
+  } catch (e) {
+    logJson('WARNING', { fn: 'persistDispatch', requestId: d.requestId, msg: 'dedupe_failed', err: String(e) });
+  }
+  if (!cluster_id) cluster_id = d.id;
   const doc = {
     id: d.id,
     received_at: d.receivedAt,
@@ -374,6 +417,15 @@ async function persistDispatch(d) {
     worker_status: workerStatus,
     worker_status_history: workerHistory,
     worker_summary_text: workerSummary,
+    criticality_score,
+    criticality_breakdown,
+    geohash7,
+    transcript_minhash_b64,
+    cluster_id,
+    cluster_role,
+    cluster_primary_id,
+    cluster_match_score,
+    cluster_match_reasons,
     created_at: new Date()
   };
   await fs.setDoc('tm_dispatches', d.id, doc);
