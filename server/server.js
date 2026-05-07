@@ -1279,27 +1279,48 @@ server.headersTimeout = 10_000;
 server.keepAliveTimeout = 65_000;
 server.maxHeadersCount = 64;
 
-// Cold-start hook: when TM_AUTO_RESEED_DEMO=1, refresh the published
-// demo identities with a fresh scrypt of the published passphrase so
-// every revision boots into a known-good demo login state. We BLOCK on
-// the seed before binding the listener, with a 5 s hard ceiling so a
-// transient Firestore hiccup can never wedge cold-start: the timer
-// races the seed and whichever finishes first wins. Real users / non-
-// demo scopes are never touched. No-op on production (flag unset).
-async function _bootstrapDemoBeforeListen() {
-  if (process.env.TM_AUTO_RESEED_DEMO !== '1') return;
-  const seedP = import('./tm/demo-autoseed.js')
-    .then((m) => m.autoReseedDemoIfEnabled())
-    .catch((e) => {
-      logJson('ERROR', { fn: 'main', msg: 'autoseed_failed', err: String(e), stack: e?.stack });
-      return { ran: false, error: String(e) };
-    });
-  const timeoutP = new Promise((res) => setTimeout(() => res({ ran: false, reason: 'timeout' }), 5000));
-  const result = await Promise.race([seedP, timeoutP]);
-  logJson('INFO', { fn: 'main', msg: 'autoseed_phase_done', result });
+// Cold-start hooks run BEFORE server.listen() so no first request can
+// race them. Each phase has a hard ceiling so a transient Firestore
+// hiccup can never wedge startup.
+//
+//   1. Platform secrets — watchdog HMAC + SYSTEM_AI ML-DSA-65 keypair
+//      lazy-loaded from Firestore (or minted on the very first cold
+//      start ever and persisted). Same value across instances; lets
+//      autonomous escalation across scale-out / scale-to-zero work
+//      without Secret Manager. $0 idle.
+//   2. Demo autoseed — when TM_AUTO_RESEED_DEMO=1, refresh the 5
+//      published demo identities with a fresh scrypt of the published
+//      passphrase. No-op on prod (flag unset).
+async function _bootstrapBeforeListen() {
+  // Phase 1: platform secrets. 5 s ceiling.
+  try {
+    const platP = import('./tm/platform-secrets.js')
+      .then((m) => m.loadPlatformSecrets())
+      .catch((e) => {
+        logJson('ERROR', { fn: 'main', msg: 'platform_secrets_failed', err: String(e) });
+        return null;
+      });
+    const platTo = new Promise((res) => setTimeout(() => res({ source: 'timeout' }), 5000));
+    const platRes = await Promise.race([platP, platTo]);
+    logJson('INFO', { fn: 'main', msg: 'platform_secrets_phase_done', source: platRes?.source });
+  } catch (e) {
+    logJson('ERROR', { fn: 'main', msg: 'platform_secrets_phase_threw', err: String(e) });
+  }
+  // Phase 2: demo autoseed. 5 s ceiling.
+  if (process.env.TM_AUTO_RESEED_DEMO === '1') {
+    const seedP = import('./tm/demo-autoseed.js')
+      .then((m) => m.autoReseedDemoIfEnabled())
+      .catch((e) => {
+        logJson('ERROR', { fn: 'main', msg: 'autoseed_failed', err: String(e) });
+        return { ran: false, error: String(e) };
+      });
+    const seedTo = new Promise((res) => setTimeout(() => res({ ran: false, reason: 'timeout' }), 5000));
+    const seedRes = await Promise.race([seedP, seedTo]);
+    logJson('INFO', { fn: 'main', msg: 'autoseed_phase_done', result: seedRes });
+  }
 }
 
-await _bootstrapDemoBeforeListen();
+await _bootstrapBeforeListen();
 
 server.listen(PORT, '0.0.0.0', () => {
   logJson('INFO', {

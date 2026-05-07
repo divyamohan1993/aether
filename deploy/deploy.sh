@@ -147,13 +147,16 @@ gcloud run deploy "${SERVICE}" \
   --execution-environment=gen2 \
   --set-env-vars="GCP_PROJECT=${PROJECT_ID},VERTEX_REGION=${VERTEX_REGION},VERTEX_MODEL=${VERTEX_MODEL},NODE_ENV=production,LOG_LEVEL=info,FIRESTORE_DB=(default),TM_BOOTSTRAP_ALLOW=${TM_BOOTSTRAP_ALLOW:-0},TM_AUTO_RESEED_DEMO=${TM_AUTO_RESEED_DEMO:-1},VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:ops@aether.dmj.one},CLOUD_TASKS_QUEUE=${TASKS_QUEUE},CLOUD_TASKS_LOCATION=${TASKS_LOCATION},MSG91_API_KEY=${MSG91_API_KEY:-},KARIX_API_KEY=${KARIX_API_KEY:-},TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-},TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-},TWILIO_FROM=${TWILIO_FROM:-}" \
   --clear-secrets
-# MVP posture: NO Secret Manager bindings (zero idle Secret Manager cost).
-# Runtime modules fall back to in-memory ephemeral keys / no telco / no SMS
-# webhook on every cold start. Existing sessions die when Cloud Run scales
-# out or restarts. Audit chain cannot verify across cold starts. Web Push
-# subscriptions invalidate when VAPID rotates. Cloud Tasks callbacks fail
-# HMAC across instances. All acceptable for demo. NOT acceptable for any
-# live NDMA / SDRF disaster response deployment.
+# MLP $0-idle posture: NO Secret Manager bindings. Platform secrets that
+# must be stable across instances (WATCHDOG_HMAC_SECRET, SYSTEM_AI_PRIV /
+# PUB) are lazy-loaded from Firestore by server/tm/platform-secrets.js
+# on cold start. The first instance ever to boot mints + persists the
+# values inside a transactional create-only write; every subsequent
+# instance reads the same row. Free tier reads at idle: zero. Free tier
+# writes: one-time on first cold start ever (or any TM_PLATFORM_RESET=1
+# admin op). Cost: $0 today, $0 forever.
+#
+# Future production secrets (still commented; mint when needed):
 #
 # Production requires these secrets, minted out of band, and the bindings
 # below uncommented:
