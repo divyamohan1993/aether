@@ -9,6 +9,7 @@ import * as _auditReal from './audit.js';
 import { getDoc, setDoc, queryDocs, runTransaction } from './firestore.js';
 import { record as auditRecord } from './audit.js';
 import { isInScope, isValidScope, TIER } from './users.js';
+import { UNIT_TYPES as TAXONOMY_UNIT_TYPES, AGENCIES } from './taxonomy.js';
 import { ApiError, ScopeError, NotFoundError, ConflictError } from './_errors.js';
 
 // Test seams. Real callers see the real modules. Tests can swap in fakes
@@ -18,10 +19,13 @@ let _auditModule = _auditReal;
 export function _setFirestoreForTest(mock) { _fsModule = mock || _firestoreReal; }
 export function _setAuditForTest(mock) { _auditModule = mock || _auditReal; }
 
-export const UNIT_TYPES = Object.freeze([
-  'ambulance', 'fire_engine', 'police', 'sdrf_team',
-  'medical_team', 'drone', 'helicopter'
-]);
+// UNIT_TYPES is the canonical set of dispatchable unit-type codes. The
+// list lives in server/tm/taxonomy.js (with statutory references and
+// agency mappings); we just project the keys here so existing callers
+// continue to import from this file. Adding a unit type is a single
+// edit in taxonomy.js — both the dispatcher UI and the validators
+// pick it up on next deploy.
+export const UNIT_TYPES = Object.freeze(Object.keys(TAXONOMY_UNIT_TYPES));
 
 export const UNIT_STATUSES = Object.freeze([
   'available', 'en_route', 'on_scene', 'returning', 'busy', 'offline'

@@ -747,7 +747,18 @@ async function doAssign(dispatchId,unitId,eta,note){
 }
 
 const WS_LABEL={received:'ws_received',under_review:'ws_under_review',resources_assigned:'ws_resources_assigned',en_route:'ws_en_route',on_scene:'ws_on_scene',resolved:'ws_resolved',cancelled:'ws_cancelled'};
-const UNIT_LABEL={ambulance:'AMB',fire_engine:'FE',police:'POL',sdrf_team:'SDRF',medical_team:'MED',drone:'DRN',helicopter:'HEL'};
+const UNIT_LABEL={
+ ambulance:'AMB',fire_engine:'FE',police:'POL',sdrf_team:'SDRF',medical_team:'MED',drone:'DRN',helicopter:'HEL',
+ ndrf_battalion:'NDRF',army_engineer:'ENGR',army_infantry:'INF',army_signals:'SIG',army_medical:'AMC',
+ navy_dive:'DIVE',navy_ship:'SHIP',iaf_helicopter:'IAFH',iaf_transport:'IAFT',
+ coast_guard_boat:'CGB',coast_guard_heli:'CGH',
+ itbp_mountain:'ITBP',bsf_water:'BSFW',crpf_qrt:'CRPF',cisf_industrial:'CISF',
+ hospital_csurge:'AIMS',hospital_dsurge:'DH',hospital_chc_slot:'CHC',hospital_phc_slot:'PHC',blood_unit:'BLD',
+ fire_aerial:'FAP',fire_rescue_team:'FRT',power_crew:'PWR',water_tanker:'TKR',ro_unit:'RO',
+ comms_cow:'COW',satellite_imagery:'SAT',forecast_cell:'FCAST',
+ bus_evac:'BUS',relief_train:'TRN',truck_relief:'TRK',relief_camp:'CAMP',
+ ircs_team:'IRC',civil_defence_unit:'CD',ncc_squad:'NCC',nss_squad:'NSS',aapda_mitra_squad:'AM',scouts_team:'BSG'
+};
 function workerStatusPill(s){
  const k=WS_LABEL[s]||'ws_received';
  return `<span class="pill ws-${esc(s||'received')}">${esc(T[k]||s||'')}</span>`;
@@ -843,7 +854,20 @@ async function viewDispatches(){
  main.removeAttribute('aria-busy');
 }
 
-const UNIT_TYPES=['ambulance','fire_engine','police','sdrf_team','medical_team','drone','helicopter'];
+// Mirror of server/tm/taxonomy.js UNIT_TYPES key set. Adding a new
+// type means: extend taxonomy.js, extend this list, extend UNIT_LABEL
+// above. The server validates type codes against the same taxonomy.
+const UNIT_TYPES=[
+ 'ambulance','fire_engine','police','sdrf_team','medical_team','drone','helicopter',
+ 'ndrf_battalion','army_engineer','army_infantry','army_signals','army_medical',
+ 'navy_dive','navy_ship','iaf_helicopter','iaf_transport','coast_guard_boat','coast_guard_heli',
+ 'itbp_mountain','bsf_water','crpf_qrt','cisf_industrial',
+ 'hospital_csurge','hospital_dsurge','hospital_chc_slot','hospital_phc_slot','blood_unit',
+ 'fire_aerial','fire_rescue_team','power_crew','water_tanker','ro_unit',
+ 'comms_cow','satellite_imagery','forecast_cell',
+ 'bus_evac','relief_train','truck_relief','relief_camp',
+ 'ircs_team','civil_defence_unit','ncc_squad','nss_squad','aapda_mitra_squad','scouts_team'
+];
 const UNIT_STATUSES=['available','en_route','on_scene','returning','busy','offline'];
 
 async function viewUnits(){

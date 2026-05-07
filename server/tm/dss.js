@@ -35,9 +35,17 @@
 // Output: array of { unit_id, unit_name, unit_type, score, reason,
 // distance_km } sorted by score descending. Returns at most three rows.
 
-const NEED_MEDEVAC_TYPES = new Set(['ambulance', 'medical_team', 'helicopter']);
-const NEED_SAR_TYPES = new Set(['sdrf_team', 'drone', 'helicopter']);
-const FLOOD_LANDSLIDE_TYPES = new Set(['sdrf_team', 'helicopter', 'drone']);
+import { unitsForIncident, UNIT_TYPES as TX_UNIT_TYPES } from './taxonomy.js';
+
+// Capability buckets for the legacy keyword rules. The taxonomy is the
+// new canonical source: `unitsForIncident(incident_type)` returns every
+// unit-type code mapped to the right capability categories. We keep
+// these literal sets for the `medical_evacuation` / `search_and_rescue`
+// keyword bonus path because the triage `needs[]` semantics aren't
+// taxonomy-derived.
+const NEED_MEDEVAC_TYPES = new Set(['ambulance', 'medical_team', 'helicopter', 'iaf_helicopter', 'coast_guard_heli', 'navy_dive', 'army_medical', 'hospital_csurge', 'hospital_dsurge']);
+const NEED_SAR_TYPES = new Set(['sdrf_team', 'ndrf_battalion', 'drone', 'helicopter', 'iaf_helicopter', 'coast_guard_heli', 'itbp_mountain', 'bsf_water', 'fire_rescue_team']);
+const FLOOD_LANDSLIDE_TYPES = new Set(['sdrf_team', 'ndrf_battalion', 'helicopter', 'drone', 'navy_dive', 'navy_ship', 'bsf_water', 'iaf_helicopter', 'army_engineer', 'itbp_mountain']);
 
 function num(v) {
   const n = Number(v);
@@ -82,11 +90,21 @@ export function score(dispatch, unit) {
     total += 0.50; reasons.push('search and rescue match');
   }
 
-  if (incident === 'fire' && unit.type === 'fire_engine') {
+  if (incident === 'fire' && (unit.type === 'fire_engine' || unit.type === 'fire_aerial' || unit.type === 'fire_rescue_team')) {
     total += 0.40; reasons.push('fire match');
   }
   if ((incident === 'flood' || incident === 'landslide') && FLOOD_LANDSLIDE_TYPES.has(unit.type)) {
     total += 0.30; reasons.push(`${incident} match`);
+  }
+  // Taxonomy-driven playbook bonus. Awards +0.20 if the unit's type is
+  // in the recommended capability buckets for the triage's incident
+  // type (server/tm/taxonomy.js INCIDENT_PLAYBOOK). This is additive
+  // to the keyword rules above; capped by the final 1.0 ceiling.
+  if (incident && TX_UNIT_TYPES[unit.type]) {
+    const playbook = unitsForIncident(incident);
+    if (playbook.includes(unit.type) && !reasons.some((r) => r.endsWith('match'))) {
+      total += 0.20; reasons.push('playbook match');
+    }
   }
 
   let distance_km = null;

@@ -293,12 +293,37 @@ async function main() {
   const unitScope = 'demo/HP/Shimla';
   const unitNow = NOW();
   const SEED_UNITS = [
-    { unit_id: 'demo-unit-amb-047', type: 'ambulance',   name: 'AMB-047',       contact_phone: '+91 11 2345 6789', capacity: 4, lat: 31.1048, lng: 77.1734 },
-    { unit_id: 'demo-unit-amb-052', type: 'ambulance',   name: 'AMB-052',       contact_phone: '+91 11 2345 6790', capacity: 4, lat: 31.1175, lng: 77.1658 },
-    { unit_id: 'demo-unit-amb-061', type: 'ambulance',   name: 'AMB-061',       contact_phone: '+91 11 2345 6791', capacity: 4, lat: 31.0921, lng: 77.1812 },
-    { unit_id: 'demo-unit-fe-12',   type: 'fire_engine', name: 'FE-12',         contact_phone: '+91 11 2345 6792', capacity: 8, lat: 31.1083, lng: 77.1701 },
-    { unit_id: 'demo-unit-sdrf-a3', type: 'sdrf_team',   name: 'SDRF Alpha-3',  contact_phone: '+91 11 2345 6793', capacity: 8, lat: 31.1290, lng: 77.1530 },
-    { unit_id: 'demo-unit-drn-04',  type: 'drone',       name: 'DRN-04',        contact_phone: '+91 11 2345 6794', capacity: 2, lat: 31.0850, lng: 77.1900 }
+    // Local first response (ambulance, fire, police, SDRF, drones)
+    { unit_id: 'demo-unit-amb-047', type: 'ambulance',         name: 'AMB-047',          contact_phone: '+91 11 2345 6789', capacity: 4,  lat: 31.1048, lng: 77.1734 },
+    { unit_id: 'demo-unit-amb-052', type: 'ambulance',         name: 'AMB-052',          contact_phone: '+91 11 2345 6790', capacity: 4,  lat: 31.1175, lng: 77.1658 },
+    { unit_id: 'demo-unit-amb-061', type: 'ambulance',         name: 'AMB-061',          contact_phone: '+91 11 2345 6791', capacity: 4,  lat: 31.0921, lng: 77.1812 },
+    { unit_id: 'demo-unit-fe-12',   type: 'fire_engine',       name: 'FE-12',            contact_phone: '+91 11 2345 6792', capacity: 8,  lat: 31.1083, lng: 77.1701 },
+    { unit_id: 'demo-unit-frt-1',   type: 'fire_rescue_team',  name: 'FRT-Cobra-1',      contact_phone: '+91 11 2345 6795', capacity: 8,  lat: 31.1090, lng: 77.1700 },
+    { unit_id: 'demo-unit-sdrf-a3', type: 'sdrf_team',         name: 'SDRF Alpha-3',     contact_phone: '+91 11 2345 6793', capacity: 8,  lat: 31.1290, lng: 77.1530 },
+    { unit_id: 'demo-unit-drn-04',  type: 'drone',             name: 'DRN-04',           contact_phone: '+91 11 2345 6794', capacity: 2,  lat: 31.0850, lng: 77.1900 },
+    { unit_id: 'demo-unit-pol-1',   type: 'police',            name: 'PCR-101',          contact_phone: '+91 11 2345 6796', capacity: 4,  lat: 31.1011, lng: 77.1750 },
+    // National forces (NDRF, Army, IAF)
+    { unit_id: 'demo-unit-ndrf-9b', type: 'ndrf_battalion',    name: 'NDRF 9 Bn (Bhatinda)', contact_phone: '+91 11 2345 6800', capacity: 45, lat: 31.1500, lng: 77.1300 },
+    { unit_id: 'demo-unit-army-eng',type: 'army_engineer',     name: 'MEG Engineer Coy',  contact_phone: '+91 11 2345 6801', capacity: 30, lat: 31.1700, lng: 77.1100 },
+    { unit_id: 'demo-unit-army-med',type: 'army_medical',      name: 'AMC Field Hosp 14', contact_phone: '+91 11 2345 6802', capacity: 50, lat: 31.1700, lng: 77.1100 },
+    { unit_id: 'demo-unit-iaf-mi17',type: 'iaf_helicopter',    name: 'IAF Mi-17 Sarsawa', contact_phone: '+91 11 2345 6803', capacity: 24, lat: 31.2000, lng: 77.0800 },
+    // Mountain / specialist
+    { unit_id: 'demo-unit-itbp-1',  type: 'itbp_mountain',     name: 'ITBP Mountain Sqd 7', contact_phone: '+91 11 2345 6804', capacity: 12, lat: 31.1100, lng: 77.1900 },
+    // Health facility surge
+    { unit_id: 'demo-unit-igmc',    type: 'hospital_dsurge',   name: 'IGMC Shimla Surge', contact_phone: '+91 11 2345 6810', capacity: 30, lat: 31.1048, lng: 77.1734 },
+    { unit_id: 'demo-unit-chc-mash',type: 'hospital_chc_slot', name: 'CHC Mashobra',      contact_phone: '+91 11 2345 6811', capacity: 30, lat: 31.1330, lng: 77.2310 },
+    { unit_id: 'demo-unit-bld-1',   type: 'blood_unit',        name: 'IGMC Blood Bank',   contact_phone: '+91 11 2345 6812', capacity: 50, lat: 31.1048, lng: 77.1734 },
+    // Comms / forecasting
+    { unit_id: 'demo-unit-cow-1',   type: 'comms_cow',         name: 'BSNL COW Shimla',   contact_phone: '+91 11 2345 6820', capacity: 0,  lat: 31.1010, lng: 77.1700 },
+    { unit_id: 'demo-unit-fcast',   type: 'forecast_cell',     name: 'IMD HP Forecast',   contact_phone: '+91 11 2345 6821', capacity: 0,  lat: 31.1004, lng: 77.1734 },
+    // Transport / logistics / shelter
+    { unit_id: 'demo-unit-bus-1',   type: 'bus_evac',          name: 'HRTC Volvo Evac-1', contact_phone: '+91 11 2345 6830', capacity: 60, lat: 31.1043, lng: 77.1689 },
+    { unit_id: 'demo-unit-trk-1',   type: 'truck_relief',      name: 'Relief Truck-1',    contact_phone: '+91 11 2345 6831', capacity: 5000, lat: 31.1043, lng: 77.1689 },
+    { unit_id: 'demo-unit-camp-1',  type: 'relief_camp',       name: 'Camp Lakkar Bazaar',contact_phone: '+91 11 2345 6840', capacity: 500, lat: 31.1056, lng: 77.1694 },
+    // Volunteer
+    { unit_id: 'demo-unit-irc-1',   type: 'ircs_team',         name: 'IRCS Shimla Team',  contact_phone: '+91 11 2345 6850', capacity: 12, lat: 31.1080, lng: 77.1720 },
+    { unit_id: 'demo-unit-am-1',    type: 'aapda_mitra_squad', name: 'Aapda Mitra Sq A',  contact_phone: '+91 11 2345 6851', capacity: 12, lat: 31.1015, lng: 77.1740 },
+    { unit_id: 'demo-unit-cd-1',    type: 'civil_defence_unit',name: 'Civil Defence Sq 1',contact_phone: '+91 11 2345 6852', capacity: 12, lat: 31.1015, lng: 77.1730 }
   ];
   for (const u of SEED_UNITS) {
     await provisionUnit(u.unit_id, {

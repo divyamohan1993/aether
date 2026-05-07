@@ -1279,6 +1279,28 @@ server.headersTimeout = 10_000;
 server.keepAliveTimeout = 65_000;
 server.maxHeadersCount = 64;
 
+// Cold-start hook: when TM_AUTO_RESEED_DEMO=1, refresh the published
+// demo identities with a fresh scrypt of the published passphrase so
+// every revision boots into a known-good demo login state. We BLOCK on
+// the seed before binding the listener, with a 5 s hard ceiling so a
+// transient Firestore hiccup can never wedge cold-start: the timer
+// races the seed and whichever finishes first wins. Real users / non-
+// demo scopes are never touched. No-op on production (flag unset).
+async function _bootstrapDemoBeforeListen() {
+  if (process.env.TM_AUTO_RESEED_DEMO !== '1') return;
+  const seedP = import('./tm/demo-autoseed.js')
+    .then((m) => m.autoReseedDemoIfEnabled())
+    .catch((e) => {
+      logJson('ERROR', { fn: 'main', msg: 'autoseed_failed', err: String(e), stack: e?.stack });
+      return { ran: false, error: String(e) };
+    });
+  const timeoutP = new Promise((res) => setTimeout(() => res({ ran: false, reason: 'timeout' }), 5000));
+  const result = await Promise.race([seedP, timeoutP]);
+  logJson('INFO', { fn: 'main', msg: 'autoseed_phase_done', result });
+}
+
+await _bootstrapDemoBeforeListen();
+
 server.listen(PORT, '0.0.0.0', () => {
   logJson('INFO', {
     fn: 'main',
