@@ -134,7 +134,7 @@ function appendHistory(arr, entry) {
 
 // POST /api/v1/tm/dispatches/:id/assign
 // body: { unit_id, eta_minutes?, note?, dss_reasoning? }
-// signatureB64 is verified by the router via requireFreshUserSig.
+// signatureB64 is verified by the router via requireFreshHmacSig.
 //
 // SYSTEM_AI (watchdog auto-assign) carries a DSS reasoning blob so any
 // human in scope can review and reverse the auto-assignment. The unit

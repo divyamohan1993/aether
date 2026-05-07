@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
-<title>Aether · Pitch · Divya Mohan · dmj.one</title>
+<title>NDMA Aether · Pitch · Divya Mohan · dmj.one</title>
 <meta name="description" content="Aether: a 40 KB SOS payload, zero Speech-to-Text, Gemini hears the panic, SDRF receives a structured dispatch brief in under two seconds. Pitch deck for Ethara.AI Round 1.">
 <meta name="author" content="Divya Mohan, dmj.one">
 <meta property="og:title" content="Aether · Pitch · Divya Mohan">
@@ -375,13 +375,16 @@ table.cmp{width:100%;border-collapse:collapse;font-size:.92rem}
         <caption>Aether against the closest categories on the seven dimensions a disaster forces</caption>
         <thead><tr><th scope="col">Capability</th><th scope="col" class="us">Aether</th><th scope="col">Whisper-pipeline SOS apps</th><th scope="col">Generic SaaS task-trackers</th></tr></thead>
         <tbody>
-          <tr><th scope="row">2G survival</th><td class="us"><span class="y">Yes</span> · 40 KB Opus, store-and-forward</td><td><span class="n">No</span> · streams or fails</td><td><span class="n">No</span> · assumes broadband</td></tr>
+          <tr><th scope="row">1-bar 2G survival</th><td class="us"><span class="y">Yes</span> · 4 kbps Opus or text-only beat fallback</td><td><span class="n">No</span> · streams or fails</td><td><span class="n">No</span> · assumes broadband</td></tr>
+          <tr><th scope="row">Login on Rs 2000 phone</th><td class="us"><span class="y">~6 s</span> · 20 KB brotli, server-side scrypt</td><td>30+ s · client crypto stalls</td><td>15+ s · large bundle</td></tr>
           <tr><th scope="row">Multilingual native audio</th><td class="us"><span class="y">Yes</span> · Gemini hears dialect, no STT</td><td><span class="p">Partial</span> · STT-bound, English bias</td><td><span class="n">No</span> · text-only</td></tr>
-          <tr><th scope="row">Post-quantum auth</th><td class="us"><span class="y">Yes</span> · ML-DSA-65, FIPS 204</td><td><span class="n">No</span> · password or OAuth</td><td><span class="n">No</span> · password or OAuth</td></tr>
-          <tr><th scope="row">$0 idle cost</th><td class="us"><span class="y">Yes</span> · scale-to-zero, free-tier datastore</td><td><span class="p">Sometimes</span> · per-seat licensing</td><td><span class="n">No</span> · per-seat licensing</td></tr>
-          <tr><th scope="row">Scope hierarchy (NDMA tree)</th><td class="us"><span class="y">Yes</span> · five tiers, prefix authority</td><td><span class="n">No</span> · flat user list</td><td><span class="p">Partial</span> · roles, no public-safety tree</td></tr>
+          <tr><th scope="row">Voice-trained speaker gate</th><td class="us"><span class="y">Yes</span> · 30-sec MFCC enrol, on-device cosine match</td><td><span class="n">No</span> · sends every voice</td><td><span class="n">No</span> · text-only</td></tr>
+          <tr><th scope="row">Triangulation depth estimate</th><td class="us"><span class="y">Yes</span> · GPS + altitude + barometric pressure + Bluetooth peers</td><td><span class="p">Partial</span> · GPS only</td><td><span class="n">No</span></td></tr>
+          <tr><th scope="row">$0 idle cost</th><td class="us"><span class="y">Yes</span> · scale-to-zero, ephemeral-mode flag</td><td><span class="p">Sometimes</span> · per-seat licensing</td><td><span class="n">No</span> · per-seat licensing</td></tr>
+          <tr><th scope="row">Full NDMA chain of command</th><td class="us"><span class="y">Yes</span> · 10 tiers, 77 agencies, 45 unit types, 143 mutual-aid edges</td><td><span class="n">No</span> · flat user list</td><td><span class="p">Partial</span> · generic roles</td></tr>
           <tr><th scope="row">End-to-end response time</th><td class="us"><span class="y">&lt; 2 s</span></td><td>5 to 15 s</td><td>Not applicable</td></tr>
-          <tr><th scope="row">Signed audit trail</th><td class="us"><span class="y">Yes</span> · per-action ML-DSA signature</td><td><span class="p">Partial</span> · server-only logs</td><td><span class="y">Yes</span> · server-only logs</td></tr>
+          <tr><th scope="row">Tamper-evident audit chain</th><td class="us"><span class="y">Yes</span> · SHA-256 hash chain, per-row tamper detection</td><td><span class="p">Partial</span> · server-only logs</td><td><span class="y">Yes</span> · server-only logs</td></tr>
+          <tr><th scope="row">DPDPA + IT Act + DM Act compliance</th><td class="us"><span class="y">Yes</span> · /legal notice, retention published</td><td><span class="n">No</span></td><td><span class="p">Partial</span></td></tr>
         </tbody>
       </table>
     </div>

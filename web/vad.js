@@ -186,25 +186,64 @@ export class SpeakerMfcc {
   enroll(samples, sampleRate) {
     return meanMfcc(samples, sampleRate, { numFilters: this.numFilters, numCoeffs: this.numCoeffs });
   }
+  // Accepts a Float32Array template (legacy) OR an object {template:[...]} from
+  // the new multi-sample form. Returns cosine similarity in [0..1].
   match(template, samples, sampleRate) {
     const obs = this.enroll(samples, sampleRate);
-    return cosineSim01(template, obs);
+    const tpl = template && template.template ? template.template : template;
+    return cosineSim01(tpl, obs);
   }
+}
+
+// Average N MFCC vectors (Float32Array or number[]) into one Float32Array.
+// Used by the 3-sample voice enrolment flow so loud/calm/normal speech all
+// contribute equally. Drops empty inputs.
+export function averageTemplates(vectors) {
+  const valid = (vectors || []).filter(v => v && v.length);
+  if (!valid.length) return new Float32Array(0);
+  const n = valid[0].length;
+  const out = new Float32Array(n);
+  for (const v of valid) for (let i = 0; i < n; i++) out[i] += v[i] || 0;
+  for (let i = 0; i < n; i++) out[i] /= valid.length;
+  return out;
 }
 
 // ---------- network-aware audio params ----------
 
 export function pickAudioBitrate(nav) {
-  const eff = nav && nav.connection && nav.connection.effectiveType;
+  // Adaptive verbosity by reachable bandwidth. Higher network grade lets
+  // us send richer audio (more samples) so SDRF triangulates harder; on
+  // slow-2g return 0 and the client falls back to a text-only heartbeat.
+  // Downlink Mbps (Network Information API) flags wifi / 5G capacity.
+  const c = nav && nav.connection;
+  const eff = c && c.effectiveType;
+  const downlinkMbps = c && Number.isFinite(c.downlink) ? c.downlink : null;
   if (eff === 'slow-2g') return 0;
   if (eff === '2g') return 4000;
   if (eff === '3g') return 8000;
-  return 12000;
+  if (downlinkMbps !== null && downlinkMbps >= 5) return 24000;
+  return 16000;
 }
 
 export function pickMaxClipMs(nav) {
-  const eff = nav && nav.connection && nav.connection.effectiveType;
-  return eff === '2g' ? 10000 : 30000;
+  const c = nav && nav.connection;
+  const eff = c && c.effectiveType;
+  const downlinkMbps = c && Number.isFinite(c.downlink) ? c.downlink : null;
+  if (eff === '2g') return 10000;
+  if (eff === '3g') return 20000;
+  if (downlinkMbps !== null && downlinkMbps >= 5) return 45000;
+  return 30000;
+}
+
+// Choose telemetry verbosity by network grade. Slow-2g sends only what
+// fits in a single GSM burst; high-bandwidth attaches every detail.
+export function pickTelemetryProfile(nav) {
+  const c = nav && nav.connection;
+  const eff = c && c.effectiveType;
+  if (eff === 'slow-2g') return { level: 'minimal', pressure: false, motion: false, bt: false, altitude: false, speed: false };
+  if (eff === '2g')      return { level: 'compact', pressure: true,  motion: false, bt: false, altitude: true,  speed: false };
+  if (eff === '3g')      return { level: 'standard', pressure: true, motion: true,  bt: false, altitude: true,  speed: true };
+  return { level: 'full', pressure: true, motion: true, bt: true, altitude: true, speed: true };
 }
 
 // ---------- VAD class ----------

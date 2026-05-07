@@ -317,7 +317,7 @@ async function dispatchApi(req, res, sub, url, ctx) {
   const method = req.method || 'GET';
 
   // Public auth subroutes.
-  if (sub.startsWith('auth/') || sub === 'server-pubkey') {
+  if (sub.startsWith('auth/')) {
     // VAPID pubkey + push subscribe carve-outs sit under /auth/* but
     // need different gating. vapid_pubkey is fully public (it is the
     // public key, after all). push_subscribe is authenticated because
@@ -332,7 +332,7 @@ async function dispatchApi(req, res, sub, url, ctx) {
     //
     // Device-list endpoints sit under /auth/* but require an authenticated
     // session (they tie to a uid). They share the public auth-rate bucket
-    // with login/challenge/verify; per-action HMAC sig is enforced on the
+    // with login/register/bootstrap; per-action HMAC sig is enforced on the
     // revoke route via requireFreshHmacSigForDevice.
     if (sub === 'auth/devices') {
       const actorEarly = await authenticate(req);
@@ -400,16 +400,13 @@ async function dispatchApi(req, res, sub, url, ctx) {
       sendError(res, 429, 'rate_limited', 'Too many auth requests.', { 'Retry-After': String(rate.retryAfter) });
       return;
     }
-    if (sub === 'server-pubkey') {
-      if (method !== 'GET') return sendError(res, 405, 'method_not_allowed', 'Use GET.', { Allow: 'GET' });
-      const mod = await getAuth();
-      const pub = typeof mod.getServerPubkeyB64 === 'function' ? await mod.getServerPubkeyB64() : null;
-      if (!pub) return sendError(res, 503, 'service_unavailable', 'Server key not initialized.');
-      return sendJson(res, 200, { pubkey_b64: pub, alg: 'ML-DSA-65' });
-    }
     if (method !== 'POST') return sendError(res, 405, 'method_not_allowed', 'Use POST.', { Allow: 'POST' });
     const body = await readJsonBody(req);
     const mod = await getAuth();
+    if (sub === 'auth/login') {
+      if (typeof mod.handleLogin !== 'function') return sendError(res, 503, 'service_unavailable', 'Login endpoint not ready.');
+      return sendJson(res, 200, await mod.handleLogin(body, ctx));
+    }
     if (sub === 'auth/register') {
       if (typeof mod.handleRegister !== 'function') return sendError(res, 503, 'service_unavailable', 'Register endpoint not ready.');
       return sendJson(res, 200, await mod.handleRegister(body, ctx));
@@ -418,13 +415,12 @@ async function dispatchApi(req, res, sub, url, ctx) {
       if (typeof mod.handleBootstrap !== 'function') return sendError(res, 503, 'service_unavailable', 'Bootstrap endpoint not ready.');
       return sendJson(res, 200, await mod.handleBootstrap(body, ctx));
     }
-    if (sub === 'auth/challenge') {
-      if (typeof mod.handleChallenge !== 'function') return sendError(res, 503, 'service_unavailable', 'Challenge endpoint not ready.');
-      return sendJson(res, 200, await mod.handleChallenge(body, ctx));
-    }
-    if (sub === 'auth/verify') {
-      if (typeof mod.handleVerify !== 'function') return sendError(res, 503, 'service_unavailable', 'Verify endpoint not ready.');
-      return sendJson(res, 200, await mod.handleVerify(body, ctx));
+    // Legacy ML-DSA challenge/verify endpoints retired in favour of
+    // POST /api/v1/tm/auth/login {email, password}. Old clients that
+    // still call them get a 410 with a hint to upgrade.
+    if (sub === 'auth/challenge' || sub === 'auth/verify') {
+      return sendError(res, 410, 'auth_upgraded',
+        'This endpoint has been retired. POST /api/v1/tm/auth/login with {email, password} instead.');
     }
     return sendError(res, 404, 'not_found', 'No such auth route.');
   }
@@ -1002,11 +998,9 @@ export async function route(req, res, url, ctx) {
           // survivor-anon lane (handled in server.js, listed for discovery).
           'POST /api/v1/sos/anon',
           'POST /api/v1/sos/anon/audio',
-          'GET /api/v1/tm/server-pubkey',
+          'POST /api/v1/tm/auth/login',
           'POST /api/v1/tm/auth/register',
           'POST /api/v1/tm/auth/bootstrap',
-          'POST /api/v1/tm/auth/challenge',
-          'POST /api/v1/tm/auth/verify',
           'GET /api/v1/tm/auth/vapid_pubkey',
           'POST|DELETE /api/v1/tm/auth/push_subscribe',
           'GET /api/v1/tm/auth/devices',

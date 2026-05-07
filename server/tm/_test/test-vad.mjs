@@ -71,21 +71,26 @@ function makeSilence(sr, durationS) {
   ok(`SpeakerMfcc different: ${cosDiff.toFixed(4)} < 0.7`);
 }
 
-// 4. pickAudioBitrate: slow-2g -> 0; 2g -> 4000; 3g -> 8000; 4g/unknown -> 12000.
+// 4. pickAudioBitrate: adaptive verbosity by effectiveType + downlink.
+// slow-2g -> 0 (text-only fallback); 2g -> 4000; 3g -> 8000;
+// 4g without downlink hint -> 16000; 4g with downlink>=5 Mbps -> 24000.
 {
   assert.equal(pickAudioBitrate({ connection: { effectiveType: 'slow-2g' } }), 0);
   assert.equal(pickAudioBitrate({ connection: { effectiveType: '2g' } }), 4000);
   assert.equal(pickAudioBitrate({ connection: { effectiveType: '3g' } }), 8000);
-  assert.equal(pickAudioBitrate({ connection: { effectiveType: '4g' } }), 12000);
-  assert.equal(pickAudioBitrate({}), 12000);
-  assert.equal(pickAudioBitrate(null), 12000);
-  ok('pickAudioBitrate: slow-2g=0; 2g=4000; 3g=8000; 4g/unknown=12000');
+  assert.equal(pickAudioBitrate({ connection: { effectiveType: '4g' } }), 16000);
+  assert.equal(pickAudioBitrate({ connection: { effectiveType: '4g', downlink: 7 } }), 24000);
+  assert.equal(pickAudioBitrate({}), 16000);
+  assert.equal(pickAudioBitrate(null), 16000);
+  ok('pickAudioBitrate: slow-2g=0; 2g=4000; 3g=8000; 4g=16000; high-downlink=24000');
 
+  // Max clip ms: 2g=10s; 3g=20s; 4g=30s; high-downlink=45s.
   assert.equal(pickMaxClipMs({ connection: { effectiveType: '2g' } }), 10000);
-  assert.equal(pickMaxClipMs({ connection: { effectiveType: '3g' } }), 30000);
+  assert.equal(pickMaxClipMs({ connection: { effectiveType: '3g' } }), 20000);
   assert.equal(pickMaxClipMs({ connection: { effectiveType: '4g' } }), 30000);
+  assert.equal(pickMaxClipMs({ connection: { effectiveType: '4g', downlink: 9 } }), 45000);
   assert.equal(pickMaxClipMs({}), 30000);
-  ok('pickMaxClipMs: 2g=10000; otherwise=30000');
+  ok('pickMaxClipMs: 2g=10000; 3g=20000; 4g=30000; high=45000');
 }
 
 process.stdout.write('OK\n');

@@ -55,10 +55,16 @@ export function isValidTier(t) {
 // Three disjoint roots: `ndma` (operational), `demo` (public demo subtree),
 // and `survivor` (anonymous tier-10 records). Up to 12 path segments to
 // fit ndma/<state>/<district>/<sd>/<tehsil>/<village>/<sub-village>/ops/<unit>.
-const SCOPE_RE = /^(ndma|demo|survivor)(\/[A-Za-z0-9_\-.]+){0,12}$/;
+// Each segment must include at least one alphanumeric so that path-
+// traversal markers like ".." or "." cannot pass through.
+const SCOPE_RE = /^(ndma|demo|survivor)(\/(?=[^/]*[A-Za-z0-9])[A-Za-z0-9_.\-]+){0,12}$/;
 
 export function isValidScope(s) {
-  return typeof s === 'string' && s.length > 0 && s.length <= 256 && SCOPE_RE.test(s);
+  if (typeof s !== 'string' || s.length === 0 || s.length > 256) return false;
+  if (!SCOPE_RE.test(s)) return false;
+  // Belt-and-braces: reject `..`/`.` segments even if a future regex
+  // change accidentally allows them.
+  return !s.split('/').some((seg) => seg === '..' || seg === '.');
 }
 
 export function isInScope(actorScope, targetScope) {
@@ -67,7 +73,13 @@ export function isInScope(actorScope, targetScope) {
   return targetScope.startsWith(actorScope + '/');
 }
 
-const EMAIL_RE = /^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,24}$/;
+// Email regex with stricter domain. Each domain label starts and ends
+// with alphanumeric (RFC 1035), labels are separated by single dots, and
+// the TLD is 2-24 letters. Rules out 'a@b..in' (consecutive dots), and
+// 'a@-b.in' (label starts with '-').
+const EMAIL_LOCAL = '[A-Za-z0-9._%+\\-]+';
+const EMAIL_LABEL = '[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?';
+const EMAIL_RE = new RegExp(`^${EMAIL_LOCAL}@${EMAIL_LABEL}(?:\\.${EMAIL_LABEL})*\\.[A-Za-z]{2,24}$`);
 export function normalizeEmail(e) {
   if (typeof e !== 'string') return '';
   return e.trim().toLowerCase();
@@ -76,20 +88,28 @@ export function isValidEmail(e) {
   return typeof e === 'string' && e.length <= 254 && EMAIL_RE.test(e);
 }
 
-const NAME_RE = /^[\p{L}\p{N} .,'\-]{1,80}$/u;
+// Name regex covers Unicode letters, marks (combining), digits, and the
+// usual punctuation found in proper names across Indic + Latin scripts.
+// `\p{M}` is essential for Devanagari/Bengali/Tamil composition.
+const NAME_RE = /^[\p{L}\p{M}\p{N} .,'\-]{1,80}$/u;
 export function isValidName(n) {
   return typeof n === 'string' && NAME_RE.test(n);
 }
 
-// ML-DSA-65 public key is 1952 raw bytes = 2604 base64 chars (no padding
-// since 1952 % 3 == 2 needs 2 chars + "==" or omitted; we accept either).
-const PUBKEY_LEN_MIN = 2600;
-const PUBKEY_LEN_MAX = 2610;
-export function isValidPubkeyB64(p) {
-  if (typeof p !== 'string') return false;
-  if (!/^[A-Za-z0-9+/=]+$/.test(p)) return false;
-  if (p.length < PUBKEY_LEN_MIN || p.length > PUBKEY_LEN_MAX) return false;
-  return true;
+// scrypt-derived password material lives in two base64url fields on the
+// user doc. Both must round-trip cleanly; the auth module is the only
+// component that ever reads them.
+const _B64U_RE = /^[A-Za-z0-9_\-]+$/;
+function _isValidB64u(s, minLen, maxLen) {
+  if (typeof s !== 'string') return false;
+  if (s.length < minLen || s.length > maxLen) return false;
+  return _B64U_RE.test(s);
+}
+export function isValidPasswordSaltB64u(s) {
+  return _isValidB64u(s, 16, 128);
+}
+export function isValidPasswordHashB64u(s) {
+  return _isValidB64u(s, 32, 128);
 }
 
 export function canActOn(actor, target) {
@@ -115,7 +135,6 @@ function publicUser(u) {
     tier_name: tierName(u.tier),
     parent_uid: u.parent_uid || null,
     scope_path: u.scope_path,
-    pubkey_b64: u.pubkey_b64,
     status: u.status,
     escalation_policy: isValidEscalationPolicy(u.escalation_policy) ? u.escalation_policy : DEFAULT_ESCALATION_POLICY,
     created_at: u.created_at,
@@ -264,18 +283,19 @@ export async function inviteUser(actor, body, actorSignatureB64) {
   };
 }
 
-// Accept an invite. Body: { invite_id, name, pubkey_b64 }.
-// auth.js MUST have already verified the invite's issued_signature_b64
-// against the issuer's pubkey before calling this. We re-fetch the invite
-// here in the same transaction that creates the user, and burn it.
-export async function acceptInvite(body) {
-  const inviteId = String(body?.invite_id || '');
+// Accept an invite with a server-hashed password.
+// Body: { invite_id, name, password_salt_b64u, password_hash_b64u }.
+// auth.handleRegister hashes the plaintext password before calling here.
+export async function acceptInviteWithPassword(body) {
+  const inviteId = String(body?.invite_id || body?.invite_token || '');
   const name = String(body?.name || '').trim();
-  const pubkeyB64 = String(body?.pubkey_b64 || '');
+  const saltB64u = String(body?.password_salt_b64u || '');
+  const hashB64u = String(body?.password_hash_b64u || '');
 
   if (!inviteId) throw new ApiError('bad_request', 'invite_id required.', 400);
   if (!isValidName(name)) throw new ApiError('bad_name', 'Name is invalid.', 400);
-  if (!isValidPubkeyB64(pubkeyB64)) throw new ApiError('bad_pubkey', 'Public key is invalid.', 400);
+  if (!isValidPasswordSaltB64u(saltB64u)) throw new ApiError('bad_password', 'Password salt invalid.', 400);
+  if (!isValidPasswordHashB64u(hashB64u)) throw new ApiError('bad_password', 'Password hash invalid.', 400);
 
   return runTransaction(async (tx) => {
     const inv = await tx.get('tm_invitations', inviteId);
@@ -296,7 +316,8 @@ export async function acceptInvite(body) {
       tier: inv.tier,
       parent_uid: inv.parent_uid || null,
       scope_path: inv.scope_path,
-      pubkey_b64: pubkeyB64,
+      password_salt_b64u: saltB64u,
+      password_hash_b64u: hashB64u,
       status: 'active',
       created_at: now,
       last_login: null
@@ -375,13 +396,15 @@ export async function suspend(actor, targetUid, suspended) {
   });
 }
 
-// Bootstrap the first NDMA root user. Used by the CLI tool. Refuses if
-// any user exists unless TM_BOOTSTRAP_FORCE=1. Returns the new user.
-export async function bootstrap(email, name, pubkeyB64) {
+// Bootstrap the first NDMA root user with a password. Used by the CLI
+// tool and the demo seed. Refuses if any user exists unless
+// TM_BOOTSTRAP_FORCE=1. auth.handleBootstrap pre-hashes the password.
+export async function bootstrapWithPassword(email, name, saltB64u, hashB64u) {
   email = normalizeEmail(email);
   if (!isValidEmail(email)) throw new ApiError('bad_email', 'Invalid email.', 400);
   if (!isValidName(name)) throw new ApiError('bad_name', 'Invalid name.', 400);
-  if (!isValidPubkeyB64(pubkeyB64)) throw new ApiError('bad_pubkey', 'Invalid pubkey_b64.', 400);
+  if (!isValidPasswordSaltB64u(saltB64u)) throw new ApiError('bad_password', 'Password salt invalid.', 400);
+  if (!isValidPasswordHashB64u(hashB64u)) throw new ApiError('bad_password', 'Password hash invalid.', 400);
 
   const force = process.env.TM_BOOTSTRAP_FORCE === '1';
   const existing = await queryDocs('tm_users', [], { limit: 1 });
@@ -400,7 +423,8 @@ export async function bootstrap(email, name, pubkeyB64) {
       tier: TIER.ndma,
       parent_uid: null,
       scope_path: 'ndma',
-      pubkey_b64: pubkeyB64,
+      password_salt_b64u: saltB64u,
+      password_hash_b64u: hashB64u,
       status: 'active',
       created_at: now,
       last_login: null,
@@ -414,7 +438,6 @@ export async function bootstrap(email, name, pubkeyB64) {
       tier: TIER.ndma,
       parent_uid: null,
       scope_path: 'ndma',
-      pubkey_b64: pubkeyB64,
       status: 'active',
       created_at: now.toISOString(),
       last_login: null
@@ -422,8 +445,8 @@ export async function bootstrap(email, name, pubkeyB64) {
   });
 }
 
-// Lookup user by email. Used by auth.js during challenge/verify. Returns
-// the public user view (with pubkey) or null.
+// Lookup user by email. Returns the public-shaped user view (no password
+// material). Used by routes that present user identity to the client.
 export async function lookupByEmail(email) {
   email = normalizeEmail(email);
   if (!isValidEmail(email)) return null;
@@ -433,6 +456,24 @@ export async function lookupByEmail(email) {
     const u = await getDoc('tm_users', idx.uid);
     if (!u) return null;
     return publicUser({ uid: idx.uid, ...u });
+  } catch (e) {
+    if (e instanceof FirestoreError) return null;
+    throw e;
+  }
+}
+
+// Lookup user by email with the raw doc fields. ONLY auth.handleLogin
+// should call this; it is the only path that needs the stored
+// password_salt_b64u / password_hash_b64u columns.
+export async function lookupByEmailRaw(email) {
+  email = normalizeEmail(email);
+  if (!isValidEmail(email)) return null;
+  try {
+    const idx = await getDoc('tm_user_emails', email);
+    if (!idx || !idx.uid) return null;
+    const u = await getDoc('tm_users', idx.uid);
+    if (!u) return null;
+    return { uid: idx.uid, ...u };
   } catch (e) {
     if (e instanceof FirestoreError) return null;
     throw e;

@@ -13,7 +13,7 @@ import {
   config, FirestoreError
 } from '../firestore.js';
 import {
-  isInScope, isValidScope, isValidEmail, isValidPubkeyB64,
+  isInScope, isValidScope, isValidEmail,
   canActOn, TIER, normalizeEmail
 } from '../users.js';
 
@@ -39,13 +39,6 @@ async function cleanup() {
   for (const { collection, id } of created.reverse()) {
     try { await deleteDoc(collection, id); } catch { /* ignore */ }
   }
-}
-
-function pubkeyStub() {
-  // Not a real ML-DSA-65 key. We only need a base64 string of the right
-  // length to satisfy isValidPubkeyB64. The auth module is responsible
-  // for cryptographic validation.
-  return randomBytes(1452).toString('base64'); // ~1936 b64 chars
 }
 
 async function testValueCodec() {
@@ -100,8 +93,6 @@ async function testScopeHelpers() {
   truthy(isValidEmail('a@b.co'), 'simple email');
   truthy(!isValidEmail('not-an-email'), 'reject bad email');
   eq(normalizeEmail('  Foo@BAR.com '), 'foo@bar.com', 'normalize email');
-  truthy(isValidPubkeyB64(pubkeyStub()), 'pubkey valid');
-  truthy(!isValidPubkeyB64('shortkey'), 'pubkey too short');
 
   const ndmaActor = { uid: 'a1', tier: TIER.ndma, scope_path: 'ndma' };
   const stateActor = { uid: 'a2', tier: TIER.state, scope_path: 'ndma/HP' };
@@ -121,7 +112,8 @@ async function testCrud() {
     tier: TIER.district,
     parent_uid: null,
     scope_path: 'ndma/HP/Shimla',
-    pubkey_b64: pubkeyStub(),
+    password_salt_b64u: 'AAAAAAAAAAAAAAAAAAAAAA',
+    password_hash_b64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     status: 'active',
     created_at: new Date(),
     last_login: null
@@ -153,7 +145,8 @@ async function testQueryAndScopeFilter() {
       tier,
       parent_uid: null,
       scope_path: scope,
-      pubkey_b64: pubkeyStub(),
+      password_salt_b64u: 'AAAAAAAAAAAAAAAAAAAAAA',
+      password_hash_b64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       status: 'active',
       created_at: new Date(),
       last_login: null
@@ -220,7 +213,8 @@ async function testTransaction() {
       tier: TIER.responder,
       parent_uid: null,
       scope_path: 'ndma/HP/Shimla',
-      pubkey_b64: pubkeyStub(),
+      password_salt_b64u: 'AAAAAAAAAAAAAAAAAAAAAA',
+      password_hash_b64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       status: 'active',
       created_at: new Date(),
       last_login: null
@@ -231,7 +225,8 @@ async function testTransaction() {
       tier: TIER.responder,
       parent_uid: null,
       scope_path: 'ndma/HP/Shimla',
-      pubkey_b64: pubkeyStub(),
+      password_salt_b64u: 'AAAAAAAAAAAAAAAAAAAAAA',
+      password_hash_b64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       status: 'active',
       created_at: new Date(),
       last_login: null
@@ -256,7 +251,8 @@ async function testTransaction() {
         tier: TIER.volunteer,
         parent_uid: null,
         scope_path: 'ndma/HP/Shimla',
-        pubkey_b64: pubkeyStub(),
+        password_salt_b64u: 'AAAAAAAAAAAAAAAAAAAAAA',
+      password_hash_b64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         status: 'active',
         created_at: new Date(),
         last_login: null
@@ -280,7 +276,8 @@ async function testCreateConflict() {
     tier: TIER.volunteer,
     parent_uid: null,
     scope_path: 'ndma/HP/Shimla',
-    pubkey_b64: pubkeyStub(),
+    password_salt_b64u: 'AAAAAAAAAAAAAAAAAAAAAA',
+    password_hash_b64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     status: 'active',
     created_at: new Date(),
     last_login: null

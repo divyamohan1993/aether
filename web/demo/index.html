@@ -124,13 +124,13 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);color:v
 
 <section aria-labelledby="hTm">
  <h2 id="hTm">Task Manager demo accounts</h2>
- <p>Click any account below. The portal loads that user's encrypted ML-DSA-65 key into your browser's IndexedDB and forwards you to the login page with the email and demo passphrase pre-filled. You press log in. The challenge-response runs against the real backend.</p>
+ <p>Click an account below. The login page opens with the email and the demo passphrase pre-filled, so you just press log in. The request hits the real backend.</p>
 
  <div class="grid two" id="acctGrid" aria-label="Demo accounts"></div>
 
  <article class="card" aria-labelledby="hPass">
   <h3 id="hPass">The shared demo passphrase</h3>
-  <p>Every demo account uses the same passphrase. The encrypted private keys ship inside <code class="inline">/demo/credentials.json</code>; that ciphertext is meaningless without this string.</p>
+  <p>Every demo account uses the same passphrase. Click any account and the login page pre-fills the email; you confirm with this passphrase.</p>
   <div class="passbox">
    <code id="passText" aria-label="Demo passphrase">aether-demo-2026</code>
    <button class="btn" id="copyPass" type="button" aria-describedby="copyPassMsg">Copy passphrase</button>
@@ -153,7 +153,7 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);color:v
 
  <h3>Task Manager</h3>
  <table class="api" aria-label="Task manager endpoints">
-  <caption>ML-DSA-65 challenge-response auth. Signed bearer tokens. Re-sign for sensitive actions.</caption>
+  <caption>Email + password login over TLS. Bearer tokens for the session. Per-action HMAC signature on sensitive routes.</caption>
   <thead><tr><th scope="col">Method</th><th scope="col">Path</th><th scope="col">What it does</th><th scope="col">Try it</th></tr></thead>
   <tbody id="apiTm"></tbody>
  </table>
@@ -182,8 +182,6 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);color:v
 'use strict';
 
 var DEMO_PASSPHRASE = 'aether-demo-2026';
-var SS_PREFIX = 'aether-demo-keyring:';
-var CRED_URL = '/demo/credentials.json';
 
 var ACCOUNTS = [
  { key:'ndma', email:'demo.ndma@aether.dmj.one', tier:100, name:'NDMA Coordinator', scope:'demo',
@@ -209,11 +207,9 @@ var ENDPOINTS_SOS = [
 
 var ENDPOINTS_TM = [
  { method:'GET', path:'/tm/', desc:'Task Manager SPA shell. Loads login, dashboard, projects, tasks, users.', curl:'curl https://aether.dmj.one/tm/' },
- { method:'GET', path:'/api/v1/tm/server-pubkey', desc:'Server\'s ML-DSA-65 public key. Lets clients verify session tokens offline.', curl:'curl https://aether.dmj.one/api/v1/tm/server-pubkey' },
- { method:'POST', path:'/api/v1/tm/auth/challenge', desc:'Issue a 32-byte login nonce bound to an email, TTL 60 seconds.', curl:'curl -X POST -H "Content-Type: application/json" \\\n  -d \'{"email":"demo.ndma@aether.dmj.one"}\' \\\n  https://aether.dmj.one/api/v1/tm/auth/challenge' },
- { method:'POST', path:'/api/v1/tm/auth/verify', desc:'Consume the nonce with an ML-DSA-65 signature. Returns a signed bearer token.', curl:'curl -X POST -H "Content-Type: application/json" \\\n  -d \'{"email":"...","ch_id":"...","signature_b64":"..."}\' \\\n  https://aether.dmj.one/api/v1/tm/auth/verify' },
- { method:'POST', path:'/api/v1/tm/auth/register', desc:'Accept a signed invite and create the user record.', curl:'curl -X POST -H "Content-Type: application/json" \\\n  -d \'{"invite_id":"...","name":"...","pubkey_b64":"..."}\' \\\n  https://aether.dmj.one/api/v1/tm/auth/register' },
- { method:'POST', path:'/api/v1/tm/auth/bootstrap', desc:'One-shot NDMA root creation, env-gated by TM_BOOTSTRAP_ALLOW=1.', curl:'curl -X POST -H "Content-Type: application/json" \\\n  -d \'{"email":"...","name":"...","pubkey_b64":"..."}\' \\\n  https://aether.dmj.one/api/v1/tm/auth/bootstrap' },
+ { method:'POST', path:'/api/v1/tm/auth/login', desc:'Email + password login. Returns a signed bearer token plus a session-bound action key.', curl:'curl -X POST -H "Content-Type: application/json" \\\n  -d \'{"email":"demo.ndma@aether.dmj.one","password":"aether-demo-2026"}\' \\\n  https://aether.dmj.one/api/v1/tm/auth/login' },
+ { method:'POST', path:'/api/v1/tm/auth/register', desc:'Accept an invite token and create the user with a fresh password.', curl:'curl -X POST -H "Content-Type: application/json" \\\n  -d \'{"invite_id":"...","name":"...","password":"..."}\' \\\n  https://aether.dmj.one/api/v1/tm/auth/register' },
+ { method:'POST', path:'/api/v1/tm/auth/bootstrap', desc:'One-shot NDMA root creation, env-gated by TM_BOOTSTRAP_ALLOW=1.', curl:'curl -X POST -H "Content-Type: application/json" \\\n  -d \'{"email":"...","name":"...","password":"..."}\' \\\n  https://aether.dmj.one/api/v1/tm/auth/bootstrap' },
  { method:'GET', path:'/api/v1/tm/me', desc:'Current actor (uid, tier, scope_path).', curl:'curl -H "Authorization: Bearer $TOKEN" \\\n  https://aether.dmj.one/api/v1/tm/me' },
  { method:'GET', path:'/api/v1/tm/users', desc:'Scope-filtered user list.', curl:'curl -H "Authorization: Bearer $TOKEN" \\\n  https://aether.dmj.one/api/v1/tm/users' },
  { method:'POST', path:'/api/v1/tm/users/invite', desc:'Mint a signed invite for an email at a tier.', curl:'curl -X POST -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"email":"...","tier":40,"scope_path":"...","signature_b64":"..."}\' \\\n  https://aether.dmj.one/api/v1/tm/users/invite' },
@@ -271,59 +267,28 @@ function renderAccounts() {
  });
 }
 
-// ---------- Credentials cache + click-to-login ----------
-var credsPromise = null;
-function loadCreds() {
- if (credsPromise) return credsPromise;
- credsPromise = fetch(CRED_URL, { cache:'no-store' }).then(function (r) {
-  if (!r.ok) throw new Error('credentials_fetch_' + r.status);
-  return r.json();
- });
- return credsPromise;
-}
-
-// Demo keys are ephemeral. Stash the encrypted blob in sessionStorage so
-// it dies with the tab and never collides with the TM IDB schema. The TM
-// login screen reads from the same sessionStorage slot when ?demo=1.
-function putKeyring(rec) {
- return new Promise(function (res, rej) {
-  try { sessionStorage.setItem(SS_PREFIX + rec.email, JSON.stringify(rec)); res(); }
-  catch (e) { rej(e); }
- });
-}
-
+// ---------- One-click demo login ----------
+// Demo accounts are real users with the published shared passphrase.
+// Pressing the button hands the email to /tm/#/login?demo=1 which
+// pre-fills the passphrase. No client-side keys to ship; nothing to
+// fetch from /demo/credentials.json on the hot path.
 function statusFor(key) { return $('#acct-status-' + key); }
 
 function useAccount(key, btn) {
  var status = statusFor(key);
+ var match = null;
+ for (var i = 0; i < ACCOUNTS.length; i++) {
+  if (ACCOUNTS[i].key === key) { match = ACCOUNTS[i]; break; }
+ }
+ if (!match) {
+  if (status) status.textContent = 'Account not found.';
+  return;
+ }
  btn.disabled = true;
- var prev = btn.textContent;
  btn.textContent = 'Loading.';
- if (status) status.textContent = 'Loading credentials.';
- loadCreds().then(function (creds) {
-  var match = null;
-  for (var i = 0; i < creds.length; i++) {
-   if (creds[i].email && creds[i].email.toLowerCase().indexOf('demo.' + key + '@') === 0) match = creds[i];
-  }
-  if (!match) throw new Error('account_not_in_credentials');
-  var rec = {
-   email: match.email,
-   salt: match.encrypted_priv.saltB64,
-   iv: match.encrypted_priv.ivB64,
-   ct: match.encrypted_priv.ctB64,
-   pubkey_b64: match.pubkey_b64,
-   created_at: new Date().toISOString()
-  };
-  return putKeyring(rec).then(function () { return match.email; });
- }).then(function (email) {
-  if (status) status.textContent = 'Loaded. Redirecting to login.';
-  var url = '/tm/#/login?email=' + encodeURIComponent(email) + '&demo=1';
-  setTimeout(function () { location.href = url; }, 60);
- }).catch(function (e) {
-  btn.disabled = false;
-  btn.textContent = prev;
-  if (status) status.textContent = 'Could not load credentials. ' + (e && e.message ? e.message : '');
- });
+ if (status) status.textContent = 'Redirecting to login.';
+ var url = '/tm/#/login?email=' + encodeURIComponent(match.email) + '&demo=1';
+ setTimeout(function () { location.href = url; }, 30);
 }
 
 // ---------- Endpoint tables ----------
@@ -375,10 +340,8 @@ var SMOKE = [
  { name:'Triage health probe', method:'GET', url:'/api/healthz', expect:200, kind:'json' },
  { name:'Static index (HEAD)', method:'HEAD', url:'/', expect:200, kind:'head' },
  { name:'TM SPA shell (HEAD)', method:'HEAD', url:'/tm/', expect:200, kind:'head' },
- { name:'TM server pubkey', method:'GET', url:'/api/v1/tm/server-pubkey', expect:200, kind:'json' },
  { name:'TM API root', method:'GET', url:'/api/v1/tm', expect:200, kind:'json' },
- { name:'CORS preflight: triage', method:'OPTIONS', url:'/api/v1/triage', expect:204, kind:'opt' },
- { name:'Demo credentials', method:'GET', url:'/demo/credentials.json', expect:200, kind:'json' }
+ { name:'CORS preflight: triage', method:'OPTIONS', url:'/api/v1/triage', expect:204, kind:'opt' }
 ];
 
 function placeholderRow(text) {

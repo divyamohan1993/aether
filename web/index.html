@@ -2,40 +2,66 @@
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#050505">
 <meta name="color-scheme" content="dark">
-<title>Aether SOS</title>
+<title>NDMA Aether — Emergency SOS · आपातकालीन सहायता</title>
+<meta name="description" content="National Disaster Management Authority emergency SOS portal. Voice-activated triage. Works on 1-bar 2G.">
+<meta name="generator" content="NDMA Aether">
+<link rel="canonical" href="/">
+<meta name="application-name" content="NDMA Aether SOS">
+<meta name="apple-mobile-web-app-title" content="NDMA SOS">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
 /* AAA on #000: #fff 21 #ddd 17.5 #ccc 15.9 #aaa 9.3 #d8631a 4.85 (large). Pills #fff/#ff1f1f, #000/#ffd400 13.2, #000/#3aa655 5.1, #fff/#1a4a8a 7.4, #fff/#7a1f1f 7.0. Focus #ffd400 13.2. Field ribbon #fff/#7a1f1f 7.0 ≥7:1 AAA. */
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{background:#000;color:#fff;font:16px/1.45 system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
-body{min-height:100dvh;display:flex;flex-direction:column;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-header{position:sticky;top:0;background:#000;border-bottom:1px solid #1a1a1a;z-index:5;padding:.5rem .75rem;display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
+html,body{background:#050505;color:#fff;font:16px/1.45 system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
+body{min-height:100dvh;display:flex;flex-direction:column;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);font-variant-numeric:tabular-nums}
+header{position:sticky;top:0;background:#050505;border-bottom:1px solid #1a1a1a;z-index:5;padding:.5rem .75rem;display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
 .id{flex:1 1 auto;min-width:0;font:600 .8rem/1.3 system-ui,sans-serif;color:#d8631a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .id b{color:#fff;font-weight:700}
 .bg{display:flex;flex-wrap:wrap;gap:.35rem;align-items:center;font:700 .7rem/1.2 ui-monospace,monospace;color:#aaa}
 .bg span{padding:.2rem .4rem;border:1px solid #2a2a2a;border-radius:4px;white-space:nowrap;background:#0a0a0a}
+.bg span.warn{background:#3a1a00;border-color:#d8631a;color:#ffc88a}
 .so{background:#0a0a0a;border:1px solid #444;color:#fff;border-radius:6px;padding:.35rem .6rem;font:700 .75rem ui-monospace,monospace;cursor:pointer;min-height:34px}
-.so:focus-visible,.snd:focus-visible,.rt:focus-visible,footer summary:focus-visible,.lp:focus-visible,.fm:focus-visible,.rib:focus-visible{outline:3px solid #ffd400;outline-offset:2px}
+.so:focus-visible,.snd:focus-visible,.rt:focus-visible,footer summary:focus-visible,.lp:focus-visible,.fm:focus-visible,.rib:focus-visible,.tr:focus-visible,.gh:focus-visible{outline:3px solid #ffd400;outline-offset:2px}
 .lp{background:#0a0a0a;border:1px solid #444;color:#fff;border-radius:6px;padding:.35rem .5rem;font:700 .75rem ui-monospace,monospace;min-height:34px;cursor:pointer}
-.fm{background:#0a0a0a;border:1px solid #555;color:#fff;border-radius:6px;padding:.55rem .8rem;font:700 .85rem inherit;cursor:pointer;min-height:44px;justify-self:center;width:clamp(180px,60vmin,320px);margin-top:-.25rem}
+.fm{background:#0a0a0a;border:1px solid #555;color:#fff;border-radius:6px;padding:.55rem .8rem;font:700 .85rem inherit;cursor:pointer;min-height:44px;justify-self:center;width:clamp(200px,60vmin,320px);margin-top:-.25rem;display:flex;align-items:center;justify-content:center;gap:.45rem}
 .fm[aria-pressed="true"]{background:#7a1f1f;border-color:#fff}
+.fm[disabled]{opacity:.55;cursor:not-allowed}
 .rib{position:sticky;top:0;left:0;right:0;background:#7a1f1f;color:#fff;font:700 .9rem/1.2 inherit;padding:.85rem 1rem;min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:.5rem;border:0;cursor:pointer;width:100%;z-index:6}
 .rib[hidden]{display:none}
 .rib:active{background:#5a0f0f}
+.rib.beat{background:#5a3a00}
+.rib.beat:active{background:#3a2400}
 @media(max-width:560px){.id{flex:1 1 100%;font-size:.75rem}.bg{flex:1 1 auto;font-size:.66rem;order:2}.so{order:3}}
 main{flex:1;padding:.75rem 1rem 1rem;display:grid;gap:.85rem;max-width:560px;width:100%;margin:0 auto}
-.sos{justify-self:center;width:clamp(180px,60vmin,320px);aspect-ratio:1;border-radius:50%;background:#1a0000;color:#fff;border:3px solid #ff2a2a;font:800 clamp(1rem,4vw,1.5rem)/1.2 inherit;cursor:pointer;display:grid;place-items:center;text-align:center;padding:1rem;transition:transform .15s,background .15s;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+@media(min-width:1024px){main{max-width:720px}}
+.sos{justify-self:center;width:clamp(200px,60vmin,320px);aspect-ratio:1;border-radius:50%;background:#1a0000;color:#fff;border:3px solid #ff2a2a;font:800 clamp(1rem,4vw,1.5rem)/1.2 inherit;cursor:pointer;display:grid;place-items:center;text-align:center;padding:1rem;transition:transform .15s,background .15s;touch-action:manipulation;user-select:none;-webkit-user-select:none}
 .sos[data-r="1"]{background:#ff2a2a;border-color:#fff;animation:p 1.2s ease-in-out infinite}
 .sos:focus-visible{outline:4px solid #ffd400;outline-offset:6px}
 .sos:active{transform:scale(.97)}
 @keyframes p{50%{box-shadow:0 0 0 16px rgba(255,42,42,.25)}}
-@media(prefers-reduced-motion:reduce){.sos,.p-sending{animation:none!important;transition:none!important}}
+@media(prefers-reduced-motion:reduce){.sos,.p-sending,.tr-rec{animation:none!important;transition:none!important}}
 .pn{padding:.75rem .9rem;border:1px solid #222;border-radius:10px;background:#050505}
 .pn h2{font:700 .78rem/1.2 ui-monospace,monospace;color:#bbb;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.55rem}
+.tr{display:grid;gap:.55rem}
+.tr h2{margin:0}
+.tr p{font-size:.85rem;color:#ddd;line-height:1.5}
+.tr-row{display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap}
+.tr-pill{font:700 .72rem/1 ui-monospace,monospace;padding:.35rem .5rem;border-radius:999px;background:#0e3a18;color:#9be8af;letter-spacing:.04em;display:inline-flex;align-items:center;gap:.35rem}
+.tr-btn{background:#0a0a0a;border:1px solid #555;color:#fff;border-radius:6px;padding:.55rem .8rem;font:700 .85rem inherit;cursor:pointer;min-height:44px}
+.tr-btn.primary{background:#1a4a8a;border-color:#fff}
+.tr-link{background:transparent;border:0;color:#9bb6e0;text-decoration:underline;font:600 .8rem inherit;cursor:pointer;padding:.25rem .35rem;min-height:32px}
+.tr-prompt{padding:.65rem .8rem;border:1px solid #d8631a;border-radius:8px;background:#1a0a00;color:#ffd28a;font:700 .9rem/1.4 inherit;display:grid;gap:.35rem}
+.tr-prompt small{font:600 .72rem/1.3 ui-monospace,monospace;color:#ffc88a;letter-spacing:.04em;text-transform:uppercase}
+.tr-rec{display:inline-block;width:.7rem;height:.7rem;border-radius:50%;background:#ff2a2a;animation:p 1.2s ease-in-out infinite;margin-right:.4rem;vertical-align:.05em}
+.tr-bar{height:6px;background:#1a1a1a;border-radius:3px;overflow:hidden}
+.tr-bar > i{display:block;height:100%;background:#3aa655;width:0%;transition:width .2s linear}
+.over{display:flex;align-items:center;justify-content:space-between;gap:.5rem;font-size:.85rem;color:#ddd}
+.over input{width:24px;height:24px;accent-color:#ff2a2a}
+.gh{background:transparent;border:0;color:#9bb6e0;text-decoration:underline;font:600 .78rem inherit;cursor:pointer;padding:.25rem .35rem}
 .res{font-size:.95rem;color:#ddd;min-height:1.4rem}
 .res.empty{color:#aaa;font-size:.85rem}
 .tag{display:inline-block;font:800 .72rem/1 ui-monospace,monospace;padding:.35rem .5rem;border-radius:4px;margin-right:.45rem;vertical-align:.05em;background:#444;color:#fff}
@@ -44,6 +70,7 @@ main{flex:1;padding:.75rem 1rem 1rem;display:grid;gap:.85rem;max-width:560px;wid
 .u-MEDIUM .tag{background:#ffd400;color:#000}
 .u-LOW .tag{background:#3aa655;color:#000}
 .res .meta{display:block;margin-top:.5rem;font:600 .7rem/1.4 ui-monospace,monospace;color:#aaa;letter-spacing:.02em}
+.pill,.spill,.qlist time,.qlist .sz,.tlist time,.tr-pill,.bg span{font-variant-numeric:tabular-nums}
 .qhead{display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.55rem}
 .qhead h2{margin:0}
 .snd{background:#0a0a0a;border:1px solid #555;color:#fff;border-radius:6px;padding:.4rem .7rem;font:700 .75rem ui-monospace,monospace;cursor:pointer;min-height:36px}
@@ -82,7 +109,16 @@ footer details{margin-top:.6rem}
 footer summary{cursor:pointer;color:#ccc;font-size:.78rem;padding:.5rem;min-height:44px;display:inline-flex;align-items:center;border-radius:6px}
 footer .v{margin-top:.5rem;text-align:left;color:#bbb;font-size:.75rem;line-height:1.55;padding:.7rem;border:1px solid #222;border-radius:8px;background:#050505}
 .sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+/* NDMA Government of India formal header. Tricolour stripe identifies the
+   portal as an official NDMA surface. Bilingual (EN/HI) attribution. */
+.gov{background:#050505;border-bottom:1px solid #1a1a1a;padding:.5rem .75rem .55rem;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;font:600 .75rem/1.25 system-ui,sans-serif;letter-spacing:.02em}
+.gov::before{content:"";display:block;width:.55rem;height:.55rem;background:linear-gradient(180deg,#ff9933 0 33%,#fff 33% 67%,#138808 67% 100%);border-radius:2px;flex:0 0 auto}
+.gov b{color:#fff;font-weight:800}
+.gov span{color:#bdbdbd}
+.gov .ms{color:#d8631a;font-weight:700;letter-spacing:.04em}
+@media(max-width:480px){.gov{font-size:.7rem;gap:.4rem}.gov::before{width:.45rem;height:.45rem}}
 </style></head><body>
+<div class="gov" role="contentinfo" aria-label="Government of India · NDMA"><b>भारत सरकार · Government of India</b><span>·</span><span class="ms">NDMA · National Disaster Management Authority</span></div>
 <button class="rib" id="rb" type="button" hidden aria-live="polite"><span id="rbT"></span><span id="rbD" aria-hidden="true"></span></button>
 <header>
 <span class="id" id="bi" aria-label="Signed-in user"></span>
@@ -92,18 +128,24 @@ footer .v{margin-top:.5rem;text-align:left;color:#bbb;font-size:.75rem;line-heig
 </header>
 <main>
 <button class="sos" id="s" type="button" data-r="0" aria-pressed="false"></button>
-<button class="fm" id="fm" type="button" aria-pressed="false"></button>
-<label class="pn" id="vmBox" hidden style="display:flex;gap:.5rem;align-items:center;justify-content:space-between"><span id="vmLab"></span><input type="checkbox" id="vm" style="width:24px;height:24px;accent-color:#ff2a2a"></label>
+<section class="pn tr" id="trBox" aria-labelledby="trH" hidden>
+<div class="tr-row"><h2 id="trH"></h2><span class="tr-pill" id="trPill" hidden></span></div>
+<p id="trDesc"></p>
+<div class="tr-prompt" id="trPrompt" role="alert" aria-live="assertive" hidden><small id="trStep"></small><span id="trText"></span><div class="tr-bar" aria-hidden="true"><i id="trProg"></i></div></div>
+<div class="tr-row"><button class="tr-btn primary" id="trStart" type="button"></button><button class="tr-link" id="trAgain" type="button" hidden></button></div>
+</section>
+<button class="fm" id="fm" type="button" aria-pressed="false" disabled></button>
+<details class="pn" id="fmOpts" hidden><summary id="fmOptsSum"></summary><label class="over"><span id="vmLab"></span><input type="checkbox" id="vm"></label></details>
 <section class="pn" aria-labelledby="rh"><h2 id="rh"></h2><div class="res empty" id="p" role="status" aria-live="polite" aria-atomic="true"></div></section>
 <section class="pn" aria-labelledby="th"><h2 id="th"></h2><ul class="tlist" id="tl" aria-live="polite" aria-atomic="false"></ul></section>
 <section class="pn" aria-labelledby="qh"><div class="qhead"><h2 id="qh"></h2><button class="snd" id="sn" type="button"></button></div><ul class="qlist" id="ql"></ul></section>
 <span class="sr" id="lv" role="status" aria-live="polite" aria-atomic="true"></span>
 </main>
-<footer><p id="h"></p><details><summary id="ps"></summary><div class="v" id="pt"></div></details></footer>
+<footer><p id="h"></p><details><summary id="ps"></summary><div class="v" id="pt"></div></details><button class="gh" id="permsBtn" type="button"></button><div id="permsOut" class="v" hidden style="margin-top:.4rem"></div><p style="margin-top:.6rem;font-size:.7rem;color:#888"><a href="/legal" style="color:#aaa">Legal · DPDPA · IT Act · NDMA Act</a> · Government of India · NDMA</p></footer>
 <script>
 (async()=>{
 const D=document,N=navigator,$=i=>D.getElementById(i),CE=t=>D.createElement(t),A=(t,e,f)=>t.addEventListener(e,f);
-const S=$('s'),P=$('p'),BB=$('bb'),BN=$('bn'),BL=$('bl'),BI=$('bi'),BG=$('bg'),BO=$('bo'),QH=$('qh'),QL=$('ql'),SN=$('sn'),LV=$('lv'),TL=$('tl'),LP=$('lp'),FM=$('fm'),RB=$('rb'),RBT=$('rbT'),RBD=$('rbD'),VMBOX=$('vmBox'),VM=$('vm'),VMLAB=$('vmLab');
+const S=$('s'),P=$('p'),BB=$('bb'),BN=$('bn'),BL=$('bl'),BI=$('bi'),BG=$('bg'),BO=$('bo'),QH=$('qh'),QL=$('ql'),SN=$('sn'),LV=$('lv'),TL=$('tl'),LP=$('lp'),FM=$('fm'),RB=$('rb'),RBT=$('rbT'),RBD=$('rbD'),VM=$('vm'),VMLAB=$('vmLab'),FMOPTS=$('fmOpts'),FMOPTSSUM=$('fmOptsSum'),TRBOX=$('trBox'),TRH=$('trH'),TRDESC=$('trDesc'),TRPILL=$('trPill'),TRPROMPT=$('trPrompt'),TRSTEP=$('trStep'),TRTEXT=$('trText'),TRPROG=$('trProg'),TRSTART=$('trStart'),TRAGAIN=$('trAgain'),PERMSBTN=$('permsBtn'),PERMSOUT=$('permsOut');
 // Bearer lives in IDB so the SW can read it during background sync.
 // The page caches the decrypted record once and mirrors writes back to
 // IDB to keep the SW's view in sync.
@@ -126,10 +168,30 @@ const idB=CE('b');idB.textContent=sess.email||sess.uid||'user';
 BI.append(idB,D.createTextNode(' · '+(TIER[sess.tier]||sess.tier||'?')+' · '+(sess.scope_path||'')));
 A(BO,'click',async()=>{await _sclear();location.replace('/tm/#/login?next=%2F')});
 const L={
-en:{b:'Hold to send SOS',r:'Recording',h:'Help is on the way. Stay where you are.',n:'No signal',rh:'Latest dispatch',rp:'No dispatches yet. Press the SOS button to send one.',q:'Queue',pd:'pending',pl:'Nothing pending. Recordings sent immediately.',sn:'Send now',rt:'Retry',ax:'Recording queued.',sx:'Sent.',fx:'Send failed.',pv:'Privacy',pt:'Voice clip, language, rough location, battery and signal go only to SDRF rescue. No accounts. No tracking. Audio deleted in 24 hours.',t:'Goes only to State Disaster Response Force. False reports cost lives.',ts:'Status',te:'No active requests. Updates appear here after you send an SOS.'},
-hi:{b:'SOS भेजने के लिए दबाए रखें',r:'रिकॉर्ड हो रहा है',h:'मदद आ रही है. वहीं रहें.',n:'कोई सिग्नल नहीं',rh:'अंतिम सूचना',rp:'अभी कोई सूचना नहीं. SOS दबाकर भेजें.',q:'क़तार',pd:'बाकी',pl:'कुछ बाकी नहीं.',sn:'अभी भेजें',rt:'पुनः प्रयास',ax:'क़तार में जोड़ा गया.',sx:'भेज दिया.',fx:'भेज नहीं सके.',pv:'निजता',pt:'आवाज़, भाषा, मोटा स्थान, बैटरी, नेटवर्क केवल बचाव दल को. ऑडियो 24 घंटे में हटती है.',t:'केवल राज्य आपदा बल को. झूठी सूचना से जान जाती है.',ts:'स्थिति',te:'कोई सक्रिय अनुरोध नहीं.'},
-ta:{b:'SOS அனுப்ப அழுத்திப் பிடி',r:'பதிவு செய்கிறது',h:'உதவி வருகிறது.',n:'சிக்னல் இல்லை',rh:'சமீப அனுப்பு',rp:'இதுவரை அனுப்பவில்லை.',q:'வரிசை',pd:'நிலுவை',pl:'நிலுவை இல்லை.',sn:'இப்போதே அனுப்பு',rt:'மீண்டும்',ax:'வரிசையில் சேர்ந்தது.',sx:'அனுப்பப்பட்டது.',fx:'அனுப்ப முடியவில்லை.',pv:'தனியுரிமை',pt:'குரல், மொழி, இடம் மீட்புப் படைக்கு மட்டுமே.',t:'மாநில பேரிடர் மீட்புப் படைக்கு மட்டுமே.',ts:'நிலை',te:'செயலில் கோரிக்கை இல்லை.'},
-bn:{b:'SOS পাঠাতে চেপে ধরুন',r:'রেকর্ড হচ্ছে',h:'সাহায্য আসছে. সেখানেই থাকুন.',n:'সিগন্যাল নেই',rh:'সর্বশেষ পাঠানো',rp:'এখনো কিছু পাঠানো হয়নি.',q:'সারি',pd:'বাকি',pl:'কিছু বাকি নেই.',sn:'এখনই পাঠান',rt:'পুনরায়',ax:'সারিতে যুক্ত হলো.',sx:'পাঠানো হলো.',fx:'পাঠানো যায়নি.',pv:'গোপনীয়তা',pt:'ভয়েস, ভাষা, অবস্থান, ব্যাটারি, নেটওয়ার্ক শুধু উদ্ধারকারী দলকে. অডিও ২৪ ঘন্টায় মুছে যায়.',t:'শুধু রাজ্য বিপর্যয় বাহিনীকে. মিথ্যা খবর প্রাণ কাড়ে.',ts:'অবস্থা',te:'কোনো অনুরোধ নেই.'}};
+en:{b:'Hold to send SOS',r:'Recording',h:'Help is on the way. Stay where you are.',n:'No signal',rh:'Latest dispatch',rp:'No dispatches yet. Press the SOS button to send one.',q:'Queue',pd:'pending',pl:'Nothing pending. Recordings sent immediately.',sn:'Send now',rt:'Retry',ax:'Recording queued.',sx:'Sent.',fx:'Send failed.',pv:'Privacy',pt:'Voice clip, language, rough location, battery and signal go only to SDRF rescue. No accounts. No tracking. Audio deleted in 24 hours.',t:'Goes only to State Disaster Response Force. False reports cost lives.',ts:'Status',te:'No active requests. Updates appear here after you send an SOS.',
+auto_on:'Listen for your voice',auto_off:'Stop listening',auto_locked:'Train your voice to enable',auto_rib:'Listening. Your phrases auto-send. Tap to stop.',auto_rib_text:'Audio paused. Text panic beats only. Tap to stop.',auto_msg_on:'Listening for your voice.',auto_msg_off:'Listening stopped.',auto_batt:'Listening paused. Battery low.',auto_timeout:'Listening paused. Tap to continue.',auto_panic_only:'Network too slow for audio. Hold the SOS button instead.',auto_slow:'Audio paused — text panic only',auto_opts:'Auto-listen settings',auto_phrase:'Phrase captured.',auto_listening:'Listening.',
+tr_h:'Voice setup',tr_desc:'Train Aether on your voice once. After that, Auto-listen sends only your phrases, even when others are nearby.',tr_start:'Start training',tr_again:'Re-train',tr_done:'Voice trained',tr_done_on:'on',tr_step:'Step',tr_of:'of',tr_p1:'Speak normally for 10 seconds. Read a few sentences out loud.',tr_p2:'Now read the same again, louder, like you are shouting for help.',tr_p3:'Now in a calm, low voice.',tr_listen:'Listening — speak now.',tr_silence:'No speech heard. Try again, closer to the mic.',tr_saved:'Voice trained. Auto-listen unlocked.',tr_fail:'Voice training failed. Auto-listen will send all phrases.',tr_unsupported:'Voice training not available on this device. Auto-listen will send all phrases.',tr_seconds:'seconds left',
+vm_lab:'Send all phrases (skip voice match)',
+perms_lab:'Permissions check',perms_mic:'Microphone',perms_geo:'Location',perms_notif:'Notifications',perms_unknown:'unknown',perms_granted:'granted',perms_denied:'denied',perms_prompt:'will ask',
+fm_on:'Listen for your voice',fm_off:'Stop listening',fm_rib:'Listening. Your phrases auto-send. Tap to stop.',fm_batt:'Listening paused. Battery low.',fm_timeout:'Listening paused. Tap to continue.',fm_panic_only:'Network too slow for audio. Hold the SOS button instead.',fm_on_msg:'Listening for your voice.',fm_no_voice:'Voice gate unavailable; sending all phrases.',fm_enroll:'Speak for 2 seconds to enrol your voice.',fm_enroll_ok:'Voice enrolled.'},
+hi:{b:'SOS भेजने के लिए दबाए रखें',r:'रिकॉर्ड हो रहा है',h:'मदद आ रही है. वहीं रहें.',n:'कोई सिग्नल नहीं',rh:'अंतिम सूचना',rp:'अभी कोई सूचना नहीं. SOS दबाकर भेजें.',q:'क़तार',pd:'बाकी',pl:'कुछ बाकी नहीं.',sn:'अभी भेजें',rt:'पुनः प्रयास',ax:'क़तार में जोड़ा गया.',sx:'भेज दिया.',fx:'भेज नहीं सके.',pv:'निजता',pt:'आवाज़, भाषा, मोटा स्थान, बैटरी, नेटवर्क केवल बचाव दल को. ऑडियो 24 घंटे में हटती है.',t:'केवल राज्य आपदा बल को. झूठी सूचना से जान जाती है.',ts:'स्थिति',te:'कोई सक्रिय अनुरोध नहीं.',
+auto_on:'मेरी आवाज़ सुनें',auto_off:'सुनना बंद करें',auto_locked:'पहले अपनी आवाज़ ट्रेन करें',auto_rib:'सुन रहा है. आपकी बात अपने आप जाती है. रोकने के लिए टैप करें.',auto_rib_text:'ऑडियो रुका. केवल टेक्स्ट सिग्नल. रोकने के लिए टैप करें.',auto_msg_on:'आपकी आवाज़ सुन रहा है.',auto_msg_off:'सुनना बंद.',auto_batt:'सुनना रुका. बैटरी कम.',auto_timeout:'सुनना रुका. जारी रखने के लिए टैप करें.',auto_panic_only:'नेटवर्क बहुत धीमा. SOS बटन दबाए रखें.',auto_slow:'ऑडियो रुका — केवल टेक्स्ट',auto_opts:'सेटिंग',auto_phrase:'वाक्य लिया गया.',auto_listening:'सुन रहा है.',
+tr_h:'आवाज़ सेटअप',tr_desc:'एक बार अपनी आवाज़ ट्रेन करें. फिर ऑटो-लिसन केवल आपकी बात भेजता है.',tr_start:'ट्रेनिंग शुरू करें',tr_again:'फिर से ट्रेन करें',tr_done:'आवाज़ ट्रेन की गई',tr_done_on:'',tr_step:'चरण',tr_of:'/',tr_p1:'10 सेकंड सामान्य बोलें. दो-तीन वाक्य पढ़ें.',tr_p2:'अब वही ज़ोर से बोलें, जैसे मदद के लिए चिल्ला रहे हों.',tr_p3:'अब धीमी, शांत आवाज़ में.',tr_listen:'सुन रहा है — अभी बोलें.',tr_silence:'कुछ नहीं सुना. माइक के पास आकर फिर से.',tr_saved:'आवाज़ ट्रेन हुई. ऑटो-लिसन चालू.',tr_fail:'ट्रेनिंग नहीं हुई. ऑटो-लिसन सब वाक्य भेजेगा.',tr_unsupported:'इस डिवाइस पर ट्रेनिंग नहीं.',tr_seconds:'सेकंड बचे',
+vm_lab:'सभी वाक्य भेजें (वॉइस मैच छोड़ें)',
+perms_lab:'अनुमति जाँच',perms_mic:'माइक',perms_geo:'स्थान',perms_notif:'सूचना',perms_unknown:'अज्ञात',perms_granted:'दी',perms_denied:'मना',perms_prompt:'पूछेगा'},
+ta:{b:'SOS அனுப்ப அழுத்திப் பிடி',r:'பதிவு செய்கிறது',h:'உதவி வருகிறது.',n:'சிக்னல் இல்லை',rh:'சமீப அனுப்பு',rp:'இதுவரை அனுப்பவில்லை.',q:'வரிசை',pd:'நிலுவை',pl:'நிலுவை இல்லை.',sn:'இப்போதே அனுப்பு',rt:'மீண்டும்',ax:'வரிசையில் சேர்ந்தது.',sx:'அனுப்பப்பட்டது.',fx:'அனுப்ப முடியவில்லை.',pv:'தனியுரிமை',pt:'குரல், மொழி, இடம் மீட்புப் படைக்கு மட்டுமே.',t:'மாநில பேரிடர் மீட்புப் படைக்கு மட்டுமே.',ts:'நிலை',te:'செயலில் கோரிக்கை இல்லை.',
+auto_on:'என் குரலை கேள்',auto_off:'கேட்பதை நிறுத்து',auto_locked:'முதலில் குரலை பயிற்சி செய்',auto_rib:'கேட்கிறது. உங்கள் வார்த்தைகள் தானே செல்லும். நிறுத்த தட்டவும்.',auto_rib_text:'ஆடியோ நிறுத்தம். உரை மட்டும். தட்டி நிறுத்தவும்.',auto_msg_on:'உங்கள் குரலை கேட்கிறது.',auto_msg_off:'கேட்பது நிறுத்தம்.',auto_batt:'கேட்பது நிறுத்தம். பேட்டரி குறைவு.',auto_timeout:'கேட்பது நிறுத்தம். தட்டவும்.',auto_panic_only:'நெட்வொர்க் மெதுவாக. SOS பொத்தானை அழுத்திப் பிடி.',auto_slow:'ஆடியோ நிறுத்தம் — உரை மட்டும்',auto_opts:'அமைப்புகள்',auto_phrase:'வார்த்தை எடுத்தது.',auto_listening:'கேட்கிறது.',
+tr_h:'குரல் அமைப்பு',tr_desc:'உங்கள் குரலை ஒருமுறை பயிற்சி செய். பின்பு ஆட்டோ-கேள் உங்கள் வார்த்தைகளை மட்டும் அனுப்பும்.',tr_start:'பயிற்சி தொடங்கு',tr_again:'மீண்டும் பயிற்சி',tr_done:'குரல் பயிற்சி',tr_done_on:'',tr_step:'படி',tr_of:'/',tr_p1:'10 வினாடிக்கு சாதாரணமாக பேசவும். சில வாக்கியங்கள் வாசிக்கவும்.',tr_p2:'இப்போது அதையே சத்தமாக, உதவிக்கு கூவுவது போல்.',tr_p3:'இப்போது மென்மையான, அமைதியான குரலில்.',tr_listen:'கேட்கிறது — பேசவும்.',tr_silence:'எதுவும் கேட்கவில்லை. மீண்டும்.',tr_saved:'குரல் பதிவு செய்யப்பட்டது.',tr_fail:'பயிற்சி தோல்வி.',tr_unsupported:'பயிற்சி இல்லை.',tr_seconds:'வினாடிகள் மீதம்',
+vm_lab:'அனைத்து வார்த்தைகளையும் அனுப்பு',
+perms_lab:'அனுமதி சோதனை',perms_mic:'மைக்',perms_geo:'இடம்',perms_notif:'அறிவிப்பு',perms_unknown:'தெரியாது',perms_granted:'வழங்கப்பட்டது',perms_denied:'மறுக்கப்பட்டது',perms_prompt:'கேட்கும்'},
+bn:{b:'SOS পাঠাতে চেপে ধরুন',r:'রেকর্ড হচ্ছে',h:'সাহায্য আসছে. সেখানেই থাকুন.',n:'সিগন্যাল নেই',rh:'সর্বশেষ পাঠানো',rp:'এখনো কিছু পাঠানো হয়নি.',q:'সারি',pd:'বাকি',pl:'কিছু বাকি নেই.',sn:'এখনই পাঠান',rt:'পুনরায়',ax:'সারিতে যুক্ত হলো.',sx:'পাঠানো হলো.',fx:'পাঠানো যায়নি.',pv:'গোপনীয়তা',pt:'ভয়েস, ভাষা, অবস্থান, ব্যাটারি, নেটওয়ার্ক শুধু উদ্ধারকারী দলকে. অডিও ২৪ ঘন্টায় মুছে যায়.',t:'শুধু রাজ্য বিপর্যয় বাহিনীকে. মিথ্যা খবর প্রাণ কাড়ে.',ts:'অবস্থা',te:'কোনো অনুরোধ নেই.',
+auto_on:'আমার গলা শুনুন',auto_off:'শোনা বন্ধ',auto_locked:'প্রথমে গলা ট্রেন করুন',auto_rib:'শুনছে. আপনার বাক্য আপনাআপনি যায়. বন্ধে ট্যাপ.',auto_rib_text:'অডিও বন্ধ. শুধু টেক্সট. বন্ধে ট্যাপ.',auto_msg_on:'আপনার গলা শুনছে.',auto_msg_off:'শোনা বন্ধ.',auto_batt:'শোনা বন্ধ. ব্যাটারি কম.',auto_timeout:'শোনা বন্ধ. ট্যাপ.',auto_panic_only:'নেটওয়ার্ক ধীর. SOS চেপে ধরুন.',auto_slow:'অডিও বন্ধ — শুধু টেক্সট',auto_opts:'সেটিংস',auto_phrase:'বাক্য নেওয়া হলো.',auto_listening:'শুনছে.',
+tr_h:'গলা সেটআপ',tr_desc:'একবার গলা ট্রেন করুন. পরে অটো-শোনা শুধু আপনার বাক্য পাঠাবে.',tr_start:'ট্রেনিং শুরু',tr_again:'আবার ট্রেন',tr_done:'গলা ট্রেন',tr_done_on:'',tr_step:'ধাপ',tr_of:'/',tr_p1:'১০ সেকেন্ড সাধারণভাবে বলুন.',tr_p2:'এবার জোরে, যেন সাহায্যের জন্য চিৎকার করছেন.',tr_p3:'এখন শান্ত, নিচু গলায়.',tr_listen:'শুনছে — বলুন.',tr_silence:'কিছু শুনিনি. আবার.',tr_saved:'গলা ট্রেন হয়েছে.',tr_fail:'ট্রেনিং ব্যর্থ.',tr_unsupported:'এই ডিভাইসে ট্রেনিং নেই.',tr_seconds:'সেকেন্ড বাকি',
+vm_lab:'সব বাক্য পাঠান',
+perms_lab:'অনুমতি যাচাই',perms_mic:'মাইক',perms_geo:'অবস্থান',perms_notif:'বিজ্ঞপ্তি',perms_unknown:'অজানা',perms_granted:'মঞ্জুর',perms_denied:'অস্বীকৃত',perms_prompt:'জিজ্ঞাসা করবে'}};
+// Merge inline packs over en so missing keys (e.g. tr_*, auto_*) fall back
+// to English copy instead of undefined. Lazy packs already do this on load.
+for(const c of ['hi','ta','bn'])L[c]=Object.assign({},L.en,L[c]);
 // 15 locales. en/hi/ta/bn ship inline (above) so first paint never
 // blocks on a fetch. The other 11 lazy-load from /i18n/<code>.json on
 // switch and merge into L. The user's choice persists in the tm_prefs
@@ -137,7 +199,7 @@ bn:{b:'SOS পাঠাতে চেপে ধরুন',r:'রেকর্ড �
 const LANGS=[['en','English'],['hi','हिंदी'],['ta','தமிழ்'],['bn','বাংলা'],['ml','മലയാളം'],['te','తెలుగు'],['mr','मराठी'],['or','ଓଡ଼ିଆ'],['gu','ગુજરાતી'],['pa','ਪੰਜਾਬੀ'],['kn','ಕನ್ನಡ'],['ur','اردو'],['as','অসমীয়া'],['ne','नेपाली'],['mai','मैथिली']];
 const LCODES=LANGS.map(x=>x[0]);
 let k='en',T=L.en;
-var fmActive=false;
+var fmActive=false,fmTemplate=null,fmTextOnly=false,fmTrainBusy=false;
 async function loadPack(code){if(L[code])return L[code];try{const r=await fetch('/i18n/'+encodeURIComponent(code)+'.json',{cache:'force-cache'});if(!r.ok)return null;const j=await r.json();L[code]=Object.assign({},L.en,j);return L[code]}catch{return null}}
 function applyLocaleStatic(){
  D.documentElement.lang=k+'-IN';D.documentElement.dir=k==='ur'?'rtl':'ltr';
@@ -146,15 +208,46 @@ function applyLocaleStatic(){
  $('h').textContent=T.t;$('ps').textContent=T.pv;$('pt').textContent=T.pt;
  $('rh').textContent=T.rh;$('th').textContent=T.ts;SN.textContent=T.sn;
  BO.textContent=T.so||'Sign out';LP.setAttribute('aria-label',T.lp_lab||'Language');
- FM.textContent=fmActive?(T.fm_off||'Stop field mode'):(T.fm_on||'Start field mode');
- FM.setAttribute('aria-label',FM.textContent);
- VMLAB.textContent=T.vm_lab||'Only my voice';
+ TRH.textContent=T.tr_h;TRDESC.textContent=T.tr_desc;
+ FMOPTSSUM.textContent=T.auto_opts;
+ VMLAB.textContent=T.vm_lab;
+ PERMSBTN.textContent=T.perms_lab;
+ updateTrainCard();updateFmButton();
+}
+function updateFmButton(){
+ const trained=!!fmTemplate;
+ const onLabel=T.auto_on||T.fm_on;
+ const offLabel=T.auto_off||T.fm_off;
+ if(fmActive){FM.textContent=offLabel;FM.disabled=false;FM.setAttribute('aria-pressed','true');FM.removeAttribute('title')}
+ else if(trained){FM.textContent=onLabel;FM.disabled=false;FM.setAttribute('aria-pressed','false');FM.removeAttribute('title')}
+ else{FM.textContent=onLabel;FM.disabled=true;FM.setAttribute('aria-pressed','false');FM.title=T.auto_locked||'';FM.setAttribute('aria-label',onLabel+'. '+(T.auto_locked||''))}
+ if(!FM.disabled||fmActive)FM.setAttribute('aria-label',FM.textContent);
+ FMOPTS.hidden=!trained;
+}
+function updateTrainCard(){
+ if(!TRBOX)return;
+ TRBOX.hidden=false;
+ const trained=!!fmTemplate,when=fmTemplate&&fmTemplate.enrolled_at;
+ if(trained){
+  TRPILL.hidden=false;
+  const dt=when?new Date(when):null;
+  const ds=dt&&!isNaN(dt)?dt.toLocaleDateString():'';
+  TRPILL.textContent=ds?(T.tr_done+' · '+(T.tr_done_on?T.tr_done_on+' ':'')+ds):T.tr_done;
+  TRSTART.hidden=true;
+  TRAGAIN.hidden=false;TRAGAIN.textContent=T.tr_again;
+ }else{
+  TRPILL.hidden=true;
+  TRSTART.hidden=false;TRSTART.textContent=T.tr_start;
+  TRAGAIN.hidden=true;
+ }
 }
 function applyLocaleDynamic(){
  if(typeof setEmpty==='function'&&P.classList.contains('empty'))setEmpty();
  if(typeof renderQ==='function')renderQ();
  if(typeof renderT==='function')renderT();
  if(typeof updateRibbon==='function')updateRibbon();
+ if(typeof updateTrainCard==='function')updateTrainCard();
+ if(typeof updateFmButton==='function')updateFmButton();
 }
 async function setLocale(code){
  if(!LCODES.includes(code))code='en';
@@ -167,14 +260,100 @@ const setEmpty=()=>{P.replaceChildren(T.rp);P.className='res empty'};
 LP.replaceChildren(...LANGS.map(([c,n])=>{const o=CE('option');o.value=c;o.textContent=n;return o}));
 A(LP,'change',()=>setLocale(LP.value));
 applyLocaleStatic();setEmpty();
+// Load voice template (if any) before first paint settles, then refresh
+// the train card + Auto-listen button to reflect trained/untrained state.
+fmInitTemplate();
 let cid=localStorage.getItem('aid');if(!cid){cid=crypto.randomUUID();localStorage.setItem('aid',cid)}
 if(N.getBattery)N.getBattery().then(b=>{const u=()=>{const p=Math.round(b.level*100);BB.textContent=p+'%'+(b.charging?'+':'');BB.style.color=p<=15?'#ff7a00':'#aaa'};u();A(b,'levelchange',u);A(b,'chargingchange',u)});
-const net=()=>{const c=N.connection,o=N.onLine;BN.textContent=o?(c&&c.effectiveType||'on'):T.n;BN.style.color=o?'#aaa':'#ff7a00'};
+const isSlowNet=()=>{const c=N.connection,e=c&&c.effectiveType;return !N.onLine||e==='slow-2g'};
+const net=()=>{const c=N.connection,o=N.onLine,e=c&&c.effectiveType||'';BN.textContent=o?(e||'on'):T.n;const slow=!o||e==='slow-2g';BN.classList.toggle('warn',slow);BN.style.color=slow?'#ffc88a':'#aaa';if(typeof updateRibbon==='function')updateRibbon();if(fmActive&&typeof reflectSlowNet==='function')reflectSlowNet()};
 net();
-let geo='',geoAcc=null,geoSrc='';
-const setGeo=p=>{geo=p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6);geoAcc=p.coords.accuracy;geoSrc=p.coords.accuracy<=50?'gps':'wifi';BG.textContent='GPS '+(geoAcc?Math.round(geoAcc)+'m':'on');BG.style.color='#3aa655'};
+let geo='',geoAcc=null,geoSrc='',geoAlt=null,geoAltAcc=null,geoHeading=null,geoSpeed=null;
+const setGeo=p=>{
+ geo=p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6);
+ geoAcc=p.coords.accuracy;
+ geoSrc=p.coords.accuracy<=50?'gps':'wifi';
+ // Altitude lets the SDRF dispatcher seed depth estimates against a
+ // surface barometric reference. Heading + speed help when the survivor
+ // is moving (vehicle, water current).
+ geoAlt=Number.isFinite(p.coords.altitude)?p.coords.altitude:null;
+ geoAltAcc=Number.isFinite(p.coords.altitudeAccuracy)?p.coords.altitudeAccuracy:null;
+ geoHeading=Number.isFinite(p.coords.heading)?p.coords.heading:null;
+ geoSpeed=Number.isFinite(p.coords.speed)?p.coords.speed:null;
+ BG.textContent='GPS '+(geoAcc?Math.round(geoAcc)+'m':'on')+(geoAlt!=null?' · '+Math.round(geoAlt)+'m alt':'');
+ BG.style.color='#3aa655';
+};
 const noGeo=()=>{BG.textContent='no GPS';BG.style.color='#ff7a00'};
 if(N.geolocation){N.geolocation.getCurrentPosition(setGeo,noGeo,{enableHighAccuracy:true,timeout:8000,maximumAge:0});try{N.geolocation.watchPosition(setGeo,()=>{},{enableHighAccuracy:true,timeout:15000,maximumAge:30000})}catch(e){}}else noGeo();
+// Triangulation telemetry. Collected best-effort; absent values send as
+// null and the SDRF server reduces confidence accordingly. NONE of these
+// require user prompts on iOS Safari; on Android Chrome the Pressure
+// sensor needs a generic-sensors permission grant on first start.
+let envPressure=null;        // hPa, current barometric reading
+let envPressureBaseline=null;// hPa, first reading captured (surface ref)
+let envPressureAt=0;         // ms timestamp of last reading
+let motionPeakG=0;           // peak g-force since last beat (impact spike)
+let motionRmsG=0;            // running rms of magnitude (general activity)
+let motionLastSampleMs=0;
+let btPeers=null;            // count of nearby Bluetooth advertisers (best-effort)
+let btScanActive=false;
+try{
+ if('Sensor' in self && 'Barometer' in self){
+  // Generic Sensor API. 1 Hz is enough for depth estimation; sub-Hz keeps
+  // the radio idle on a 2 Kbps link. Permissions on Chrome need the page
+  // to be in a secure context, which Cloud Run provides.
+  const baro=new self.Barometer({frequency:1});
+  baro.addEventListener('reading',()=>{
+   const v=baro.pressure;if(!Number.isFinite(v))return;
+   envPressure=v;envPressureAt=Date.now();
+   if(envPressureBaseline==null)envPressureBaseline=v;
+  });
+  baro.addEventListener('error',()=>{});
+  baro.start();
+ }
+}catch{}
+// Accelerometer rms + peak. We hook devicemotion on user gesture so iOS
+// Safari does not silently gate it. The first SOS press unlocks it via
+// requestPermission; before that, we still capture motion if available.
+function _hookMotion(){
+ if(motionLastSampleMs!==0)return;motionLastSampleMs=1;
+ A(self,'devicemotion',e=>{
+  const a=e.accelerationIncludingGravity;if(!a)return;
+  const m=Math.sqrt((a.x||0)*(a.x||0)+(a.y||0)*(a.y||0)+(a.z||0)*(a.z||0))/9.81;
+  if(!Number.isFinite(m))return;
+  if(m>motionPeakG)motionPeakG=m;
+  // EMA over the last ~5 s of frames. Decay constant 0.1 → ~30 samples.
+  motionRmsG=motionRmsG?(motionRmsG*0.9+m*0.1):m;
+  motionLastSampleMs=Date.now();
+ });
+}
+const _MotionPerm=self.DeviceMotionEvent;
+if(_MotionPerm&&typeof _MotionPerm.requestPermission==='function'){
+ // iOS: defer until user taps SOS so we already have a gesture.
+ A(D,'click',()=>{_MotionPerm.requestPermission().then(r=>{if(r==='granted')_hookMotion()}).catch(()=>{})},{once:true});
+}else{_hookMotion()}
+// Web Bluetooth scan for nearby BTLE advertisers. Counts unique device
+// signatures within ~10 m. Strictly opt-in: we require a user-gesture
+// from the SOS button. Chrome desktop Linux/Mac + Android Chrome only.
+async function bluetoothPeerScan(){
+ if(btScanActive)return;
+ if(!self.navigator||typeof N.bluetooth?.requestLEScan!=='function')return;
+ btScanActive=true;
+ try{
+  const seen=new Set();
+  const scan=await N.bluetooth.requestLEScan({acceptAllAdvertisements:true,keepRepeatedDevices:false});
+  A(N.bluetooth,'advertisementreceived',e=>{seen.add(e.device.id);btPeers=seen.size});
+  setTimeout(()=>{try{scan.stop()}catch{}btScanActive=false},10000);
+ }catch{btScanActive=false}
+}
+// We do NOT call bluetoothPeerScan automatically: it requires explicit
+// user permission and on most phones throws on first call without a
+// gesture. The SOS press path can opt-in by calling it.
+function snapshotMotion(){
+ const peak=motionPeakG,rms=motionRmsG;
+ motionPeakG=0;
+ return {peak:Number(peak.toFixed(3)),rms:Number(rms.toFixed(3))};
+}
 const IDB=()=>new Promise((r,j)=>{const o=indexedDB.open('a',3);o.onupgradeneeded=e=>{const d=e.target.result;if(!d.objectStoreNames.contains('q'))d.createObjectStore('q',{keyPath:'id',autoIncrement:true});if(!d.objectStoreNames.contains('tracked'))d.createObjectStore('tracked',{keyPath:'id'})};o.onsuccess=e=>r(e.target.result);o.onerror=()=>j(o.error)});
 const TX=(s,m)=>IDB().then(d=>d.transaction(s,m).objectStore(s));
 const qPut=r=>TX('q','readwrite').then(o=>new Promise(s=>{const q=o.put(r);q.onsuccess=()=>s(q.result)}));
@@ -319,6 +498,17 @@ const send=async r=>{
   if(r.geo){h['X-Client-Geo']=r.geo;if(r.geoAcc!=null)h['X-Client-Geo-Accuracy']=String(Math.round(r.geoAcc));if(r.geoSrc)h['X-Client-Geo-Source']=r.geoSrc}
   if(r.bat!=null)h['X-Client-Battery']=String(r.bat);
   if(r.net)h['X-Client-Network']=r.net;
+  // Triangulation telemetry. Each header carries a small numeric or null;
+  // server fuses them into confidence_score + depth_estimate_m.
+  if(r.altitude!=null)h['X-Client-Altitude']=String(Math.round(r.altitude*10)/10);
+  if(r.altitudeAccuracy!=null)h['X-Client-Altitude-Accuracy']=String(Math.round(r.altitudeAccuracy));
+  if(r.heading!=null)h['X-Client-Heading']=String(Math.round(r.heading));
+  if(r.speed!=null)h['X-Client-Speed']=String(Math.round(r.speed*10)/10);
+  if(r.pressure!=null)h['X-Client-Pressure']=String(Math.round(r.pressure*10)/10);
+  if(r.pressureBaseline!=null)h['X-Client-Pressure-Baseline']=String(Math.round(r.pressureBaseline*10)/10);
+  if(r.motionPeak!=null)h['X-Client-Motion-Peak']=String(r.motionPeak);
+  if(r.motionRms!=null)h['X-Client-Motion-Rms']=String(r.motionRms);
+  if(r.btPeers!=null)h['X-Client-Bt-Peers']=String(r.btPeers);
   const x=await fetch('/api/v1/triage',{method:'POST',headers:h,body:r.blob});
   if(x.status===401){await _sclear();location.replace('/tm/#/login?next=%2F');throw new Error('auth')}
   if(!x.ok)throw new Error('HTTP '+x.status);
@@ -368,7 +558,12 @@ const start=async()=>{if(rs)return;
       if(b.size<=500)return;
       let bt=null;if(N.getBattery){try{const x=await N.getBattery();bt=Math.round(x.level*100)}catch(e){}}
       const c=N.connection,now=new Date().toISOString();
-      await enq({capturedAt:now,status:'pending',blob:b,mime:b.type||'audio/webm',ts:now,geo,geoAcc,geoSrc,bat:bt,lang:N.language||'en-IN',net:c&&c.effectiveType||'',lastError:''});
+      const _m=snapshotMotion();
+      await enq({capturedAt:now,status:'pending',blob:b,mime:b.type||'audio/webm',ts:now,geo,geoAcc,geoSrc,
+       altitude:geoAlt,altitudeAccuracy:geoAltAcc,heading:geoHeading,speed:geoSpeed,
+       pressure:envPressure,pressureBaseline:envPressureBaseline,
+       motionPeak:_m.peak,motionRms:_m.rms,btPeers:btPeers,
+       bat:bt,lang:N.language||'en-IN',net:c&&c.effectiveType||'',lastError:''});
     };
     mr.start();rs=1;S.dataset.r='1';S.setAttribute('aria-pressed','true');S.textContent=T.r;
     tm=setTimeout(stop,30000);
@@ -400,21 +595,43 @@ if('serviceWorker' in N){
 A(self,'pageshow',()=>{if(N.onLine)refreshAll()});
 A(self,'online',()=>{net();flush();refreshAll()});
 
-// Field mode. Adaptive Opus VAD listening; phrases auto-enqueue. The
-// red ribbon is a tap-to-disable kill switch. The "Only my voice"
-// toggle gates phrases against an enrolled MFCC template (cosine 0.65
-// floor). Auto-disables at battery <15 % and after 30 minutes idle.
+// Auto-listen. Adaptive Opus VAD listening; phrases auto-enqueue, gated to
+// the trained user's voice via 13-dim MFCC cosine. The orange ribbon is a
+// tap-to-disable kill switch. On slow-2g the audio path is replaced by a
+// 60 s text heartbeat to /api/v1/sos/anon (anon survivor channel). Auto-
+// disables at battery <15 % and after 30 minutes idle. Cosine 0.70 floor
+// after 3-sample averaged template + low-energy frame skip — capped at 0.72
+// because 13-dim MFCC means are an approximation, not a verified speaker ID.
 let fmVad=null,fmStream=null,fmRec=null,fmRecChunks=[],fmRecTimer=null,fmRecActive=false;
-let fmSessionId='',fmAutoOffTimer=null,fmStartedAt=0,fmTemplate=null,fmEnrolling=false,fmEnrollSamples=null,fmEnrollSr=0,fmBatteryRef=null;
+let fmSessionId='',fmAutoOffTimer=null,fmStartedAt=0,fmBatteryRef=null;
+let fmTextBeatTimer=null,fmTextBeatSeq=0;
 const FM_AUTO_OFF_MS=30*60*1000;
-const FM_VOICE_MATCH_FLOOR=0.65;
+const FM_VOICE_MATCH_FLOOR=0.70;
+
+async function fmLoadTemplate(){
+ const raw=await _voiceGet();
+ if(!raw)return null;
+ // Legacy form: bare number[] / Float32Array. Wrap so callers see the new shape.
+ if(Array.isArray(raw)&&raw.length===13)return {template:raw,samples_count:1,enrolled_at:'',sample_rate:16000,_legacy:true};
+ if(raw instanceof Float32Array&&raw.length===13)return {template:Array.from(raw),samples_count:1,enrolled_at:'',sample_rate:16000,_legacy:true};
+ if(raw&&Array.isArray(raw.template)&&raw.template.length===13)return raw;
+ return null;
+}
+async function fmInitTemplate(){fmTemplate=await fmLoadTemplate();updateTrainCard();updateFmButton()}
+
 function updateRibbon(){
- if(!fmActive){RB.hidden=true;FM.setAttribute('aria-pressed','false');FM.textContent=T.fm_on||'Start field mode';FM.setAttribute('aria-label',FM.textContent);VMBOX.hidden=true;return}
- RB.hidden=false;FM.setAttribute('aria-pressed','true');FM.textContent=T.fm_off||'Stop field mode';FM.setAttribute('aria-label',FM.textContent);
- RBT.textContent=T.fm_rib||'Field mode listening. Phrases auto-send. Tap to stop.';
+ if(!fmActive){RB.hidden=true;return}
+ RB.hidden=false;
+ RB.classList.toggle('beat',fmTextOnly);
+ RBT.textContent=fmTextOnly?(T.auto_rib_text||T.auto_rib):(T.auto_rib||T.fm_rib);
  const left=Math.max(0,FM_AUTO_OFF_MS-(Date.now()-fmStartedAt));
  const mins=Math.floor(left/60000);RBD.textContent=mins+'m';
- VMBOX.hidden=false;
+}
+function reflectSlowNet(){
+ // If network drops to slow-2g during auto-listen, switch to text-only beats.
+ if(!fmActive)return;
+ const slow=isSlowNet();
+ if(slow&&!fmTextOnly){fmEnterTextOnly()}
 }
 async function fmStop(reason){
  if(!fmActive)return;
@@ -424,66 +641,144 @@ async function fmStop(reason){
  try{if(fmVad)fmVad.stop()}catch{}fmVad=null;
  try{if(fmStream)fmStream.getTracks().forEach(t=>t.stop())}catch{}fmStream=null;
  if(fmAutoOffTimer){clearTimeout(fmAutoOffTimer);fmAutoOffTimer=null}
+ if(fmTextBeatTimer){clearInterval(fmTextBeatTimer);fmTextBeatTimer=null}
  if(fmBatteryRef){try{fmBatteryRef.removeEventListener('levelchange',fmBatteryWatch)}catch{}fmBatteryRef=null}
- fmRecActive=false;fmRecChunks=[];fmEnrolling=false;fmEnrollSamples=null;
- updateRibbon();
- if(reason==='battery')live(T.fm_batt||'Field mode paused. Battery low.');
- else if(reason==='timeout')live(T.fm_timeout||'Field mode paused. Tap to renew.');
+ fmRecActive=false;fmRecChunks=[];fmTextOnly=false;
+ updateRibbon();updateFmButton();
+ if(reason==='battery')live(T.auto_batt||T.fm_batt);
+ else if(reason==='timeout')live(T.auto_timeout||T.fm_timeout);
+ else live(T.auto_msg_off||'Listening stopped.');
 }
 function fmBatteryWatch(){
  if(!fmBatteryRef)return;
  const p=Math.round(fmBatteryRef.level*100);
  if(p<15&&!fmBatteryRef.charging)fmStop('battery');
 }
-async function fmEnsureTemplate(stream){
- fmTemplate=await _voiceGet();
- if(fmTemplate&&fmTemplate.length===13)return true;
- if(!('AudioContext' in self||'webkitAudioContext' in self))return false;
- fmEnrolling=true;
- live(T.fm_enroll||'Speak for 2 seconds to enrol your voice.');
+
+// 30-second multi-sample voice training. 3 × 10-second utterances.
+// Captures raw float samples into one buffer per take, computes per-take
+// MFCC mean (low-energy frames <1e-3 dropped), then averages the 3 means.
+const TRAIN_PROMPT_KEYS=['tr_p1','tr_p2','tr_p3'];
+const TRAIN_TAKE_MS=10000;
+async function captureTake(stream,ms,onTick){
  const AC=self.AudioContext||self.webkitAudioContext;
  const ctx=new AC();
  if(ctx.state==='suspended')await ctx.resume();
  const src=ctx.createMediaStreamSource(stream);
  const an=ctx.createAnalyser();an.fftSize=2048;an.smoothingTimeConstant=0;src.connect(an);
- const sr=ctx.sampleRate;fmEnrollSr=sr;
- const buf=new Float32Array(Math.ceil(sr*2));let off=0;
+ const sr=ctx.sampleRate;
+ const buf=new Float32Array(Math.ceil(sr*ms/1000));let off=0;
  const tmp=new Float32Array(an.fftSize);
+ const t0=Date.now();
  await new Promise(res=>{
   const tick=()=>{
    an.getFloatTimeDomainData(tmp);
    const take=Math.min(tmp.length,buf.length-off);
    for(let i=0;i<take;i++)buf[off+i]=tmp[i];
    off+=take;
-   if(off>=buf.length){res();return}
-   setTimeout(tick,50);
+   const left=Math.max(0,ms-(Date.now()-t0));
+   if(onTick)onTick(left);
+   if(off>=buf.length||left<=0){res();return}
+   setTimeout(tick,80);
   };tick();
  });
  try{ctx.close()}catch{}
- const vadMod=await import('/vad.js');
- const tpl=vadMod.meanMfcc(buf,sr,{numCoeffs:13});
- fmTemplate=Array.from(tpl);
- await _voicePut(fmTemplate);
- fmEnrolling=false;
- live(T.fm_enroll_ok||'Voice enrolled.');
- return true;
+ return {samples:buf.subarray(0,off),sampleRate:sr};
 }
+function takeMeanMfcc(vadMod,take){
+ // Custom mean MFCC: skip low-energy frames at <1e-3 (training-quality threshold,
+ // tighter than meanMfcc's default 1e-4) so silence between sentences doesn't
+ // drag the template toward zero.
+ const samples=take.samples,sr=take.sampleRate;
+ const numCoeffs=13;
+ const frameLen=Math.max(64,Math.round(0.025*sr));
+ const hopLen=Math.max(32,Math.round(0.010*sr));
+ const out=new Float32Array(numCoeffs);
+ let count=0;
+ for(let start=0;start+frameLen<=samples.length;start+=hopLen){
+  const frame=samples.subarray(start,start+frameLen);
+  if(vadMod.frameRms(frame)<1e-3)continue;
+  const c=vadMod.mfccFrame(frame,sr,{numCoeffs});
+  for(let i=0;i<numCoeffs;i++)out[i]+=c[i];
+  count++;
+ }
+ if(count>0)for(let i=0;i<numCoeffs;i++)out[i]/=count;
+ return {vector:out,validFrames:count};
+}
+async function fmTrainStart(){
+ if(fmTrainBusy||fmActive||rs)return;
+ fmTrainBusy=true;
+ TRSTART.disabled=true;TRAGAIN.disabled=true;
+ TRPROMPT.hidden=false;
+ let stream=null;
+ try{
+  stream=await N.mediaDevices.getUserMedia({audio:{channelCount:1,sampleRate:16000,noiseSuppression:false}});
+  const vadMod=await import('/vad.js');
+  const takes=[];
+  for(let i=0;i<TRAIN_PROMPT_KEYS.length;i++){
+   TRSTEP.textContent=(T.tr_step||'Step')+' '+(i+1)+' '+(T.tr_of||'of')+' '+TRAIN_PROMPT_KEYS.length;
+   TRTEXT.textContent=T[TRAIN_PROMPT_KEYS[i]];
+   live(T.tr_listen||'Listening — speak now.');
+   TRPROG.style.width='0%';
+   const take=await captureTake(stream,TRAIN_TAKE_MS,left=>{
+    const pct=Math.min(100,Math.max(0,((TRAIN_TAKE_MS-left)/TRAIN_TAKE_MS)*100));
+    TRPROG.style.width=pct.toFixed(0)+'%';
+   });
+   const m=takeMeanMfcc(vadMod,take);
+   if(m.validFrames>0)takes.push(m.vector);
+  }
+  if(takes.length===0){live(T.tr_silence||'No speech heard.');return}
+  const avg=vadMod.averageTemplates(takes);
+  const tpl={template:Array.from(avg),samples_count:takes.length,enrolled_at:new Date().toISOString(),sample_rate:takes[0].sampleRate||16000};
+  await _voicePut(tpl);
+  fmTemplate=tpl;
+  live(T.tr_saved||'Voice trained.');
+ }catch(e){
+  live((T.tr_fail||'Voice training failed.')+' '+(e.message||e));
+ }finally{
+  if(stream)try{stream.getTracks().forEach(t=>t.stop())}catch{}
+  fmTrainBusy=false;
+  TRSTART.disabled=false;TRAGAIN.disabled=false;
+  TRPROMPT.hidden=true;TRPROG.style.width='0%';
+  updateTrainCard();updateFmButton();
+ }
+}
+
+// Slow-2g text-only fallback: post a tiny anon heartbeat every 60 s instead
+// of audio uploads. Uses /api/v1/sos/anon (the unauthenticated survivor
+// channel). Body shape mirrors sos-shell.html so the server treats it the
+// same. Best-effort: if the request fails we skip; the next tick retries.
+async function postAnonBeat(){
+ fmTextBeatSeq++;
+ const body={fp:'survivor-pending',seq:fmTextBeatSeq,ts:Math.floor(Date.now()/1000),codes:['need_help'],geo:geo?[parseFloat(geo.split(',')[0]),parseFloat(geo.split(',')[1]),Math.round(geoAcc||0)]:null,bat:null,sig:(N.connection&&N.connection.effectiveType)||'unknown',tap:0,motion:0};
+ try{await fetch('/api/v1/sos/anon',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),keepalive:true})}catch{}
+}
+function fmEnterTextOnly(){
+ fmTextOnly=true;
+ try{if(fmRec&&fmRec.state!=='inactive')fmRec.stop()}catch{}
+ try{if(fmVad)fmVad.stop()}catch{}fmVad=null;
+ if(!fmTextBeatTimer){postAnonBeat();fmTextBeatTimer=setInterval(postAnonBeat,60000)}
+ updateRibbon();
+ live(T.auto_slow||'Audio paused. Text panic only.');
+}
+
 async function fmStart(){
  if(fmActive||rs)return;
  try{
   const vadMod=await import('/vad.js');
   const bitrate=vadMod.pickAudioBitrate(N);
   const maxClipMs=vadMod.pickMaxClipMs(N);
-  if(bitrate===0){live(T.fm_panic_only||'Network too slow for audio. Use the panic button.');return}
-  fmStream=await N.mediaDevices.getUserMedia({audio:{channelCount:1,sampleRate:16000,noiseSuppression:false}});
-  if(VM.checked){const okT=await fmEnsureTemplate(fmStream);if(!okT)live(T.fm_no_voice||'Voice gate unavailable; sending all phrases.');}
   fmSessionId=(crypto.randomUUID?crypto.randomUUID():(Date.now()+'-'+Math.random().toString(36).slice(2,10)));
-  fmStartedAt=Date.now();fmActive=true;
+  fmStartedAt=Date.now();fmActive=true;fmTextOnly=false;fmTextBeatSeq=0;
   fmAutoOffTimer=setTimeout(()=>fmStop('timeout'),FM_AUTO_OFF_MS);
   if(N.getBattery){try{fmBatteryRef=await N.getBattery();fmBatteryRef.addEventListener('levelchange',fmBatteryWatch);fmBatteryWatch()}catch{}}
+  updateFmButton();
+  if(bitrate===0){fmEnterTextOnly();return}
+  fmStream=await N.mediaDevices.getUserMedia({audio:{channelCount:1,sampleRate:16000,noiseSuppression:false}});
+  const gateActive=!!fmTemplate&&!VM.checked;
   fmVad=new vadMod.EnergyZcrVad();
   fmVad.addEventListener('phrase-start',()=>{
-   if(fmRecActive)return;
+   if(fmRecActive||fmTextOnly)return;
    try{
     const m=['audio/webm;codecs=opus','audio/ogg;codecs=opus'].find(t=>MediaRecorder.isTypeSupported(t))||'';
     fmRec=new MediaRecorder(fmStream,m?{mimeType:m,audioBitsPerSecond:bitrate}:{audioBitsPerSecond:bitrate});
@@ -494,16 +789,22 @@ async function fmStart(){
      const b=new Blob(fmRecChunks,{type:fmRec.mimeType||'audio/webm'});
      fmRecChunks=[];
      if(b.size<=500)return;
-     if(VM.checked&&fmTemplate&&fmTemplate.length===13&&fmVad&&fmVad.phraseBuffer&&fmVad.phraseBuffer.length>0){
+     if(gateActive&&fmVad&&fmVad.phraseBuffer&&fmVad.phraseBuffer.length>0){
       try{
        const sm=new vadMod.SpeakerMfcc();
-       const score=sm.match(Float32Array.from(fmTemplate),fmVad.phraseBuffer,fmEnrollSr||16000);
+       const score=sm.match(fmTemplate,fmVad.phraseBuffer,fmTemplate.sample_rate||16000);
        if(score<FM_VOICE_MATCH_FLOOR)return;
       }catch{}
      }
      let bt=null;if(N.getBattery){try{const x=await N.getBattery();bt=Math.round(x.level*100)}catch{}}
      const c=N.connection,now=new Date().toISOString();
-     await enq({capturedAt:now,status:'pending',blob:b,mime:b.type||'audio/webm',ts:now,geo,geoAcc,geoSrc,bat:bt,lang:N.language||'en-IN',net:c&&c.effectiveType||'',field_mode_session_id:fmSessionId,lastError:''});
+     const _fmM=snapshotMotion();
+     await enq({capturedAt:now,status:'pending',blob:b,mime:b.type||'audio/webm',ts:now,geo,geoAcc,geoSrc,
+      altitude:geoAlt,altitudeAccuracy:geoAltAcc,heading:geoHeading,speed:geoSpeed,
+      pressure:envPressure,pressureBaseline:envPressureBaseline,
+      motionPeak:_fmM.peak,motionRms:_fmM.rms,btPeers:btPeers,
+      bat:bt,lang:N.language||'en-IN',net:c&&c.effectiveType||'',field_mode_session_id:fmSessionId,lastError:''});
+     live(T.auto_phrase||'Phrase captured.');
     };
     fmRec.start();fmRecActive=true;
     fmRecTimer=setTimeout(()=>{try{fmRec.state!=='inactive'&&fmRec.stop()}catch{}},maxClipMs);
@@ -515,14 +816,35 @@ async function fmStart(){
    try{fmRec.state!=='inactive'&&fmRec.stop()}catch{}
   });
   await fmVad.start(fmStream);
+  if(!gateActive&&!fmTemplate)live(T.fm_no_voice||'Voice gate unavailable; sending all phrases.');
   updateRibbon();
-  live(T.fm_on_msg||'Field mode active.');
+  live(T.auto_msg_on||T.fm_on_msg);
   // Refresh the ribbon countdown every 30 s.
   const tick=()=>{if(fmActive){updateRibbon();setTimeout(tick,30000)}};setTimeout(tick,30000);
  }catch(e){fmStop('error');live((T.fx||'Failed.')+' '+(e.message||e))}
 }
-A(FM,'click',()=>{if(fmActive)fmStop('user');else fmStart()});
+A(FM,'click',()=>{if(FM.disabled)return;if(fmActive)fmStop('user');else fmStart()});
 A(RB,'click',()=>fmStop('user'));
+A(TRSTART,'click',()=>fmTrainStart());
+A(TRAGAIN,'click',()=>fmTrainStart());
+
+// Permissions check. Surfaces mic/geo/notification permission state so users
+// can debug "why didn't it record". permissions.query() unsupported on Safari
+// for some names — render "unknown" in that case.
+async function showPerms(){
+ const out=[];
+ const q=async name=>{try{const r=await N.permissions.query({name});return r&&r.state||'unknown'}catch{return 'unknown'}};
+ const map={granted:T.perms_granted,denied:T.perms_denied,prompt:T.perms_prompt,unknown:T.perms_unknown};
+ const mic=N.permissions?await q('microphone'):'unknown';
+ const gp=N.permissions?await q('geolocation'):'unknown';
+ const nt=(self.Notification&&Notification.permission)||(N.permissions?await q('notifications'):'unknown');
+ out.push(T.perms_mic+': '+(map[mic]||mic));
+ out.push(T.perms_geo+': '+(map[gp]||gp));
+ out.push(T.perms_notif+': '+(map[nt]||nt));
+ PERMSOUT.textContent=out.join(' · ');
+ PERMSOUT.hidden=false;
+}
+A(PERMSBTN,'click',showPerms);
 
 await renderQ();await renderT();
 if(N.onLine){flush();startPoll()}

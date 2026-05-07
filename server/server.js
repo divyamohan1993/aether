@@ -171,7 +171,7 @@ function applyCors(req, res) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Client-Id, X-Client-Clip-Id, X-Client-Lang, X-Client-Geo, X-Client-Geo-Accuracy, X-Client-Geo-Source, X-Client-Battery, X-Client-Network, X-Client-Timestamp, Authorization, X-Action-Sig, X-Action-Ts, X-Action-Key-Id, X-NDMA-Event-Token');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Client-Id, X-Client-Clip-Id, X-Client-Lang, X-Client-Geo, X-Client-Geo-Accuracy, X-Client-Geo-Source, X-Client-Altitude, X-Client-Altitude-Accuracy, X-Client-Heading, X-Client-Speed, X-Client-Pressure, X-Client-Pressure-Baseline, X-Client-Motion-Peak, X-Client-Motion-Rms, X-Client-Bt-Peers, X-Client-Battery, X-Client-Network, X-Client-Timestamp, Authorization, X-Action-Sig, X-Action-Ts, X-Action-Key-Id, X-NDMA-Event-Token');
     res.setHeader('Access-Control-Max-Age', '86400');
   }
 }
@@ -297,6 +297,9 @@ const STATIC_ROUTES = {
   '/sos': { file: 'sos-shell.html', mime: 'text/html; charset=utf-8' },
   '/sos/': { file: 'sos-shell.html', mime: 'text/html; charset=utf-8' },
   '/sos-shell.html': { file: 'sos-shell.html', mime: 'text/html; charset=utf-8' },
+  // Legal notice. DPDPA + IT Act + Disaster Management Act notice.
+  '/legal': { file: 'legal.html', mime: 'text/html; charset=utf-8' },
+  '/legal.html': { file: 'legal.html', mime: 'text/html; charset=utf-8' },
   // i18n packs for the SOS PWA + dispatcher locale switcher (wave-3b).
   // 11 lazy-loaded packs; en/hi/ta/bn stay inline for first paint.
   '/i18n/ml.json':  { file: 'i18n/ml.json',  mime: 'application/json; charset=utf-8' },
@@ -369,6 +372,71 @@ function fingerprintForCaller(msisdn, ip) {
   if (!seed) return null;
   const h = createHash('sha256').update(`aether-caller:${seed}`).digest('base64');
   return h.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '').slice(0, 24);
+}
+
+// Fuse the collected triangulation signals into a 0..1 confidence score
+// and a depth-below-surface estimate (metres). The math is intentionally
+// simple — it has to run on every dispatch persist and survive
+// missing-data — but it gives the SDRF dispatcher a numeric handle.
+//
+// Sources contribute additively to confidence:
+//   GPS lat/lng with accuracy <= 50 m   +0.45
+//   GPS lat/lng with accuracy <= 200 m  +0.25
+//   Altitude with accuracy <= 30 m      +0.10
+//   Pressure reading                    +0.10
+//   Motion sample (proves device live)  +0.05
+//   Bluetooth peers >= 1                +0.05 per peer up to +0.20
+//   Phone-verified caller (telco)       +0.10
+//
+// Depth estimate uses standard atmosphere: ~12 Pa per metre near sea
+// level. Returns negative depth (= height above surface ref) when the
+// device is HIGHER than the baseline. Only valid when both pressure
+// readings are recent (same dispatch envelope is fine for MVP).
+function fuseTriangulation(signals) {
+  const s = signals || {};
+  let conf = 0;
+  const sources = [];
+  const loc = s.location;
+  if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
+    sources.push('gps');
+    if (Number.isFinite(loc.accuracy_m)) {
+      if (loc.accuracy_m <= 50) conf += 0.45;
+      else if (loc.accuracy_m <= 200) conf += 0.25;
+      else if (loc.accuracy_m <= 1000) conf += 0.10;
+    } else { conf += 0.20; }
+  }
+  if (Number.isFinite(s.altitude_m)) {
+    sources.push('altitude');
+    if (Number.isFinite(s.altitude_accuracy_m) && s.altitude_accuracy_m <= 30) conf += 0.10;
+    else conf += 0.04;
+  }
+  if (Number.isFinite(s.pressure_hpa)) { sources.push('pressure'); conf += 0.10; }
+  if (Number.isFinite(s.motion_rms_g) && s.motion_rms_g > 0.1) { sources.push('motion'); conf += 0.05; }
+  if (Number.isFinite(s.bluetooth_peers) && s.bluetooth_peers > 0) {
+    sources.push('bluetooth');
+    conf += Math.min(0.20, s.bluetooth_peers * 0.05);
+  }
+  if (s.phone_verified === true) { sources.push('telco'); conf += 0.10; }
+  if (conf > 1) conf = 1;
+
+  let depth_estimate_m = null;
+  let depth_method = null;
+  if (Number.isFinite(s.pressure_hpa) && Number.isFinite(s.pressure_baseline_hpa)) {
+    // Pa per metre near sea level. Negative depth means above baseline.
+    const dPa = (s.pressure_hpa - s.pressure_baseline_hpa) * 100;
+    depth_estimate_m = Math.round((dPa / 12) * 10) / 10;
+    depth_method = 'pressure_delta';
+  } else if (Number.isFinite(s.altitude_m) && Number.isFinite(loc?.altitude_m)) {
+    // Fallback: altitude_m vs. an earlier-stored ground-level altitude_m.
+    // Not used yet; placeholder for future surface-reference table.
+    depth_estimate_m = null;
+  }
+  return {
+    confidence_score: Math.round(conf * 100) / 100,
+    confidence_sources: sources,
+    depth_estimate_m,
+    depth_method
+  };
 }
 
 async function persistDispatch(d) {
@@ -481,6 +549,15 @@ async function persistDispatch(d) {
     frequency_anomaly: d.frequency_anomaly || null,
     geo_anomaly: d.geo_anomaly || null,
     location: d.location || null,
+    altitude_m: Number.isFinite(d.altitude_m) ? d.altitude_m : null,
+    altitude_accuracy_m: Number.isFinite(d.altitude_accuracy_m) ? d.altitude_accuracy_m : null,
+    heading_deg: Number.isFinite(d.heading_deg) ? d.heading_deg : null,
+    speed_mps: Number.isFinite(d.speed_mps) ? d.speed_mps : null,
+    pressure_hpa: Number.isFinite(d.pressure_hpa) ? d.pressure_hpa : null,
+    pressure_baseline_hpa: Number.isFinite(d.pressure_baseline_hpa) ? d.pressure_baseline_hpa : null,
+    motion_peak_g: Number.isFinite(d.motion_peak_g) ? d.motion_peak_g : null,
+    motion_rms_g: Number.isFinite(d.motion_rms_g) ? d.motion_rms_g : null,
+    bluetooth_peers: Number.isFinite(d.bluetooth_peers) ? d.bluetooth_peers : null,
     triage: d.triage || null,
     audio_bytes: d.audioBytes,
     audio_mime: d.audioMime,
@@ -500,6 +577,19 @@ async function persistDispatch(d) {
     worker_summary_text: workerSummary,
     criticality_score,
     criticality_breakdown,
+    location_confidence: (() => {
+      const fused = fuseTriangulation({
+        location: d.location,
+        altitude_m: d.altitude_m,
+        altitude_accuracy_m: d.altitude_accuracy_m,
+        pressure_hpa: d.pressure_hpa,
+        pressure_baseline_hpa: d.pressure_baseline_hpa,
+        motion_rms_g: d.motion_rms_g,
+        bluetooth_peers: d.bluetooth_peers,
+        phone_verified: d.caller_identity?.phone_verified === true
+      });
+      return fused;
+    })(),
     geohash7,
     transcript_minhash_b64,
     cluster_id,
@@ -756,6 +846,25 @@ async function handleTriage(req, res, ctx) {
   const battery = sanitizeHeader(req.headers['x-client-battery']);
   const network = sanitizeHeader(req.headers['x-client-network']);
   const clientTs = sanitizeHeader(req.headers['x-client-timestamp']);
+  // Triangulation telemetry. All optional. server fuses available signals
+  // into a confidence_score (0..1) and an estimated depth_m for buried
+  // survivors. Headers are sanity-clamped to defend against fuzzing.
+  const _numH = (name, lo, hi) => {
+    const v = sanitizeHeader(req.headers[name]);
+    if (!v) return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < lo || n > hi) return null;
+    return n;
+  };
+  const altitude_m = _numH('x-client-altitude', -500, 9000);
+  const altitude_accuracy_m = _numH('x-client-altitude-accuracy', 0, 50000);
+  const heading_deg = _numH('x-client-heading', 0, 360);
+  const speed_mps = _numH('x-client-speed', 0, 1000);
+  const pressure_hpa = _numH('x-client-pressure', 200, 1100);
+  const pressure_baseline_hpa = _numH('x-client-pressure-baseline', 200, 1100);
+  const motion_peak_g = _numH('x-client-motion-peak', 0, 50);
+  const motion_rms_g = _numH('x-client-motion-rms', 0, 50);
+  const bluetooth_peers = _numH('x-client-bt-peers', 0, 10000);
   const id = randomUUID();
   const receivedAt = new Date().toISOString();
   let location = null;
@@ -845,7 +954,10 @@ async function handleTriage(req, res, ctx) {
       noise_gate: noiseGate,
       noise_gate_reason: noiseGate === 'failed' ? 'no_disaster_signal' : null,
       frequency_anomaly: frequencyAnomaly,
-      geo_anomaly: geoAnomaly
+      geo_anomaly: geoAnomaly,
+      altitude_m, altitude_accuracy_m, heading_deg, speed_mps,
+      pressure_hpa, pressure_baseline_hpa,
+      motion_peak_g, motion_rms_g, bluetooth_peers
     }).catch((err) => logJson('WARNING', {
       fn: 'persistDispatch', requestId: ctx.requestId, msg: 'dispatch_persist_failed', err: String(err)
     }));

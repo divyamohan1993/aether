@@ -30,7 +30,10 @@ die()  { printf '\033[1;31m[aether]\033[0m %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "Required command '$1' not found."; }
 
 need gcloud
-need docker
+# Docker is no longer required locally — `gcloud builds submit` runs the
+# container build remotely on Cloud Build. Kept the check optional so a
+# local-build path can be added later without re-introducing the line.
+command -v docker >/dev/null 2>&1 || log "docker not on PATH; using Cloud Build (remote)"
 
 ACTIVE_ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' || true)"
 [[ -n "${ACTIVE_ACCOUNT}" ]] || die "Run 'gcloud auth login' first."

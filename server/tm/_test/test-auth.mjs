@@ -5,25 +5,19 @@
 //
 // Covers:
 //   - low-level helpers (b64/utf8/eqBytes)
-//   - server keypair load
 //   - compact bearer issue/verify (cache and Firestore paths)
 //   - per-action HMAC sig: roundtrip, ts skew, replay, key rotation
 //   - canonical message bytes: client (browser bundle) === server
-//   - challenge issue / consume / expiry
+//   - password login + register (scrypt hash + verify, timing mask)
 //   - middleware façade (requireSession, extractBearer)
 
-import { ml_dsa65 } from '@noble/post-quantum/ml-dsa.js';
-import { randomUUID, createHmac, webcrypto } from 'node:crypto';
+import { randomUUID, webcrypto } from 'node:crypto';
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 
 import {
   signSession,
   verifySession,
-  verifyUserSig,
-  issueChallenge,
-  consumeChallenge,
-  challengeMessageBytes,
   randomBytes32,
   b64u,
   b64uDec,
@@ -32,19 +26,19 @@ import {
   utf8,
   utf8Dec,
   eqBytes,
-  getServerPub,
-  getServerPubB64,
-  isServerKeyEphemeral,
   hmacB64u,
+  hashPassword,
+  verifyPassword,
+  handleLogin,
+  handleRegister,
+  handleBootstrap,
   requireFreshHmacSig,
   _setFirestoreForTest as setAuthFirestore,
   _setUsersForTest as setAuthUsers,
   _clearReplayStoreForTest,
   _clearSessionCacheForTest,
   _getSessionEntryForTest,
-  CHALLENGE_TTL_SECS,
   SESSION_TTL_SECS,
-  CHALLENGE_DOMAIN,
   ACTION_TS_SKEW_SECS,
   ACTION_KEY_GRACE_SECS
 } from '../auth.js';
@@ -130,12 +124,21 @@ setAuthFirestore(fakeFs);
   ok('eqBytes match', eqBytes(new Uint8Array([1, 2]), new Uint8Array([1, 2])));
 }
 
-// 2. Server keypair loaded.
+// 2. Password hash + verify roundtrip.
 {
-  const pub = getServerPub();
-  ok('server pub length 1952', pub.length === 1952);
-  ok('server pub b64 decodes', b64Dec(getServerPubB64()).length === 1952);
-  ok('server key ephemeral flag is boolean', typeof isServerKeyEphemeral() === 'boolean');
+  const cred = hashPassword('aether-demo-2026');
+  ok('hashPassword salt b64u 16 bytes', b64uDec(cred.saltB64u).length === 16);
+  ok('hashPassword hash b64u 32 bytes', b64uDec(cred.hashB64u).length === 32);
+  ok('verifyPassword good', verifyPassword('aether-demo-2026', cred.saltB64u, cred.hashB64u));
+  ok('verifyPassword wrong', !verifyPassword('not-the-password', cred.saltB64u, cred.hashB64u));
+  ok('verifyPassword empty', !verifyPassword('', cred.saltB64u, cred.hashB64u));
+  ok('verifyPassword tampered hash', !verifyPassword('aether-demo-2026', cred.saltB64u, cred.hashB64u.slice(0, -1) + 'A'));
+  // Two distinct hashes for the same password (different salts).
+  const cred2 = hashPassword('aether-demo-2026');
+  ok('hashPassword randomises salt', cred.saltB64u !== cred2.saltB64u);
+  ok('hashPassword randomises hash', cred.hashB64u !== cred2.hashB64u);
+  // Length bounds.
+  expectThrow('hashPassword rejects too-short', () => hashPassword('1234567'), 'bad_password');
 }
 
 // 3. Compact bearer issue + verify.
@@ -174,46 +177,72 @@ setAuthFirestore(fakeFs);
   ok('Firestore-reloaded session repopulated cache', !!_getSessionEntryForTest(tid));
 }
 
-// 4. User signature verify wrapper (still ML-DSA for login + invites).
+// 4. End-to-end password login.
 {
-  const k = ml_dsa65.keygen();
-  const pub_b64 = b64Enc(k.publicKey);
-  const msg = utf8('hello aether');
-  const sig = ml_dsa65.sign(msg, k.secretKey);
-  ok('verifyUserSig good', verifyUserSig(pub_b64, msg, b64Enc(sig)) === true);
-  ok('verifyUserSig wrong msg', verifyUserSig(pub_b64, utf8('hello other'), b64Enc(sig)) === false);
-  await expectThrow('verifyUserSig bad pubkey len', () => { verifyUserSig(b64Enc(new Uint8Array(10)), msg, b64Enc(sig)); }, 'BAD_PUBKEY');
-  await expectThrow('verifyUserSig bad sig len', () => { verifyUserSig(pub_b64, msg, b64Enc(new Uint8Array(10))); }, 'BAD_SIG');
-}
-
-// 5. Challenge issue + consume against fake Firestore.
-{
-  const email = 'commander@ndma.in';
-  const { ch_id, challenge_b64 } = await issueChallenge(email);
-  ok('challenge has ch_id', typeof ch_id === 'string' && ch_id.length > 0);
-  ok('challenge_b64 decodes to 32 bytes', b64Dec(challenge_b64).length === 32);
-  ok('challenge stored', fakeFs.collections.get('tm_challenges').size === 1);
-  const msg = challengeMessageBytes(email, challenge_b64);
-  ok('challenge prefix', utf8Dec(msg).startsWith(CHALLENGE_DOMAIN));
-  const consumed = await consumeChallenge(ch_id);
-  ok('challenge consumed returns doc', consumed && consumed.email === email);
-  ok('challenge deleted after consume', fakeFs.collections.get('tm_challenges').size === 0);
-  const second = await consumeChallenge(ch_id);
-  ok('challenge single-use (null on replay)', second === null);
-}
-
-// 6. Challenge expiry path.
-{
-  const fakeId = await fakeFs.createDoc('tm_challenges', {
-    email: 'old@x.in',
-    challenge_b64: b64Enc(randomBytes32()),
-    expires_at: new Date(Date.now() - 1000).toISOString()
+  _clearSessionCacheForTest();
+  const email = 'asha@hp.gov.in';
+  const password = 'lotus-monsoon-72';
+  const cred = hashPassword(password);
+  const uid = 'u-' + randomUUID();
+  await fakeFs.setDoc('tm_users', uid, {
+    email, name: 'Asha Negi', tier: 40, parent_uid: null,
+    scope_path: 'ndma/HP/Shimla', status: 'active',
+    password_salt_b64u: cred.saltB64u,
+    password_hash_b64u: cred.hashB64u,
+    created_at: new Date().toISOString(), last_login: null
   });
-  const r = await consumeChallenge(fakeId);
-  ok('expired challenge returns null', r === null);
+  await fakeFs.setDoc('tm_user_emails', email, { uid });
+  const fakeUsers = {
+    async lookupByEmailRaw(e) {
+      const idx = await fakeFs.getDoc('tm_user_emails', e);
+      if (!idx) return null;
+      const u = await fakeFs.getDoc('tm_users', idx.uid);
+      return u ? { uid: idx.uid, ...u } : null;
+    },
+    async getMe(actor) {
+      const u = await fakeFs.getDoc('tm_users', actor.uid);
+      if (!u) throw Object.assign(new Error('not_found'), { code: 'user_not_found', status: 404 });
+      return { uid: actor.uid, ...u };
+    },
+    async touchLastLogin() {},
+    tierName: (t) => ({ 100: 'ndma', 80: 'sdma', 60: 'ddma', 40: 'subdivisional', 20: 'volunteer', 10: 'survivor' }[t] || 'unknown')
+  };
+  setAuthUsers(fakeUsers);
+
+  const r = await handleLogin({ email, password });
+  ok('handleLogin returns token', typeof r.token === 'string' && r.token.length > 0);
+  ok('handleLogin returns user.uid', r.user.uid === uid);
+  ok('handleLogin returns tier_name', r.user.tier_name === 'subdivisional');
+  ok('handleLogin returns action_key_b64', typeof r.action_key_b64 === 'string' && b64Dec(r.action_key_b64).length === 32);
+
+  // Round-trip through the bearer.
+  const session = await verifySession(r.token);
+  ok('login bearer verifies', session.uid === uid);
+
+  // Wrong password.
+  await expectThrow('handleLogin rejects wrong password', async () => {
+    await handleLogin({ email, password: 'wrong-password' });
+  }, 'bad_credentials');
+
+  // Unknown email — same code, masks account existence.
+  await expectThrow('handleLogin rejects unknown email', async () => {
+    await handleLogin({ email: 'nobody@unknown.in', password });
+  }, 'bad_credentials');
+
+  // Suspended account.
+  await fakeFs.setDoc('tm_users', uid, {
+    ...(await fakeFs.getDoc('tm_users', uid)), status: 'suspended'
+  });
+  await expectThrow('handleLogin rejects suspended', async () => {
+    await handleLogin({ email, password });
+  }, 'account_suspended');
+  // Reactivate for downstream tests.
+  await fakeFs.setDoc('tm_users', uid, {
+    ...(await fakeFs.getDoc('tm_users', uid)), status: 'active'
+  });
 }
 
-// 7. canonical bytes parity: client bundle === server canonical.
+// 5. canonical bytes parity: client bundle === server canonical.
 {
   ok('CRITICAL_ACTIONS list non-empty', CRITICAL_ACTIONS.length === 10);
   ok('isCriticalAction recognises dispatch.assign', isCriticalAction('dispatch.assign'));
@@ -250,23 +279,18 @@ setAuthFirestore(fakeFs);
   await expectThrow('canonical rejects empty action', () => canonicalActionMessage({ uid: 'u', action: '', target: 't', ts: 1, key_id: 'k' }), 'canonical_bad_action');
 }
 
-// 8. End-to-end HMAC roundtrip.
+// 6. End-to-end HMAC roundtrip.
 {
   _clearSessionCacheForTest();
   _clearReplayStoreForTest();
 
-  const userKey = ml_dsa65.keygen();
   const uid = 'u-' + randomUUID();
   await fakeFs.setDoc('tm_users', uid, {
-    email: 'asha@hp.gov.in',
-    name: 'Asha Negi',
-    tier: 40,
-    parent_uid: null,
-    scope_path: 'ndma/HP/Shimla',
-    pubkey_b64: b64Enc(userKey.publicKey),
-    status: 'active',
-    created_at: new Date().toISOString(),
-    last_login: null
+    email: 'asha2@hp.gov.in', name: 'Asha Negi', tier: 40, parent_uid: null,
+    scope_path: 'ndma/HP/Shimla', status: 'active',
+    password_salt_b64u: 'AAAAAAAAAAAAAAAAAAAAAA',
+    password_hash_b64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    created_at: new Date().toISOString(), last_login: null
   });
   setAuthUsers({
     async getMe(actor) {
@@ -354,7 +378,7 @@ setAuthFirestore(fakeFs);
   }, 'action_key_unknown');
 }
 
-// 9. Client bundle HMAC matches server hmac (parity at the byte level).
+// 7. Client bundle HMAC matches server hmac (parity at the byte level).
 {
   const action_key_bytes = randomBytes32();
   const args = { uid: 'parity-uid', action: 'dispatch.assign', target: 'dispatch.assign|d|u', ts: 1714900042, key_id: 'kP' };
@@ -364,7 +388,7 @@ setAuthFirestore(fakeFs);
   ok('client HMAC === server HMAC', serverSig === clientSig);
 }
 
-// 10. Middleware façade unchanged surface.
+// 8. Middleware façade unchanged surface.
 {
   await expectThrow('extractBearer rejects oversize', async () => {
     extractBearer({ authorization: 'Bearer ' + 'a'.repeat(20000) });
@@ -382,9 +406,12 @@ setAuthFirestore(fakeFs);
   await expectThrow('requireSession empty bearer', async () => requireSession({}, { authorization: 'Bearer ' }), 'AUTH_EMPTY');
 }
 
-// 11. ACTION_KEY_GRACE_SECS is the documented value (informational).
+// 9. ACTION_KEY_GRACE_SECS is the documented value (informational).
 {
   ok('ACTION_KEY_GRACE_SECS is 30', ACTION_KEY_GRACE_SECS === 30);
+  ok('SESSION_TTL_SECS is 1800', SESSION_TTL_SECS === 1800);
+  ok('handleRegister is exported', typeof handleRegister === 'function');
+  ok('handleBootstrap is exported', typeof handleBootstrap === 'function');
 }
 
 if (failed === 0) {

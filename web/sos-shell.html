@@ -2,11 +2,11 @@
 <html lang=en><head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name=theme-color content="#000">
+<meta name=theme-color content="#050505">
 <title>SOS Aether</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{background:#000;color:#fff;font:16px/1.4 system-ui,sans-serif;height:100%;overscroll-behavior:none}
+html,body{background:#050505;color:#fff;font:16px/1.4 system-ui,sans-serif;height:100%;overscroll-behavior:none;font-variant-numeric:tabular-nums}
 body{display:flex;flex-direction:column;padding:8px;gap:8px;-webkit-tap-highlight-color:transparent}
 h1{font-size:14px;font-weight:600;text-align:center;color:#ddd;letter-spacing:.5px}
 #sos{flex:0 0 38vh;min-height:200px;background:#c00;color:#fff;border:0;border-radius:16px;font-size:28px;font-weight:800;letter-spacing:2px;touch-action:manipulation}
@@ -19,6 +19,7 @@ h1{font-size:14px;font-weight:600;text-align:center;color:#ddd;letter-spacing:.5
 .g button:focus,#sos:focus{outline:3px solid #ff0;outline-offset:2px}
 #st{font-size:12px;text-align:center;color:#9c9;min-height:32px;padding:4px;border:1px solid #222;border-radius:6px;background:#0a0a0a;word-break:break-word}
 #st.e{color:#f88;border-color:#622}
+.tr-link{display:block;text-align:center;font-size:11px;color:#9bb6e0;text-decoration:underline;padding:6px;min-height:28px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 <body>
@@ -26,6 +27,7 @@ h1{font-size:14px;font-weight:600;text-align:center;color:#ddd;letter-spacing:.5
 <button id=sos aria-label="Send SOS. Hold for one second.">HOLD TO SEND SOS</button>
 <div class=g id=cg role=group aria-label="Panic codes. Tap any to add to your next signal."></div>
 <div id=st role=status aria-live=polite>Ready. No data has been sent yet.</div>
+<a class=tr-link href="/" rel=noopener>Set up voice training in the full app</a>
 <script>
 "use strict";
 const C=[

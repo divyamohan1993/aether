@@ -5,14 +5,16 @@
 <meta name=theme-color content="#000000">
 <meta name=color-scheme content=dark>
 <meta name=robots content="noindex,nofollow">
-<title>Aether Task Manager</title>
+<title>NDMA Aether — Task Manager</title>
+<meta name="description" content="National Disaster Management Authority chain-of-command task manager. NDMA → SDMA → DDMA → Subdivisional → Volunteer.">
 <link rel=icon href=/favicon.svg type=image/svg+xml>
 <link rel=stylesheet href=tm.css>
 </head>
 <body data-route=loading>
 <a href=#main class=skip>Skip to content</a>
+<div class=gov role=contentinfo aria-label="Government of India · NDMA"><b>भारत सरकार</b><span>·</span><span class=ms>NDMA · National Disaster Management Authority</span></div>
 <header role=banner>
- <a href="#/" class=logo aria-label="Aether Task Manager home">Aether<span> TM</span></a>
+ <a href="#/" class=logo aria-label="NDMA Aether Task Manager home">Aether<span> TM</span></a>
  <nav id=nav aria-label="Primary">
   <a href="#/" data-r=dash>Dashboard</a>
   <a href="#/projects" data-r=projects>Projects</a>
@@ -24,21 +26,7 @@
  </nav>
 </header>
 <main id=main role=main aria-live=polite aria-busy=true>
- <p class=muted>Loading.</p>
+ <div class=skel aria-hidden=true></div>
 </main>
-<dialog id=dlgSign aria-labelledby=dlgSignTitle>
- <form id=fSign>
-  <h2 id=dlgSignTitle>Confirm with your passphrase</h2>
-  <p id=dlgSignDesc class=muted>This action requires a fresh signature.</p>
-  <label for=dlgPass>Passphrase
-   <input type=password id=dlgPass autocomplete=current-password required>
-  </label>
-  <p id=dlgErr role=alert class=err></p>
-  <div class=row>
-   <button type=button id=dlgCancel>Cancel</button>
-   <button type=submit id=dlgOk>Sign and submit</button>
-  </div>
- </form>
-</dialog>
 <script type=module src=tm.js></script>
 </body></html>

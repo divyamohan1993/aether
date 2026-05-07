@@ -12,8 +12,41 @@ const DB_ID = process.env.FIRESTORE_DB || '(default)';
 const HOST = 'firestore.googleapis.com';
 const BASE = `/v1/projects/${PROJECT_ID}/databases/${encodeURIComponent(DB_ID)}/documents`;
 
-const agent = new HttpsAgent({ keepAlive: true, maxSockets: 32, keepAliveMsecs: 30_000 });
-const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/datastore'] });
+// MLP / fresh-each-run mode. When TM_EPHEMERAL_MODE=1 is set, every
+// firestore call routes to an in-process Map. No network, no persistence,
+// no idle quota burn. Production deploy leaves it unset and the real
+// Firestore client takes over. Same exported surface; the prod path is
+// untouched. Lookups, queries, and transactions all live in memory and
+// disappear on process exit.
+const EPHEMERAL = process.env.TM_EPHEMERAL_MODE === '1';
+const _mem = new Map(); // key `${collection}/${id}` -> JSON-cloned data
+const _memKey = (c, id) => `${c}/${id}`;
+function _memCloneOut(v) {
+  if (v == null) return v;
+  return JSON.parse(JSON.stringify(v));
+}
+function _memMatchFilters(data, filters) {
+  for (const f of (filters || [])) {
+    const got = data ? data[f.field] : undefined;
+    const want = f.value;
+    switch (f.op) {
+      case '==': if (got !== want) return false; break;
+      case '!=': if (got === want) return false; break;
+      case '<': if (!(got < want)) return false; break;
+      case '<=': if (!(got <= want)) return false; break;
+      case '>': if (!(got > want)) return false; break;
+      case '>=': if (!(got >= want)) return false; break;
+      case 'array-contains': if (!Array.isArray(got) || !got.includes(want)) return false; break;
+      case 'in': if (!Array.isArray(want) || !want.includes(got)) return false; break;
+      case 'not-in': if (Array.isArray(want) && want.includes(got)) return false; break;
+      default: return false;
+    }
+  }
+  return true;
+}
+
+const agent = EPHEMERAL ? null : new HttpsAgent({ keepAlive: true, maxSockets: 32, keepAliveMsecs: 30_000 });
+const auth = EPHEMERAL ? null : new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/datastore'] });
 
 function logJson(severity, fields) {
   const entry = { ts: new Date().toISOString(), severity, ...fields };
@@ -202,6 +235,7 @@ export async function getDoc(collection, id) {
   if (typeof id !== 'string' || id.length === 0) {
     throw new FirestoreError('FS_BAD_REQUEST', 'id is required', 0, null);
   }
+  if (EPHEMERAL) return _memCloneOut(_mem.get(_memKey(collection, id)) || null);
   try {
     const { body } = await fsRequest('GET', `${BASE}/${collection}/${encodeURIComponent(id)}`, null);
     return decodeFields(body?.fields || {});
@@ -213,6 +247,7 @@ export async function getDoc(collection, id) {
 
 // Create or overwrite a document at an explicit ID.
 export async function setDoc(collection, id, data) {
+  if (EPHEMERAL) { _mem.set(_memKey(collection, id), _memCloneOut(data)); return; }
   const fields = encodeFields(data);
   const path = `${BASE}/${collection}/${encodeURIComponent(id)}`;
   await fsRequest('PATCH', path, { fields });
@@ -221,6 +256,13 @@ export async function setDoc(collection, id, data) {
 // Create with auto-generated ID. Returns the assigned ID.
 export async function createDoc(collection, data, explicitId) {
   const id = explicitId || randomUUID();
+  if (EPHEMERAL) {
+    if (_mem.has(_memKey(collection, id))) {
+      throw new FirestoreError('FS_ALREADY_EXISTS', 'doc exists', 409, null);
+    }
+    _mem.set(_memKey(collection, id), _memCloneOut(data));
+    return id;
+  }
   const fields = encodeFields(data);
   const path = `${BASE}/${collection}/${encodeURIComponent(id)}`;
   // currentDocument.exists=false ensures create-only semantics.
@@ -232,6 +274,13 @@ export async function createDoc(collection, data, explicitId) {
 // top-level keys of `data`. Caller is responsible for splitting nested
 // updates if needed.
 export async function patchDoc(collection, id, data) {
+  if (EPHEMERAL) {
+    const k = _memKey(collection, id);
+    const cur = _mem.get(k);
+    if (!cur) throw new FirestoreError('FS_NOT_FOUND', 'doc not found', 404, null);
+    _mem.set(k, Object.assign({}, cur, _memCloneOut(data)));
+    return;
+  }
   const fields = encodeFields(data);
   const fieldPaths = Object.keys(fields);
   if (fieldPaths.length === 0) return;
@@ -242,6 +291,7 @@ export async function patchDoc(collection, id, data) {
 
 // Delete by ID. No-op on 404.
 export async function deleteDoc(collection, id) {
+  if (EPHEMERAL) { _mem.delete(_memKey(collection, id)); return; }
   try {
     await fsRequest('DELETE', `${BASE}/${collection}/${encodeURIComponent(id)}`, null);
   } catch (e) {
@@ -252,6 +302,13 @@ export async function deleteDoc(collection, id) {
 
 // Atomic fetch-and-delete. Used for one-shot challenge consumption.
 export async function fetchAndDelete(collection, id) {
+  if (EPHEMERAL) {
+    const k = _memKey(collection, id);
+    const v = _mem.get(k);
+    if (!v) return null;
+    _mem.delete(k);
+    return _memCloneOut(v);
+  }
   const beg = await fsRequest('POST', `${BASE}:beginTransaction`, { options: { readWrite: {} } });
   const tx = beg.body?.transaction;
   if (!tx) throw new FirestoreError('FS_TRANSPORT', 'no transaction id returned', 0, null);
@@ -333,6 +390,29 @@ export async function runQuery(parent, structuredQuery) {
 
 // Convenience query. Returns [{id, data}].
 export async function queryDocs(collection, filters, opts) {
+  if (EPHEMERAL) {
+    const out = [];
+    const prefix = collection + '/';
+    for (const [k, v] of _mem.entries()) {
+      if (!k.startsWith(prefix)) continue;
+      if (!_memMatchFilters(v, filters)) continue;
+      out.push({ id: k.slice(prefix.length), data: _memCloneOut(v) });
+    }
+    if (opts?.orderBy) {
+      const ob = Array.isArray(opts.orderBy) ? opts.orderBy[0] : opts.orderBy;
+      const field = typeof ob === 'string' ? ob : ob.field;
+      const dir = typeof ob === 'object' && ob.direction === 'desc' ? -1 : 1;
+      out.sort((a, b) => {
+        const av = a.data?.[field], bv = b.data?.[field];
+        if (av < bv) return -1 * dir;
+        if (av > bv) return 1 * dir;
+        return 0;
+      });
+    }
+    if (opts?.offset) out.splice(0, Math.floor(opts.offset));
+    if (typeof opts?.limit === 'number' && opts.limit > 0) out.length = Math.min(out.length, Math.floor(opts.limit));
+    return out;
+  }
   const sq = buildStructuredQuery(collection, filters, opts);
   const rows = await runQuery(BASE, sq);
   return rows.map((r) => ({ id: r.id, data: r.data }));
@@ -340,6 +420,15 @@ export async function queryDocs(collection, filters, opts) {
 
 // Aggregation count for a structured query. Returns integer.
 export async function countQuery(collection, filters) {
+  if (EPHEMERAL) {
+    let n = 0;
+    const prefix = collection + '/';
+    for (const [k, v] of _mem.entries()) {
+      if (!k.startsWith(prefix)) continue;
+      if (_memMatchFilters(v, filters)) n++;
+    }
+    return n;
+  }
   const sq = buildStructuredQuery(collection, filters, null);
   const path = `${BASE}:runAggregationQuery`;
   const aggReq = {
@@ -360,6 +449,40 @@ export async function countQuery(collection, filters) {
 // Run a function inside a transaction. The handle exposes immediate
 // reads (transaction-bound) and queued writes (committed on success).
 export async function runTransaction(fn) {
+  if (EPHEMERAL) {
+    // In-memory transaction: stage writes locally, commit only if the
+    // user-supplied fn resolves. Reads see the live store; writes are
+    // visible only after commit. Concurrent transactions are not
+    // protected — Node.js is single-threaded and ephemeral mode is for
+    // dev/MLP, not contention.
+    const staged = [];
+    const handle = {
+      async get(c, id) { return _memCloneOut(_mem.get(_memKey(c, id)) || null); },
+      create(c, data, explicitId) {
+        const id = explicitId || randomUUID();
+        if (_mem.has(_memKey(c, id))) {
+          throw new FirestoreError('FS_ALREADY_EXISTS', 'doc exists', 409, null);
+        }
+        staged.push({ op: 'set', c, id, data: _memCloneOut(data) });
+        return id;
+      },
+      set(c, id, data) { staged.push({ op: 'set', c, id, data: _memCloneOut(data) }); },
+      update(c, id, data) {
+        const cur = _mem.get(_memKey(c, id));
+        if (!cur) throw new FirestoreError('FS_NOT_FOUND', 'doc not found', 404, null);
+        staged.push({ op: 'merge', c, id, data: _memCloneOut(data) });
+      },
+      delete(c, id) { staged.push({ op: 'del', c, id }); }
+    };
+    const result = await fn(handle);
+    for (const w of staged) {
+      const k = _memKey(w.c, w.id);
+      if (w.op === 'set') _mem.set(k, w.data);
+      else if (w.op === 'merge') _mem.set(k, Object.assign({}, _mem.get(k) || {}, w.data));
+      else if (w.op === 'del') _mem.delete(k);
+    }
+    return result;
+  }
   const beg = await fsRequest('POST', `${BASE}:beginTransaction`, { options: { readWrite: {} } });
   const tx = beg.body?.transaction;
   if (!tx) throw new FirestoreError('FS_TRANSPORT', 'no transaction id returned', 0, null);
@@ -412,6 +535,14 @@ export async function runTransaction(fn) {
     throw e;
   }
 }
+
+// Test/admin hook. Wipes the in-memory store. Real Firestore is left
+// untouched; this only affects EPHEMERAL mode.
+export function _resetEphemeralStore() {
+  if (EPHEMERAL) _mem.clear();
+}
+
+export function isEphemeralMode() { return EPHEMERAL; }
 
 export const config = Object.freeze({
   projectId: PROJECT_ID,

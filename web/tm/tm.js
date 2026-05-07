@@ -1,10 +1,8 @@
-import {generateKeypair,encryptPriv,decryptPriv,sign,hmacActionSig,canonicalActionMessage,wrapKeyringForExport,unwrapKeyringFromImport,generateMnemonic,encodeQrPayload,decodeQrPayload,b64,b64Dec,b64u,b64uDec,utf8,utf8Dec} from './auth-client.js';
+import {hmacActionSig,canonicalActionMessage,b64,b64Dec,b64u,b64uDec,utf8,utf8Dec} from './auth-client.js';
 
 const API='/api/v1/tm';
 const SS='aether-tm-session';
 const DB='aether-tm';
-const STORE='keyrings';
-const DOMAIN='aether-tm:v1:';
 
 const L={
 en:{
@@ -153,7 +151,8 @@ function _idbOpen(){return new Promise((res,rej)=>{
  const r=indexedDB.open(DB,3);
  r.onupgradeneeded=()=>{
   const d=r.result;
-  if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:'email'});
+  // Legacy 'keyrings' store retained on schema so pre-password-auth IDBs upgrade cleanly.
+  if(!d.objectStoreNames.contains('keyrings'))d.createObjectStore('keyrings',{keyPath:'email'});
   if(!d.objectStoreNames.contains(STORE_SESS))d.createObjectStore(STORE_SESS);
   if(!d.objectStoreNames.contains(STORE_SKEY))d.createObjectStore(STORE_SKEY);
   if(!d.objectStoreNames.contains(STORE_PREFS))d.createObjectStore(STORE_PREFS);
@@ -229,75 +228,25 @@ async function api(path,opts){
  return j;
 }
 
-// Shared IDB handle. v2 adds tm_session + tm_session_key stores for
-// the SW-readable bearer. The legacy 'keyrings' store stays untouched.
-function idb(){return _idbOpen();}
-// Demo flow stashes encrypted keyrings in sessionStorage (ephemeral, dies
-// with the tab) so they never collide with the IDB schema. Real users
-// keep their keyrings in IDB across sessions.
-const DEMO_SS_PREFIX='aether-demo-keyring:';
-function getDemoKeyring(email){
- try{const raw=sessionStorage.getItem(DEMO_SS_PREFIX+email);return raw?JSON.parse(raw):null}
- catch{return null}
-}
-async function getKeyring(email){
- const ephem=getDemoKeyring(email);
- if(ephem)return ephem;
- const d=await idb();
- return new Promise((res,rej)=>{
-  const t=d.transaction(STORE).objectStore(STORE).get(email);
-  t.onsuccess=()=>res(t.result||null);
-  t.onerror=()=>rej(t.error);
- });
-}
-async function putKeyring(rec){
- const d=await idb();
- return new Promise((res,rej)=>{
-  const t=d.transaction(STORE,'readwrite').objectStore(STORE).put(rec);
-  t.onsuccess=()=>res();
-  t.onerror=()=>rej(t.error);
- });
-}
-
-const wipe=u8=>{if(u8&&u8.fill)u8.fill(0)};
-
+// MLP login posture: server-side scrypt over plaintext password.
+// Bearer + per-action HMAC unchanged; QR multi-device is retired.
 async function login(email,pass){
- const rec=await getKeyring(email);
- if(!rec)throw new Error(T.err_nokey);
- let priv;
- try{priv=await decryptPriv(rec.salt,rec.iv,rec.ct,pass)}catch{throw new Error(T.err_pass)}
- try{
-  const c=await api('/auth/challenge',{method:'POST',body:{email}});
-  const sig=sign(priv,utf8(DOMAIN+email+':'+c.challenge_b64));
-  const v=await api('/auth/verify',{method:'POST',body:{email,ch_id:c.ch_id,signature_b64:sig}});
-  session.set({
-   token:v.token,
-   email,
-   uid:v.user&&v.user.uid,
-   tier:v.user&&v.user.tier,
-   scope_path:v.user&&v.user.scope_path,
-   action_key_b64:v.action_key_b64,
-   key_id:v.key_id
-  });
- }finally{wipe(priv)}
+ const v=await api('/auth/login',{method:'POST',body:{email,password:pass}});
+ if(!v||!v.token||!v.user)throw new Error(T.err_creds);
+ session.set({
+  token:v.token,
+  email:v.user.email||email,
+  uid:v.user.uid,
+  tier:v.user.tier,
+  scope_path:v.user.scope_path,
+  action_key_b64:v.action_key_b64,
+  key_id:v.key_id
+ });
 }
 
-function decodeInvite(tok){
- const parts=String(tok).trim().split('.');
- if(parts.length<2)throw new Error(T.err_token);
- try{return JSON.parse(utf8Dec(b64uDec(parts[1])))}catch{throw new Error(T.err_token)}
-}
 async function register(token,name,pass){
- const inv=decodeInvite(token);
- if(!inv.email)throw new Error(T.err_token);
- const kp=generateKeypair();
- try{
-  const e=await encryptPriv(kp.priv,pass);
-  const pubkey_b64=b64(kp.pub);
-  await api('/auth/register',{method:'POST',body:{invite_id:token,name,pubkey_b64}});
-  await putKeyring({email:inv.email,salt:e.saltB64,iv:e.ivB64,ct:e.ctB64,pubkey_b64,created_at:new Date().toISOString()});
-  return inv.email;
- }finally{wipe(kp.priv)}
+ const r=await api('/auth/register',{method:'POST',body:{invite_id:token,name,password:pass}});
+ return (r&&r.email)||'';
 }
 
 // Per-action signing is now an HMAC over a session-bound key, computed
@@ -332,24 +281,16 @@ function userOpts(sel){
 function flash(node,msg,cls){node.innerHTML=`<p class="${cls||'muted'}" role=status>${esc(msg)}</p>`}
 
 const DEMO_PASS='aether-demo-2026';
-async function loadDemoCreds(){
- // Demo creds regenerate on every seed. force-cache pinned old ciphertexts
- // forever and broke every login after a re-seed; use no-store so the
- // browser always picks up the latest blob the demo portal shipped.
- const r=await fetch('/demo/credentials.json',{cache:'no-store'});
- if(!r.ok)throw new Error('demo_unavailable');
- return await r.json();
-}
-function importDemoToSession(rec){
- sessionStorage.setItem(DEMO_SS_PREFIX+rec.email,JSON.stringify({
-  email:rec.email,
-  salt:rec.encrypted_priv.saltB64,
-  iv:rec.encrypted_priv.ivB64,
-  ct:rec.encrypted_priv.ctB64,
-  pubkey_b64:rec.pubkey_b64,
-  created_at:new Date().toISOString()
- }));
-}
+// Demo identities are inlined so the login page does not pay an extra
+// /demo/credentials.json round trip on 2G. Passwords are server-side
+// only; this list is purely a label/email selector for one-click demo.
+const DEMO_USERS=[
+ {email:'demo.ndma@aether.dmj.one',         tier_name:'NDMA'},
+ {email:'demo.state@aether.dmj.one',        tier_name:'SDMA'},
+ {email:'demo.district@aether.dmj.one',     tier_name:'DDMA'},
+ {email:'demo.responder@aether.dmj.one',    tier_name:'Subdivisional'},
+ {email:'demo.volunteer@aether.dmj.one',    tier_name:'Volunteer'}
+];
 function viewLogin(){
  main.removeAttribute('aria-busy');
  const qs=new URLSearchParams((location.hash.split('?')[1])||'');
@@ -392,23 +333,19 @@ function viewLogin(){
  };
  f.addEventListener('submit',e=>{e.preventDefault();submit()});
  const dList=$('#demoList'),dErr=$('#demoErr');
- loadDemoCreds().then(creds=>{
-  for(const c of creds){
-   const b=document.createElement('button');b.type='button';b.className='demoChip';
-   b.setAttribute('aria-label',c.tier_name+' demo account, '+c.email);
-   const t=document.createElement('b');t.textContent=c.tier_name;
-   const s=document.createElement('span');s.textContent=c.email;
-   b.append(t,s);
-   b.addEventListener('click',async()=>{dErr.textContent='';
-    const all=dList.querySelectorAll('.demoChip');all.forEach(x=>x.disabled=true);
-    try{importDemoToSession(c);
-     $('#lEmail').value=c.email;$('#lPass').value=DEMO_PASS;
-     await submit();
-    }catch(err){dErr.textContent='Demo import failed: '+(err.message||String(err));all.forEach(x=>x.disabled=false)}
-   });
-   dList.append(b);
-  }
- }).catch(()=>{$('#demoBox').open=false;dErr.textContent='Demo accounts unavailable right now.'});
+ for(const c of DEMO_USERS){
+  const b=document.createElement('button');b.type='button';b.className='demoChip';
+  b.setAttribute('aria-label',c.tier_name+' demo account, '+c.email);
+  const t=document.createElement('b');t.textContent=c.tier_name;
+  const s=document.createElement('span');s.textContent=c.email;
+  b.append(t,s);
+  b.addEventListener('click',async()=>{dErr.textContent='';
+   const all=dList.querySelectorAll('.demoChip');all.forEach(x=>x.disabled=true);
+   $('#lEmail').value=c.email;$('#lPass').value=DEMO_PASS;
+   try{await submit()}catch(err){dErr.textContent=(err.message||String(err));all.forEach(x=>x.disabled=false)}
+  });
+  dList.append(b);
+ }
  if(qEmail)$('#lPass').focus();else $('#lEmail').focus();
 }
 
@@ -474,10 +411,11 @@ async function viewDash(){
  main.removeAttribute('aria-busy');
 }
 function renderRecent(rows){
- return `<div class=tblwrap><table class=tbl><thead><tr><th>${esc(T.task_title_label)}</th><th>${esc(T.task_status)}</th><th>${esc(T.task_due)}</th></tr></thead><tbody>${
+ const lTitle=esc(T.task_title_label),lStatus=esc(T.task_status),lDue=esc(T.task_due);
+ return `<div class=tblwrap><table class=tbl><thead><tr><th>${lTitle}</th><th>${lStatus}</th><th>${lDue}</th></tr></thead><tbody>${
   rows.map(x=>{
    const od=x.due_date&&new Date(x.due_date)<new Date()&&x.status!=='done';
-   return `<tr${od?' class=over':''}><td>${esc(x.title)}</td><td>${esc(STATUS_LABEL[x.status]||x.status)}</td><td>${x.due_date?esc(String(x.due_date).slice(0,10)):''}</td></tr>`;
+   return `<tr${od?' class=over':''}><td data-label="${lTitle}">${esc(x.title)}</td><td data-label="${lStatus}">${esc(STATUS_LABEL[x.status]||x.status)}</td><td data-label="${lDue}">${x.due_date?esc(String(x.due_date).slice(0,10)):''}</td></tr>`;
   }).join('')
  }</tbody></table></div>`;
 }
@@ -507,8 +445,9 @@ async function viewProjects(){
   const items=r.projects||r.items||[];
   if(!items.length){$('#plist').innerHTML=`<p class=empty>${esc(T.lbl_none)}</p>`}
   else{
-   $('#plist').innerHTML=`<div class=tblwrap><table class=tbl><thead><tr><th>${esc(T.proj_name)}</th><th>${esc(T.proj_desc)}</th><th></th></tr></thead><tbody>${
-    items.map(p=>`<tr><td><a href="#/projects/${esc(encodeURIComponent(p.pid||p.id))}">${esc(p.name)}</a></td><td>${esc(p.description||'')}</td><td><button type=button class=arch data-p="${esc(p.pid||p.id)}">${esc(T.proj_archive)}</button></td></tr>`).join('')
+   const lN=esc(T.proj_name),lD=esc(T.proj_desc);
+   $('#plist').innerHTML=`<div class=tblwrap><table class=tbl><thead><tr><th>${lN}</th><th>${lD}</th><th></th></tr></thead><tbody>${
+    items.map(p=>`<tr><td data-label="${lN}"><a href="#/projects/${esc(encodeURIComponent(p.pid||p.id))}">${esc(p.name)}</a></td><td data-label="${lD}">${esc(p.description||'')}</td><td><button type=button class=arch data-p="${esc(p.pid||p.id)}">${esc(T.proj_archive)}</button></td></tr>`).join('')
    }</tbody></table></div>`;
    $$('#plist .arch').forEach(b=>b.addEventListener('click',async()=>{
     const pid=b.dataset.p;
@@ -602,14 +541,15 @@ async function viewTasks(){
 
 function renderTaskTable(host,items,reload){
  if(!items.length){host.innerHTML=`<p class=empty>${esc(T.lbl_none)}</p>`;return}
- host.innerHTML=`<div class=tblwrap><table class=tbl><thead><tr><th>${esc(T.task_title_label)}</th><th>${esc(T.task_status)}</th><th>${esc(T.task_assign)}</th><th>${esc(T.task_due)}</th></tr></thead><tbody>${
+ const lTitle=esc(T.task_title_label),lStatus=esc(T.task_status),lAssign=esc(T.task_assign),lDue=esc(T.task_due);
+ host.innerHTML=`<div class=tblwrap><table class=tbl><thead><tr><th>${lTitle}</th><th>${lStatus}</th><th>${lAssign}</th><th>${lDue}</th></tr></thead><tbody>${
   items.map(x=>{
    const od=x.due_date&&new Date(x.due_date)<new Date()&&x.status!=='done';
    return `<tr${od?' class=over':''}>
-    <td>${esc(x.title)}</td>
-    <td><select class=sStatus data-t="${esc(x.tid||x.id)}" aria-label="${esc(T.task_status)}">${STATUS_KEYS.map(s=>`<option value="${s}"${s===x.status?' selected':''}>${esc(STATUS_LABEL[s]||s)}</option>`).join('')}</select></td>
-    <td><select class=sAssign data-t="${esc(x.tid||x.id)}" data-prev="${esc(x.assignee_uid||'')}" aria-label="${esc(T.task_assign)}">${userOpts(x.assignee_uid)}</select></td>
-    <td>${x.due_date?esc(String(x.due_date).slice(0,10)):''}</td>
+    <td data-label="${lTitle}">${esc(x.title)}</td>
+    <td data-label="${lStatus}"><select class=sStatus data-t="${esc(x.tid||x.id)}" aria-label="${lStatus}">${STATUS_KEYS.map(s=>`<option value="${s}"${s===x.status?' selected':''}>${esc(STATUS_LABEL[s]||s)}</option>`).join('')}</select></td>
+    <td data-label="${lAssign}"><select class=sAssign data-t="${esc(x.tid||x.id)}" data-prev="${esc(x.assignee_uid||'')}" aria-label="${lAssign}">${userOpts(x.assignee_uid)}</select></td>
+    <td data-label="${lDue}">${x.due_date?esc(String(x.due_date).slice(0,10)):''}</td>
    </tr>`;
   }).join('')
  }</tbody></table></div>`;
@@ -637,16 +577,17 @@ async function viewUsers(){
   const tiers=[100,80,60,40,20].filter(t=>t<=(me?me.tier:0));
   if(!items.length){$('#ulist').innerHTML=`<p class=empty>${esc(T.lbl_none)}</p>`}
   else{
-   $('#ulist').innerHTML=`<div class=tblwrap><table class=tbl><thead><tr><th>${esc(T.user_name)}</th><th>${esc(T.user_email)}</th><th>${esc(T.user_tier)}</th><th>${esc(T.user_scope)}</th><th>${esc(T.user_pol)}</th><th></th></tr></thead><tbody>${
+   const lN=esc(T.user_name),lE=esc(T.user_email),lT=esc(T.user_tier),lS=esc(T.user_scope),lP=esc(T.user_pol);
+   $('#ulist').innerHTML=`<div class=tblwrap><table class=tbl><thead><tr><th>${lN}</th><th>${lE}</th><th>${lT}</th><th>${lS}</th><th>${lP}</th><th></th></tr></thead><tbody>${
     items.map(u=>{
      const canPolicy=me&&me.tier>u.tier;
      const curPol=u.escalation_policy||'manual_review';
      return `<tr>
-     <td>${esc(u.name)}</td>
-     <td>${esc(u.email)}</td>
-     <td><span class="tag t${esc(u.tier)}">${esc(TIER_LABEL[u.tier]||u.tier)}</span> <select class=uTier data-u="${esc(u.uid)}" data-prev="${esc(u.tier)}" aria-label="${esc(T.user_tier)}">${tiers.map(t=>`<option value="${t}"${t===u.tier?' selected':''}>${esc(TIER_LABEL[t])}</option>`).join('')}</select></td>
-     <td>${esc(u.scope_path||'')}</td>
-     <td>${canPolicy?`<select class=uPol data-u="${esc(u.uid)}" data-prev="${esc(curPol)}" aria-label="${esc(T.user_pol)}">${POLICY_KEYS.map(p=>`<option value="${p}"${p===curPol?' selected':''}>${esc(T[POLICY_LABEL[p]]||p)}</option>`).join('')}</select>`:`<span class=muted>${esc(T[POLICY_LABEL[curPol]]||curPol)}</span>`}</td>
+     <td data-label="${lN}">${esc(u.name)}</td>
+     <td data-label="${lE}">${esc(u.email)}</td>
+     <td data-label="${lT}"><span class="tag t${esc(u.tier)}">${esc(TIER_LABEL[u.tier]||u.tier)}</span> <select class=uTier data-u="${esc(u.uid)}" data-prev="${esc(u.tier)}" aria-label="${lT}">${tiers.map(t=>`<option value="${t}"${t===u.tier?' selected':''}>${esc(TIER_LABEL[t])}</option>`).join('')}</select></td>
+     <td data-label="${lS}">${esc(u.scope_path||'')}</td>
+     <td data-label="${lP}">${canPolicy?`<select class=uPol data-u="${esc(u.uid)}" data-prev="${esc(curPol)}" aria-label="${lP}">${POLICY_KEYS.map(p=>`<option value="${p}"${p===curPol?' selected':''}>${esc(T[POLICY_LABEL[p]]||p)}</option>`).join('')}</select>`:`<span class=muted>${esc(T[POLICY_LABEL[curPol]]||curPol)}</span>`}</td>
      <td><button type=button class=uApply data-u="${esc(u.uid)}">${esc(T.user_delegate)}</button></td>
     </tr>`}).join('')
    }</tbody></table></div>`;
@@ -843,14 +784,15 @@ async function viewDispatches(){
   }
   if(!items.length){$('#dlist').innerHTML=`<p class=empty>${esc(T.lbl_none)}</p>`}
   else{
+   const lT=esc(T.disp_time),lC=esc(T.disp_caller),lU=esc(T.disp_urgency),lSm=esc(T.disp_summary),lLo=esc(T.disp_loc),lS=esc(T.disp_status),lA=esc(T.disp_actions);
    $('#dlist').innerHTML=`<div class=tblwrap><table class=tbl><thead><tr>
-     <th>${esc(T.disp_time)}</th>
-     <th>${esc(T.disp_caller)}</th>
-     <th>${esc(T.disp_urgency)}</th>
-     <th>${esc(T.disp_summary)}</th>
-     <th>${esc(T.disp_loc)}</th>
-     <th>${esc(T.disp_status)}</th>
-     <th>${esc(T.disp_actions)}</th>
+     <th>${lT}</th>
+     <th>${lC}</th>
+     <th>${lU}</th>
+     <th>${lSm}</th>
+     <th>${lLo}</th>
+     <th>${lS}</th>
+     <th>${lA}</th>
     </tr></thead><tbody>${
     items.map(d=>{
      const isMine=me&&d.caller_uid===me.uid;
@@ -861,13 +803,13 @@ async function viewDispatches(){
      const id=esc(d.id);
      const ws=d.worker_status||'received';
      return `<tr data-id="${id}">
-      <td>${fmtTime(d.received_at)}</td>
-      <td>${callerCell(d)}</td>
-      <td>${urgencyCell(d)}</td>
-      <td>${summaryCell(d)}</td>
-      <td>${locCell(d.location)}</td>
-      <td>${dispStatusPill(d.escalation_status)} ${workerStatusPill(ws)}${d.requires_review?' <span class="pill p-pending_review">'+esc(T.status_pending)+'</span>':''}</td>
-      <td class=actCell>
+      <td data-label="${lT}">${fmtTime(d.received_at)}</td>
+      <td data-label="${lC}">${callerCell(d)}</td>
+      <td data-label="${lU}">${urgencyCell(d)}</td>
+      <td data-label="${lSm}">${summaryCell(d)}</td>
+      <td data-label="${lLo}">${locCell(d.location)}</td>
+      <td data-label="${lS}">${dispStatusPill(d.escalation_status)} ${workerStatusPill(ws)}${d.requires_review?' <span class="pill p-pending_review">'+esc(T.status_pending)+'</span>':''}</td>
+      <td data-label="${lA}" class=actCell>
        ${canEsc?`<button type=button class=dEsc data-id="${id}">${esc(T.disp_escalate)}</button>`:''}
        ${canRev?`<button type=button class=dRev data-id="${id}">${esc(T.disp_review)}</button>`:''}
        <button type=button class=dOpen aria-expanded=false aria-controls="det-${id}">${esc(T.disp_open)}</button>
@@ -943,8 +885,9 @@ async function viewUnits(){
    const r=await api('/units'+(qs.toString()?'?'+qs:''));
    const items=r.units||[];
    if(!items.length){$('#ulistU').innerHTML=`<p class=empty>${esc(T.lbl_none)}</p>`;return}
-   $('#ulistU').innerHTML=`<div class=tblwrap><table class=tbl><thead><tr><th>${esc(T.unit_name)}</th><th>${esc(T.unit_type)}</th><th>${esc(T.unit_phone)}</th><th>${esc(T.unit_capacity)}</th><th>${esc(T.unit_status)}</th><th>${esc(T.unit_scope)}</th>${canCreate?'<th></th>':''}</tr></thead><tbody>${
-    items.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(UNIT_LABEL[u.type]||u.type)}</td><td>${esc(u.contact_phone||'')}</td><td>${u.capacity==null?'':esc(u.capacity)}</td><td><select class=uStatus data-u="${esc(u.unit_id)}" data-prev="${esc(u.status)}">${UNIT_STATUSES.map(s=>`<option value="${s}"${s===u.status?' selected':''}>${esc(s)}</option>`).join('')}</select></td><td>${esc(u.scope_path)}</td>${canCreate?`<td><button type=button class=uArc data-u="${esc(u.unit_id)}">${esc(T.unit_archive)}</button></td>`:''}</tr>`).join('')
+   const lN=esc(T.unit_name),lT=esc(T.unit_type),lP=esc(T.unit_phone),lC=esc(T.unit_capacity),lS=esc(T.unit_status),lSc=esc(T.unit_scope);
+   $('#ulistU').innerHTML=`<div class=tblwrap><table class=tbl><thead><tr><th>${lN}</th><th>${lT}</th><th>${lP}</th><th>${lC}</th><th>${lS}</th><th>${lSc}</th>${canCreate?'<th></th>':''}</tr></thead><tbody>${
+    items.map(u=>`<tr><td data-label="${lN}">${esc(u.name)}</td><td data-label="${lT}">${esc(UNIT_LABEL[u.type]||u.type)}</td><td data-label="${lP}">${esc(u.contact_phone||'')}</td><td data-label="${lC}">${u.capacity==null?'':esc(u.capacity)}</td><td data-label="${lS}"><select class=uStatus data-u="${esc(u.unit_id)}" data-prev="${esc(u.status)}">${UNIT_STATUSES.map(s=>`<option value="${s}"${s===u.status?' selected':''}>${esc(s)}</option>`).join('')}</select></td><td data-label="${lSc}">${esc(u.scope_path)}</td>${canCreate?`<td><button type=button class=uArc data-u="${esc(u.unit_id)}">${esc(T.unit_archive)}</button></td>`:''}</tr>`).join('')
    }</tbody></table></div>`;
    $$('#ulistU .uStatus').forEach(s=>s.addEventListener('change',async()=>{
     const uid=s.dataset.u,next=s.value,prev=s.dataset.prev;
@@ -974,189 +917,6 @@ function setNavCurrent(path){
  });
 }
 
-// ---------------------------------------------------------------------------
-// Multi-device key sync (QR-bridge). Two flows on the same screen plus
-// the device list. Outgoing wraps the IDB keyring under a 4-word
-// mnemonic and renders the payload string for the new device to take in
-// either by scan (if a real QR is available downstream) or by paste.
-// Incoming pastes the payload, types the mnemonic, unwraps, writes the
-// keyring locally and POSTs /api/v1/tm/auth/devices/register so the
-// origin device can list and revoke this entry.
-// ---------------------------------------------------------------------------
-let _qrTimer=null;
-function _stopQrTimer(){if(_qrTimer){clearInterval(_qrTimer);_qrTimer=null}}
-function _fmtTimeShort(iso){if(!iso)return '';try{return new Date(iso).toLocaleString()}catch{return String(iso)}}
-async function viewDevices(){
- const me=session.get();
- main.setAttribute('aria-busy','true');
- _stopQrTimer();
- main.innerHTML=`<section aria-labelledby=hDev>
-  <h1 id=hDev>${esc(T.dev_title||'Devices')}</h1>
-  <p class=muted>${esc(T.dev_help||'Add another phone or laptop. The 4-word mnemonic stays with you.')}</p>
-
-  <details open>
-   <summary>${esc(T.dev_outgoing||'Add a new device (this device shares its keys)')}</summary>
-   <div class=devOut>
-    <p class=muted>${esc(T.dev_outgoing_help||'Generate a one-time mnemonic and payload. Open this page on the new device and paste the payload + mnemonic. The payload expires in 5 minutes.')}</p>
-    <div class=row>
-     <button type=button id=devGen>${esc(T.dev_generate||'Generate one-time payload')}</button>
-     <button type=button id=devClear hidden>${esc(T.dev_clear||'Done')}</button>
-    </div>
-    <div id=devOutBox hidden>
-     <p><b>${esc(T.dev_mnemonic||'Mnemonic (write this down or read aloud)')}</b></p>
-     <p class=mnemonic id=devMn aria-live=polite></p>
-     <p class=row>
-      <button type=button id=devCopyMn>${esc(T.dev_copy_mn||'Copy mnemonic')}</button>
-      <span class=muted id=devCountdown role=timer aria-live=polite></span>
-     </p>
-     <p><b>${esc(T.dev_payload||'Payload (copy or scan)')}</b></p>
-     <textarea id=devPay readonly rows=5 spellcheck=false aria-label="${esc(T.dev_payload||'Payload')}"></textarea>
-     <p class=row>
-      <button type=button id=devCopyPay>${esc(T.dev_copy_pay||'Copy payload')}</button>
-      <button type=button id=devSavePng>${esc(T.dev_save_png||'Download as PNG')}</button>
-     </p>
-     <canvas id=devCanvas hidden width=512 height=512 aria-hidden=true></canvas>
-    </div>
-   </div>
-  </details>
-
-  <details>
-   <summary>${esc(T.dev_incoming||'Add this device (paste the payload from another device)')}</summary>
-   <div class=devIn>
-    <form id=devInForm novalidate>
-     <label for=devLabel>${esc(T.dev_label||'Label for this device')}<input id=devLabel name=label maxlength=40 required value="${esc(T.dev_label_default||'New device')}"></label>
-     <label for=devInPay>${esc(T.dev_paste||'Payload')}<textarea id=devInPay rows=4 required spellcheck=false></textarea></label>
-     <p class=row><button type=button id=devScan hidden>${esc(T.dev_scan||'Scan with camera')}</button></p>
-     <label for=devInMn>${esc(T.dev_type_mn||'Mnemonic (4 words)')}<input id=devInMn autocomplete=off spellcheck=false required></label>
-     <p id=devInErr role=alert class=err></p>
-     <button type=submit>${esc(T.dev_add||'Add this device')}</button>
-    </form>
-   </div>
-  </details>
-
-  <h2>${esc(T.dev_list||'Existing devices')}</h2>
-  <div id=devList></div>
- </section>`;
- // Outgoing flow.
- const devGen=$('#devGen'),devClear=$('#devClear'),devOutBox=$('#devOutBox');
- const devMn=$('#devMn'),devPay=$('#devPay'),devCountdown=$('#devCountdown'),devCanvas=$('#devCanvas');
- const resetOutgoing=()=>{_stopQrTimer();devOutBox.hidden=true;devClear.hidden=true;devMn.textContent='';devPay.value='';devCountdown.textContent=''};
- devClear.addEventListener('click',resetOutgoing);
- devGen.addEventListener('click',async()=>{
-  if(!me||!me.email){devGen.disabled=false;return}
-  devGen.disabled=true;
-  try{
-   const rec=await getKeyring(me.email);
-   if(!rec){alert(T.dev_no_keyring||'No keyring on this device. Sign in first.');devGen.disabled=false;return}
-   const mnemonic=generateMnemonic(4);
-   const wrapped=await wrapKeyringForExport({salt:rec.salt,iv:rec.iv,ct:rec.ct,pubkey_b64:rec.pubkey_b64},mnemonic);
-   const payload=encodeQrPayload(wrapped);
-   devMn.textContent=mnemonic;
-   devPay.value=payload;
-   devOutBox.hidden=false;devClear.hidden=false;
-   const expiresAt=Date.now()+5*60*1000;
-   const tick=()=>{
-    const left=expiresAt-Date.now();
-    if(left<=0){_stopQrTimer();devCountdown.textContent=T.dev_expired||'Expired. Generate a fresh payload.';devPay.value='';return}
-    const m=Math.floor(left/60000),s=Math.floor((left%60000)/1000);
-    devCountdown.textContent=(T.dev_expires_in||'Expires in')+' '+m+':'+String(s).padStart(2,'0');
-   };tick();_qrTimer=setInterval(tick,1000);
-  }catch(err){alert((err&&err.message)||T.err_net)}
-  finally{devGen.disabled=false}
- });
- $('#devCopyMn').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(devMn.textContent||'');flash($('#devList'),T.dev_copied||'Copied.','ok')}catch{}});
- $('#devCopyPay').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(devPay.value||'');flash($('#devList'),T.dev_copied||'Copied.','ok')}catch{}});
- $('#devSavePng').addEventListener('click',()=>{
-  // Render the payload as a labeled PNG so users on a low-bandwidth
-  // path can save and ship the file out-of-band (e.g. AirDrop, USB).
-  // The payload is the text content; a real QR encoder is deferred so
-  // this stays under the 8 KB budget the spec calls out.
-  const ctx=devCanvas.getContext('2d');
-  ctx.fillStyle='#000';ctx.fillRect(0,0,devCanvas.width,devCanvas.height);
-  ctx.fillStyle='#fff';ctx.font='14px monospace';ctx.textBaseline='top';
-  const text=devPay.value;const cols=64;
-  for(let i=0;i<text.length;i+=cols){
-   ctx.fillText(text.slice(i,i+cols),8,8+(i/cols)*16);
-   if(8+(i/cols)*16>devCanvas.height-20)break;
-  }
-  const url=devCanvas.toDataURL('image/png');
-  const a=document.createElement('a');a.href=url;a.download='aether-keyshare.png';a.click();
- });
- // Incoming flow.
- const devInForm=$('#devInForm'),devInPay=$('#devInPay'),devInMn=$('#devInMn'),devInErr=$('#devInErr'),devLabel=$('#devLabel'),devScan=$('#devScan');
- if('BarcodeDetector' in self){
-  devScan.hidden=false;
-  devScan.addEventListener('click',async()=>{
-   try{
-    const det=new self.BarcodeDetector({formats:['qr_code']});
-    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
-    const video=document.createElement('video');video.srcObject=stream;video.setAttribute('playsinline','');await video.play();
-    const finish=val=>{stream.getTracks().forEach(t=>t.stop());if(val)devInPay.value=val};
-    let attempts=0;
-    const poll=async()=>{
-     attempts++;
-     try{const codes=await det.detect(video);if(codes&&codes.length){finish(codes[0].rawValue||'');return}}catch{}
-     if(attempts<60)setTimeout(poll,250);else finish('');
-    };poll();
-   }catch(err){alert((err&&err.message)||T.err_net)}
-  });
- }
- devInForm.addEventListener('submit',async e=>{
-  e.preventDefault();devInErr.textContent='';
-  const payStr=devInPay.value.trim(),mn=devInMn.value.trim(),label=devLabel.value.trim();
-  if(!payStr||!mn||!label){devInErr.textContent=T.err_required||'All fields required.';return}
-  const btn=devInForm.querySelector('button[type=submit]');btn.disabled=true;
-  try{
-   const obj=decodeQrPayload(payStr);
-   const rec=await unwrapKeyringFromImport(obj,mn);
-   const email=(me&&me.email)||(prompt(T.dev_email_prompt||'Email for these keys:')||'').trim().toLowerCase();
-   if(!email){devInErr.textContent=T.err_required||'Email required.';btn.disabled=false;return}
-   await putKeyring({email,salt:rec.salt,iv:rec.iv,ct:rec.ct,pubkey_b64:obj.pubkey_b64,created_at:new Date().toISOString()});
-   if(me&&me.token){
-    await api('/auth/devices/register',{method:'POST',body:{label,pubkey_b64:obj.pubkey_b64}});
-   }
-   devInForm.reset();
-   flash($('#devList'),T.dev_added||'Device added. Sign in with your normal passphrase.','ok');
-   await loadDeviceList();
-  }catch(err){devInErr.textContent=(err&&err.message)||T.err_net;btn.disabled=false}
- });
- await loadDeviceList();
- main.removeAttribute('aria-busy');
-}
-async function loadDeviceList(){
- const host=$('#devList');if(!host)return;
- try{
-  const r=await api('/auth/devices');
-  const items=r.devices||r.items||[];
-  if(!items.length){host.innerHTML=`<p class=empty>${esc(T.lbl_none)}</p>`;return}
-  host.innerHTML=`<div class=tblwrap><table class=tbl><thead><tr><th>${esc(T.dev_label||'Label')}</th><th>${esc(T.dev_thumb||'Key')}</th><th>${esc(T.dev_registered||'Registered')}</th><th>${esc(T.dev_last_seen||'Last seen')}</th><th></th></tr></thead><tbody>${
-   items.map(d=>{
-    const rev=d.revoked?` <span class=tag>${esc(T.dev_revoked||'revoked')}</span>`:'';
-    return `<tr><td>${esc(d.label||'')}${rev}</td><td><code>${esc(d.pubkey_b64_thumbprint||'')}</code></td><td>${esc(_fmtTimeShort(d.registered_at))}</td><td>${esc(_fmtTimeShort(d.last_seen_at))}</td><td>${d.revoked?'':`<button type=button class=devRev data-d="${esc(d.device_id)}">${esc(T.dev_revoke||'Revoke')}</button>`}</td></tr>`;
-   }).join('')
-  }</tbody></table></div>`;
-  $$('#devList .devRev').forEach(b=>b.addEventListener('click',async()=>{
-   const did=b.dataset.d;
-   if(!requireActionKey())return;
-   const s=session.get();
-   if(!s||!s.action_key_b64){alert(T.err_creds);return}
-   b.disabled=true;
-   try{
-    // One sig serves both the per-action header and the row's audit
-    // record; otherwise api() and the body would carry two HMACs over
-    // the same target with different ts and the audit would not
-    // re-verify against the stored row.
-    const ts=Math.floor(Date.now()/1000);
-    const keyBytes=b64Dec(s.action_key_b64);
-    const sig=await hmacActionSig(keyBytes,{uid:s.uid,action:'device.revoke',target:'device.revoke|'+did,ts,key_id:s.key_id});
-    keyBytes.fill(0);
-    await api('/auth/devices/'+encodeURIComponent(did)+'/revoke',{method:'POST',body:{signature_b64:sig},headers:{'X-Action-Sig':sig,'X-Action-Ts':String(ts),'X-Action-Key-Id':s.key_id}});
-    await loadDeviceList();
-   }catch(err){alert((err&&err.message)||T.err_net);b.disabled=false}
-  }));
- }catch(err){flash(host,(err&&err.message)||T.err_net,'err')}
-}
-
 function route(){
  const h=location.hash||'#/';
  const path=h.replace(/^#/,'').split('?')[0]||'/';
@@ -1176,21 +936,14 @@ function route(){
  if(path==='/dispatches')return viewDispatches();
  if(path==='/units')return viewUnits();
  if(path==='/users')return viewUsers();
- if(path==='/devices')return viewDevices();
  main.innerHTML=`<p class=empty>${esc(T.lbl_none)}</p>`;
 }
 
-// Inject the locale picker + Devices link into the existing nav. The
-// host page (tm/index.html) is fixed; we extend it from JS so a fresh
+// Inject the locale picker into the existing nav. The host page
+// (tm/index.html) is otherwise stable; we extend it from JS so a fresh
 // deploy ships the new surface without touching that file.
 function ensureNavExtras(){
  const nav=document.getElementById('nav');if(!nav)return;
- if(!document.getElementById('navDevices')){
-  const a=document.createElement('a');
-  a.id='navDevices';a.href='#/devices';a.dataset.r='devices';a.textContent=T.nav_devices||'Devices';
-  const logout=document.getElementById('btnLogout');
-  if(logout)nav.insertBefore(a,logout);else nav.append(a);
- }
  if(!document.getElementById('langPick')){
   const sel=document.createElement('select');
   sel.id='langPick';sel.className='langPick';sel.setAttribute('aria-label',T.lp_lab||'Language');
@@ -1204,7 +957,7 @@ function ensureNavExtras(){
 }
 function hydrateNav(){
  ensureNavExtras();
- const map={dash:'nav_dash',projects:'nav_proj',tasks:'nav_task',units:'nav_units',disp:'nav_disp',users:'nav_user',devices:'nav_devices'};
+ const map={dash:'nav_dash',projects:'nav_proj',tasks:'nav_task',units:'nav_units',disp:'nav_disp',users:'nav_user'};
  $$('#nav a').forEach(a=>{
   const k=a.dataset.r;
   const tk=map[k]||('nav_'+k);

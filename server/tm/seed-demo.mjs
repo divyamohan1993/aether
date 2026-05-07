@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Seed Project Aether's Task Manager with five demo accounts at every tier
-// plus two demo projects and four demo tasks under demo/HP/Shimla.
+// plus two demo projects, four demo tasks, and six demo response units
+// under demo/HP/Shimla.
 //
 // Usage:
 //   node server/tm/seed-demo.mjs           # idempotent: skip existing demo users
@@ -11,38 +12,30 @@
 // PUBLIC artefact the demo portal fetches.
 //
 // SECURITY MODEL.
-// The credentials file is checked in and served publicly. Each
-// encrypted_priv blob is AES-256-GCM ciphertext over the user's ML-DSA-65
-// private key, with the key derived via Argon2id (t=3, m=64MB, p=1,
-// dkLen=32) from the published demo passphrase. The blob is useless
-// without that passphrase, but the passphrase is also published on
-// /demo for educational purposes. These accounts must NEVER be used
-// outside the public demo subtree (scope_path starts with `demo`).
+// Demo accounts share a published passphrase (DEMO_PASSPHRASE). They live
+// strictly under scope_path "demo/..." and must never be reused outside
+// this subtree. Server-side scrypt is the verifier; the credentials file
+// only carries identity metadata and the published passphrase, never the
+// hash or salt.
 
 import { promises as fs } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes, randomUUID, webcrypto } from 'node:crypto';
+import { randomBytes, randomUUID, scryptSync } from 'node:crypto';
 
-import { ml_dsa65 } from '@noble/post-quantum/ml-dsa.js';
-import { argon2id } from '@noble/hashes/argon2.js';
-
-import { setDoc, getDoc, queryDocs } from './firestore.js';
+import { setDoc, getDoc } from './firestore.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const OUT_PATH = join(REPO_ROOT, 'web', 'demo', 'credentials.json');
 
 const DEMO_PASSPHRASE = 'aether-demo-2026';
-// MVP login posture: matches the browser bundle's reduced Argon2id
-// (t=1, m=16 MiB). Demo decrypt then finishes in ~1 s on Android Go.
-// Production should raise these.
-const ARGON = { t: 1, m: 16 * 1024, p: 1, dkLen: 32 };
-const SALT_LEN = 16;
-const IV_LEN = 12;
+// Server-side scrypt — must match server/tm/auth.js.
+const SCRYPT_PARAMS = { N: 4096, r: 8, p: 1, maxmem: 32 * 1024 * 1024 };
+const SCRYPT_DK_LEN = 32;
+const PASSWORD_SALT_LEN = 16;
 
 const FORCE = process.argv.includes('--force');
-
 const NOW = () => new Date();
 
 const TIERS = Object.freeze({
@@ -54,7 +47,6 @@ const TIER_NAME = Object.freeze({
   20: 'Volunteer', 10: 'Survivor'
 });
 
-// Five demo users, parent_uid links resolved at run time.
 const SEEDS = [
   {
     key: 'ndma',
@@ -109,36 +101,23 @@ function log(msg, extra) {
   process.stdout.write(JSON.stringify(entry) + '\n');
 }
 
-function b64(buf) {
-  return Buffer.from(buf instanceof Uint8Array ? buf : new Uint8Array(buf)).toString('base64');
+function b64u(buf) {
+  const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  return Buffer.from(b).toString('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function normalizeEmail(e) {
   return String(e || '').trim().toLowerCase();
 }
 
-async function deriveAesKey(passphrase, salt) {
-  const raw = argon2id(passphrase, salt, ARGON);
-  return webcrypto.subtle.importKey(
-    'raw', raw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
-  );
-}
-
-async function encryptPrivKey(priv, passphrase) {
-  if (!(priv instanceof Uint8Array)) throw new Error('priv must be Uint8Array');
-  const salt = new Uint8Array(randomBytes(SALT_LEN));
-  const iv = new Uint8Array(randomBytes(IV_LEN));
-  const key = await deriveAesKey(passphrase, salt);
-  const ct = new Uint8Array(await webcrypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, priv));
-  return { saltB64: b64(salt), ivB64: b64(iv), ctB64: b64(ct) };
-}
-
-async function decryptPrivKey(saltB64, ivB64, ctB64, passphrase) {
-  const salt = Buffer.from(saltB64, 'base64');
-  const iv = Buffer.from(ivB64, 'base64');
-  const ct = Buffer.from(ctB64, 'base64');
-  const key = await deriveAesKey(passphrase, salt);
-  return new Uint8Array(await webcrypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct));
+function hashPassword(password) {
+  const salt = new Uint8Array(randomBytes(PASSWORD_SALT_LEN));
+  const dk = scryptSync(password, salt, SCRYPT_DK_LEN, SCRYPT_PARAMS);
+  return {
+    saltB64u: b64u(salt),
+    hashB64u: b64u(new Uint8Array(dk))
+  };
 }
 
 async function userExists(email) {
@@ -158,39 +137,18 @@ async function provisionUser(seed, parentUid) {
   const email = normalizeEmail(seed.email);
   const existing = await userExists(email);
   let uid;
-  let pubB64;
-  let encrypted;
   if (existing && !FORCE) {
-    log('demo_user_exists_skip', { email, uid: existing.uid });
-    if (!existing.demo_encrypted_priv) {
+    if (!existing.password_salt_b64u || !existing.password_hash_b64u) {
+      log('demo_user_missing_password', { email, hint: 'rerun with --force to install scrypt creds' });
       throw new Error(
-        `existing demo user ${email} has no demo_encrypted_priv field; run with --force to rewrite`
+        `existing demo user ${email} predates the password migration; run with --force to refresh`
       );
     }
-    return {
-      uid: existing.uid,
-      pubkey_b64: existing.pubkey_b64,
-      encrypted_priv: existing.demo_encrypted_priv,
-      reused: true
-    };
+    log('demo_user_exists_skip', { email, uid: existing.uid });
+    return { uid: existing.uid, reused: true };
   }
   uid = existing ? existing.uid : randomUUID();
-  const kp = ml_dsa65.keygen();
-  pubB64 = b64(kp.publicKey);
-  encrypted = await encryptPrivKey(kp.secretKey, DEMO_PASSPHRASE);
-  // Self-test: decrypt and round-trip sign+verify so we never ship a
-  // cred that the browser cannot actually open.
-  const recovered = await decryptPrivKey(
-    encrypted.saltB64, encrypted.ivB64, encrypted.ctB64, DEMO_PASSPHRASE
-  );
-  if (recovered.length !== kp.secretKey.length) {
-    throw new Error(`encryption round-trip failed for ${email}: length mismatch`);
-  }
-  const probe = new TextEncoder().encode('aether-demo-roundtrip:' + email);
-  const sig = ml_dsa65.sign(probe, recovered);
-  if (!ml_dsa65.verify(sig, probe, kp.publicKey)) {
-    throw new Error(`encryption round-trip failed for ${email}: signature did not verify`);
-  }
+  const cred = hashPassword(DEMO_PASSPHRASE);
   const now = NOW();
   const doc = {
     email,
@@ -198,17 +156,17 @@ async function provisionUser(seed, parentUid) {
     tier: seed.tier,
     parent_uid: parentUid || null,
     scope_path: seed.scope_path,
-    pubkey_b64: pubB64,
+    password_salt_b64u: cred.saltB64u,
+    password_hash_b64u: cred.hashB64u,
     status: 'active',
     created_at: now,
     last_login: null,
-    is_demo: true,
-    demo_encrypted_priv: encrypted
+    is_demo: true
   };
   await writeUser(uid, email, doc);
   log(existing ? 'demo_user_overwritten' : 'demo_user_created',
     { email, uid, tier: seed.tier, scope_path: seed.scope_path });
-  return { uid, pubkey_b64: pubB64, encrypted_priv: encrypted, reused: false };
+  return { uid, reused: false };
 }
 
 async function provisionProject(pid, name, description, ownerUid, scopePath) {
@@ -285,7 +243,6 @@ async function main() {
     provisioned[seed.key] = out;
   }
 
-  // Two demo projects scoped to demo/HP/Shimla, owned by the district user.
   const districtUid = provisioned.ddma.uid;
   const projectScope = 'demo/HP/Shimla';
   const proj1Id = 'demo-project-flood-2026';
@@ -305,7 +262,6 @@ async function main() {
     projectScope
   );
 
-  // Four demo tasks across both projects with mixed priorities and statuses.
   const responderUid = provisioned.subdivisional.uid;
   const volunteerUid = provisioned.volunteer.uid;
   const taskScope = 'demo/HP/Shimla/responder1';
@@ -334,9 +290,6 @@ async function main() {
     taskScope, districtUid, null, 'low', 'done', null
   );
 
-  // Six demo response units around Shimla. Lat/lng spread within a few
-  // kilometres of the district HQ. All start available so the DSS UI has
-  // something to suggest as soon as the demo loads.
   const unitScope = 'demo/HP/Shimla';
   const unitNow = NOW();
   const SEED_UNITS = [
@@ -365,36 +318,30 @@ async function main() {
   }
   log('seed_units_complete', { N: SEED_UNITS.length, scope_path: unitScope });
 
-  // Build the public credentials.json artefact.
-  const credentials = SEEDS.map((seed) => {
-    const p = provisioned[seed.key];
-    return {
+  const credentials = {
+    passphrase: DEMO_PASSPHRASE,
+    note: 'Demo passphrase. The same value works for every demo email below. Do not reuse outside the demo subtree.',
+    users: SEEDS.map((seed) => ({
       email: seed.email,
       name: seed.name,
       tier: seed.tier,
       tier_name: TIER_NAME[seed.tier],
       scope_path: seed.scope_path,
-      blurb: seed.blurb,
-      pubkey_b64: p.pubkey_b64,
-      encrypted_priv: p.encrypted_priv
-    };
-  });
+      blurb: seed.blurb
+    }))
+  };
 
   await fs.mkdir(dirname(OUT_PATH), { recursive: true });
   const json = JSON.stringify(credentials, null, 2) + '\n';
   await fs.writeFile(OUT_PATH, json, 'utf8');
-  // Pre-compress brotli + gzip siblings. The static server prefers .br
-  // for Accept-Encoding: br, so a stale .br hides newly seeded creds
-  // from every demo browser. Regenerate every time the JSON changes.
   const { gzipSync, brotliCompressSync, constants: zlibC } = await import('node:zlib');
   const buf = Buffer.from(json, 'utf8');
   await fs.writeFile(OUT_PATH + '.gz', gzipSync(buf, { level: 9 }));
   await fs.writeFile(OUT_PATH + '.br', brotliCompressSync(buf, {
     params: { [zlibC.BROTLI_PARAM_QUALITY]: 11, [zlibC.BROTLI_PARAM_SIZE_HINT]: buf.length }
   }));
-  log('credentials_written', { path: OUT_PATH, bytes: Buffer.byteLength(json), users: credentials.length });
+  log('credentials_written', { path: OUT_PATH, bytes: Buffer.byteLength(json), users: credentials.users.length });
 
-  // Final stdout summary line so deploy scripts can grep one machine-readable line.
   const summary = {
     summary: 'aether_demo_seed_complete',
     passphrase: DEMO_PASSPHRASE,

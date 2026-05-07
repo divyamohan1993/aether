@@ -166,85 +166,148 @@ The PWA auto-detects from `navigator.language` and ships native-script strings f
 
 ## Task Manager (`/tm/`)
 
-A second module ships in the same Cloud Run service: a hierarchical task tracker for the NDMA chain of command (NDMA → SDMA → DDMO → Responder → Volunteer). It is the team layer that turns a triage brief into accountable action.
+A second module ships in the same Cloud Run service: an NDMA chain-of-command coordinator. It is the team layer that turns a triage brief into accountable action across every legally empowered Indian disaster-response agency.
 
-### Post-quantum, unspoofable
+### Auth posture (MLP)
 
-Authentication is **ML-DSA-65** (NIST FIPS 204). No password ever crosses the wire. Each user generates a keypair on registration; the private key is encrypted with the user's passphrase via Argon2id and lives only in their browser's IndexedDB. Login is a challenge-response: the server issues 32 random bytes, the user signs them with their private key, the server verifies against the stored public key. Even the server operator cannot impersonate a user.
+Login is email + password over TLS 1.3. The server runs scrypt (N=4096, r=8, p=1) — ~13 ms per verify, brute-force is CPU-bound. The plaintext password never reaches storage; only the salt+hash live in Firestore.
 
-Sessions are short-lived bearer tokens signed by the **server's** ML-DSA-65 keypair (kept in Secret Manager, mounted by Cloud Run via least-privilege binding). Critical actions (role delegation, project archive, task reassignment) require a fresh per-action signature on top of the bearer.
+Sessions are compact HMAC-signed bearer tokens (`token_id.hmac`, ~88 chars). Critical actions (delegate, archive, dispatch escalate, dispatch assign) carry a fresh HMAC-SHA256 signature over a session-bound 32-byte action key. The action key rotates on every authenticated mutation; old keys remain valid for 30 s to absorb in-flight client races. Replay store rejects any (uid, action, target, ts) tuple seen in the last 5 minutes.
 
-### Hierarchy
+The bundle the survivor downloads is **20.6 KB brotli end-to-end** (was 36.8 KB on the original ML-DSA-65 design). Login on a Rs 2000 phone over 1-bar 2G completes in ~6 seconds. On 5G/wifi the same flow is ~1 second. Slow-2g (effectiveType `slow-2g`) automatically routes to text-only `/api/v1/sos/anon` heartbeats; audio is held until network grade improves.
+
+Production hardening (post-MLP) re-introduces ML-DSA-65 server-side bearer signing, Secret Manager–mounted server keypair, and persistent VAPID. The migration is documented in `deploy/deploy.sh`.
+
+### Chain-of-command tier ladder (DM Act 2005)
+
+The model faithfully follows the cascade of authority in the Disaster Management Act 2005:
 
 | Tier | Code | Authority |
 |---|---|---|
-| `ndma`      | 100 | National. Sees all. Delegates to anyone. |
-| `state`     |  80 | One state's subtree. |
-| `district`  |  60 | One district's subtree. |
-| `responder` |  40 | Field staff. Owns assigned tasks. |
-| `volunteer` |  20 | Read-only on assigned tasks; status-only updates. |
+| 100 | `ndma`         | National Disaster Management Authority. PM-chaired. Sees all. |
+| 90  | `national_ops` | NDMA Secretariat, NDRF DG, MHA NDM Division. |
+| 80  | `sdma`         | State Disaster Management Authority. CM-chaired. |
+| 70  | `state_ops`    | State EOC, SDRF DG, state cabinet-level operations. |
+| 60  | `ddma`         | District Disaster Management Authority. DC/DM-chaired. |
+| 50  | `district_ops` | ADM (Disaster), district control room. |
+| 40  | `subdivisional`| Sub-Divisional Magistrate. |
+| 30  | `tehsil`       | Tehsildar, Block Development Officer. |
+| 20  | `volunteer`    | Civil Defence, Aapda Mitra, NCC, NSS, IRCS. |
+| 10  | `survivor`     | Anonymous distress source (read-only). |
 
-A user can read, update, and delegate any user, project, or task whose `scope_path` is a prefix of their own. Two-click delegation: pick user, pick new tier, server validates and writes atomically into an audited Firestore transaction.
+A user can read, update, and delegate any record whose `scope_path` is a prefix of their own. Two-click delegation: pick user, pick new tier, server validates and writes atomically inside a Firestore transaction with an audit-chain entry.
+
+### Inter-agency framework (`server/tm/taxonomy.js`)
+
+`taxonomy.js` is the single source of truth for the response ecosystem:
+
+- **77 agencies** across national, state, district, local, facility, and utility levels — NDMA, PMO, MHA NDM, NDRF, NIDM; IMD, CWC, GSI, INCOIS, ISRO; Army (Engineers, Infantry, Signals, Medical Corps), Navy (dive, ships), IAF (Mi-17/C-17), Coast Guard; CRPF, BSF, ITBP, SSB, CISF, Assam Rifles; SDMA / SEC / SDRF / state EOC + every line department; DDMA / district EOC / district police / district health / SDM / BDO / Tehsildar / Patwari; municipal corps, panchayats, ward offices; AIIMS / state hospital / district hospital / CHC / PHC / private hospital MoUs / blood banks / 108 / fire stations / police stations; telecom / power / water utilities and Indian Railways; IRCS, Civil Defence, NCC, NSS, Aapda Mitra, Bharat Scouts and Guides, Sphere India, registered relief NGOs.
+- **45 unit types** with statutory references — ambulance, fire engine, police patrol, SDRF/NDRF battalion, mobile medical team, drone, helicopter, IAF rotary/fixed-wing, navy dive/ship, coast guard boat/heli, ITBP mountain, BSF water wing, CRPF QRT, CISF industrial cell, hospital surge slots (AIIMS / district / CHC / PHC), blood unit, fire aerial platform, fire rescue team (Cobra), DISCOM crew, water tanker, RO unit, COW (cell-on-wheels), satellite imagery, forecast cell, evacuation bus, relief train, relief truck, relief camp, IRCS / civil defence / NCC / NSS / Aapda Mitra / Scouts squads.
+- **22 capability categories** (rescue water/air/high-altitude/collapse/fire/general, medical pre/field/facility/blood, security armed, comms, power, engineering, logistics, evacuation transport, shelter, forecasting, civil society).
+- **143 mutual-aid edges** describing who can task whom — NDMA → NDRF / SDMA / MHA NDM / MoD; MoD → Army / Navy / IAF / Coast Guard; SDMA → SDRF / state line departments; DDMA → district police / district health / SDM / BDO / municipal / panchayat; etc. The directed edge `from → to` enforces "request support" affordances; reverse traffic is reporting-only.
+- **10 incident playbooks** map `flood / landslide / earthquake / fire / building_collapse / cyclone / tsunami / industrial / cbrn / unknown` to recommended capability categories so the DSS suggests the right unit short-list.
+
+Adding a new agency or unit type is additive: extend `taxonomy.js`, redeploy, the dispatcher renders it. No schema migration.
 
 ### Data store
 
 Firestore Native, `(default)` database, free-tier friendly. Collections:
 
-- `tm_users`       email-addressable, ML-DSA-65 public key, tier, scope_path, parent_uid
-- `tm_projects`    name, description, scope_path, owner, status
-- `tm_tasks`       project_id, title, assignee, status, priority, due_date, scope_path
-- `tm_challenges`  TTL-cleaned login nonces (60 s)
-- `tm_invitations` TTL-cleaned signed invites (7 days)
-- `tm_audit`       append-only signed mutation log
+- `tm_users`        email-addressable, scrypt salt+hash, tier, scope_path, parent_uid
+- `tm_projects`     name, description, scope_path, owner, status
+- `tm_tasks`        project_id, title, assignee, status, priority, due_date, scope_path
+- `tm_dispatches`   triage payload, location + altitude + pressure + motion + bluetooth peers, location_confidence + depth_estimate_m, criticality_score, escalation chain
+- `tm_invitations`  TTL-cleaned signed invites (7 days)
+- `tm_audit`        append-only SHA-256-chained mutation log (tamper-evident, verified by a supervising tier)
+- `tm_sessions`     bearer claims (TTL on `exp`)
+- `tm_clip_seen`    24-hour idempotency markers for queued audio clips
+- `tm_units`        agency-tagged unit roster with type, capacity, location, status
+- `tm_assignments`  unit ↔ dispatch links, ETA, worker status
 
 ### Endpoints
 
-- `GET  /tm/`                              SPA shell · login + dashboard + projects + tasks + users
-- `GET  /api/v1/tm/server-pubkey`          server's ML-DSA-65 public key, for offline session validation
-- `POST /api/v1/tm/auth/challenge`         issue 32-byte challenge bound to email
-- `POST /api/v1/tm/auth/verify`            consume challenge, return signed session token
-- `POST /api/v1/tm/auth/register`          accept signed invite, create user
-- `POST /api/v1/tm/auth/bootstrap`         one-time NDMA root creation, env-gated
+- `GET  /tm/`                              SPA shell — login + dashboard + tasks + dispatches + units + users
+- `POST /api/v1/tm/auth/login`             email + password → bearer token + action key
+- `POST /api/v1/tm/auth/register`          accept invite, create user with password
+- `POST /api/v1/tm/auth/bootstrap`         env-gated NDMA root creation
 - `GET  /api/v1/tm/me`
 - `GET  /api/v1/tm/users`                  scope-filtered
-- `POST /api/v1/tm/users/invite`           mint signed invite for an email
-- `POST /api/v1/tm/users/:uid/delegate`    re-sign required
+- `POST /api/v1/tm/users/invite`           per-action HMAC sig required
+- `POST /api/v1/tm/users/:uid/delegate`    per-action HMAC sig required
 - `POST /api/v1/tm/users/:uid/suspend`
-- `GET  /api/v1/tm/projects`               scope-filtered
-- `POST /api/v1/tm/projects`
-- `GET  /api/v1/tm/projects/:pid`
-- `PATCH /api/v1/tm/projects/:pid`
-- `DELETE /api/v1/tm/projects/:pid`        re-sign required
-- `GET  /api/v1/tm/tasks`                  filter by project, assignee, status, overdue
-- `POST /api/v1/tm/tasks`
-- `PATCH /api/v1/tm/tasks/:tid`            volunteers status-only, responders own assigned, district+ edit any in scope
-- `DELETE /api/v1/tm/tasks/:tid`
-- `GET  /api/v1/tm/dashboard`              counts by status, priority, overdue, top assignees, projects active
+- `GET  /api/v1/tm/projects`, `POST`
+- `GET|PATCH|DELETE /api/v1/tm/projects/:pid`     archive needs HMAC sig
+- `GET|POST /api/v1/tm/tasks`
+- `GET|PATCH|DELETE /api/v1/tm/tasks/:tid`        reassign needs HMAC sig
+- `GET  /api/v1/tm/dispatches`             scope-filtered
+- `POST /api/v1/tm/dispatches/:id/assign`  HMAC sig + DSS-suggested unit
+- `POST /api/v1/tm/dispatches/:id/escalate` HMAC sig
+- `GET  /api/v1/tm/units`, `POST`, `PATCH`, `DELETE`
+- `GET  /api/v1/tm/dashboard`              counts by status, priority, overdue, top assignees
+- `GET  /legal`                            DPDPA + IT Act + Disaster Management Act notice
+
+### Survivor telemetry (`/api/v1/triage`)
+
+Audio + structured headers feed the dispatcher's location confidence and depth estimate:
+
+| header | source | role |
+|---|---|---|
+| `X-Client-Geo`, `X-Client-Geo-Accuracy`, `X-Client-Geo-Source` | browser geolocation | base lat/lng |
+| `X-Client-Altitude`, `X-Client-Altitude-Accuracy` | geolocation API | depth ground-truth |
+| `X-Client-Heading`, `X-Client-Speed` | geolocation API | moving caller |
+| `X-Client-Pressure`, `X-Client-Pressure-Baseline` | Generic Sensor API barometer | depth from baseline |
+| `X-Client-Motion-Peak`, `X-Client-Motion-Rms` | DeviceMotion accelerometer | impact / activity |
+| `X-Client-Bt-Peers` | Web Bluetooth scan (opt-in) | rescuer-phone proximity |
+| `X-Client-Battery`, `X-Client-Network` | Battery + Network Info APIs | survivability + bandwidth-shaping |
+| `X-Client-Lang` | navigator.language | Gemini lang hint |
+
+Server fuses these into `location_confidence` ∈ [0,1] (weighted by source quality) and `depth_estimate_m` from pressure delta (~12 Pa per metre standard atmosphere). Buried scenario validated in `test-stress.mjs`: 50 hPa delta → 416 m below baseline.
 
 ### Bootstrap
 
 ```bash
-# generate the operator's ML-DSA-65 keypair locally
-node -e "import('@noble/post-quantum/ml-dsa.js').then(m=>{const k=m.ml_dsa65.keygen();require('fs').writeFileSync('pub.b64',Buffer.from(k.publicKey).toString('base64'));require('fs').writeFileSync('priv.b64',Buffer.from(k.secretKey).toString('base64'))})"
+# Plain email + password is the operator credential now. No keypair to manage.
 gcloud run services update aether --project=dmjone --region=us-central1 --update-env-vars=TM_BOOTSTRAP_ALLOW=1
 curl -X POST -H "Content-Type: application/json" \
-  -d "$(jq -n --arg email 'ops@example.com' --arg name 'Ops' --arg pub "$(cat pub.b64)" '{email:$email,name:$name,pubkey_b64:$pub}')" \
+  -d '{"email":"ops@example.com","name":"Ops","password":"<strong-password>"}' \
   https://aether.dmj.one/api/v1/tm/auth/bootstrap
 gcloud run services update aether --project=dmjone --region=us-central1 --update-env-vars=TM_BOOTSTRAP_ALLOW=0
 ```
 
-Keep `priv.b64` offline. Lose it and the account is unrecoverable by design.
+Forgotten password → re-bootstrap with `TM_BOOTSTRAP_FORCE=1`.
+
+### Test surface
+
+```bash
+node server/tm/_test/test-auth.mjs       # 56 assertions: bearer, HMAC, password
+node server/tm/_test/test-vad.mjs        # 5  assertions: VAD, MFCC, adaptive bitrate
+TM_EPHEMERAL_MODE=1 node server/tm/_test/test-stress.mjs  # 60+ adversarial assertions
+```
+
+`test-stress.mjs` exercises: 50× scrypt volume, 20 concurrent logins, 200 brute-force attempts (CPU-bound), 100× replay rejection, timing mask, header injection, oversize-payload, validator fuzz (Devanagari names, path-traversal scopes, RFC 1035 emails), 6000-session cache eviction, triangulation fusion edge cases, adaptive bitrate / verbosity, ts skew envelope, audit chain tamper detection, bearer format hardening, end-to-end loop, suspended account block.
+
+### MLP / fresh-each-run mode
+
+`TM_EPHEMERAL_MODE=1` routes every Firestore call (`getDoc`, `setDoc`, `createDoc`, `patchDoc`, `deleteDoc`, `fetchAndDelete`, `queryDocs`, `countQuery`, `runTransaction`) through an in-process Map. No network, no persistence, no idle quota burn. Production deploy leaves it unset and the real Firestore client takes over. Same exported surface, same semantics.
 
 ### Cost shape
 
 - **Cloud Run** scale-to-zero with `min-instances=0` · $0 idle.
 - **Vertex AI** pay-per-token · $0 idle.
 - **Firestore Native** within free tier (1 GB stored, 50K reads/day, 20K writes/day) for an MVP · $0.
-- **Secret Manager** 2 secret versions, well within the 6-version free tier · $0.
+- **Secret Manager** unused in MLP posture · $0.
 - **Artifact Registry** image well under the 0.5 GB free tier · $0.
 - **Cloud Build** under the 120 build-minutes/day free tier · $0.
 
 The whole system runs at $0 when no one is using it. That is the design.
+
+### Indian-law alignment
+
+- **DM Act 2005** ss. 6, 14, 25, 35 — tier ladder follows the legal cascade of authority.
+- **DPDPA 2023** s. 7 — disaster response is a recognised legitimate-use ground; data minimised, retention published at `/legal`.
+- **IT Act 2000** s. 79 — Aether operates as an intermediary; due diligence + grievance redressal at `/legal`.
+- **Bharatiya Nyaya Sanhita 2023** ss. 217, 230 — false reporting penalties surfaced in the legal notice.
+- **Section 91 CrPC** — police hand-off only on magistrate-compelled disclosure; otherwise survivor location is redacted.
 
 ## License
 

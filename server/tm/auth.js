@@ -1,30 +1,44 @@
 // Project Aether · Task Manager · auth core.
 //
-// Two-tier auth model (per NDMA_BUILD_SPEC.md "Auth model — two tiers"):
-//   1. Login: ML-DSA-65 challenge / response. Server issues a compact
-//      bearer (`<token_id>.<HMAC>`) plus a per-session 32-byte HMAC
-//      action_key returned ONCE in the verify response.
+// Two-tier auth model:
+//   1. Login: email + password over TLS. Server-side scrypt verifies and
+//      issues a compact bearer (`<token_id>.<HMAC>`) plus a per-session
+//      32-byte HMAC action_key returned ONCE in the login response.
 //   2. Per-action: HMAC-SHA256(action_key, canonical(uid, action,
 //      target, ts, key_id)) sent in the `X-Action-Sig` header.
-//      ML-DSA does NOT touch per-action calls; the bandwidth saving
-//      is ~140× and is required for 2.5 kbps survivability.
 //
 // Bearer wire format: `<token_id_b64u>.<hmac_sig_b64u>`, ~88 chars.
 // Server-side `tm_sessions/<token_id>` doc holds claims + action_key
 // with a Firestore TTL on `exp`. An in-memory LRU cache fronts
 // Firestore so steady-state authenticated calls are zero-IO.
 //
+// The ML-DSA-65 server keypair is retained ONLY to derive the bearer
+// HMAC secret (sha256(domain || priv)). Audit log + watchdog use their
+// own ML-DSA keypairs; this module no longer signs or verifies on the
+// auth wire.
+//
 // Pure ESM, Node 22+.
 
-import { randomBytes, createHmac, timingSafeEqual, createHash } from 'node:crypto';
+import { randomBytes, createHmac, timingSafeEqual, createHash, scryptSync } from 'node:crypto';
 import { ml_dsa65 } from '@noble/post-quantum/ml-dsa.js';
 
 import { canonicalActionMessage, isCriticalAction } from './canonical.js';
 
+// MLP login posture: server-side scrypt for password verify. ~25 ms on
+// Cloud Run vCPU at N=2^12, r=8, p=1 (~4 MiB memory). Trades quantum
+// resistance on the auth wire for sub-second login on a Rs 2000 phone.
+// Threat model: TLS 1.3 protects the password in flight; a Firestore
+// leak still costs a per-password scrypt to brute-force.
+const SCRYPT_PARAMS = { N: 4096, r: 8, p: 1, maxmem: 32 * 1024 * 1024 };
+const SCRYPT_DK_LEN = 32;
+const PASSWORD_SALT_LEN = 16;
+const PASSWORD_MIN_LEN = 8;
+const PASSWORD_MAX_LEN = 256;
+const _DUMMY_SALT_B64U = 'AAAAAAAAAAAAAAAAAAAAAA';
+const _DUMMY_HASH_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+
 const SESSION_TTL_SECS = 30 * 60;
 const SESSION_REFRESH_GRACE_SECS = 60;
-const CHALLENGE_TTL_SECS = 60;
-const CHALLENGE_DOMAIN = 'aether-tm:v1:';
 const ACTION_TS_SKEW_SECS = 60;
 const ACTION_REPLAY_TTL_SECS = 5 * 60;
 const ACTION_REPLAY_MAX = 10_000;
@@ -153,24 +167,6 @@ function deriveBearerSecret() {
 }
 
 loadServerKeypair();
-
-function getServerPub() {
-  if (!SERVER_PUB) loadServerKeypair();
-  return SERVER_PUB;
-}
-
-function getServerPrivInternal() {
-  if (!SERVER_PRIV) loadServerKeypair();
-  return SERVER_PRIV;
-}
-
-function getServerPubB64() {
-  return b64Enc(getServerPub());
-}
-
-function isServerKeyEphemeral() {
-  return SERVER_KEY_FRESH;
-}
 
 let _firestore = null;
 
@@ -401,79 +397,6 @@ function _clearSessionCacheForTest() {
   sessionCache.clear();
 }
 
-function verifyUserSig(pubkey_b64, message_bytes, sig_b64) {
-  if (typeof pubkey_b64 !== 'string' || pubkey_b64.length === 0) {
-    throw mkErr('BAD_PUBKEY', 'pubkey_b64 missing', 400);
-  }
-  if (!(message_bytes instanceof Uint8Array)) {
-    throw mkErr('BAD_MESSAGE', 'message_bytes must be Uint8Array', 400);
-  }
-  if (typeof sig_b64 !== 'string' || sig_b64.length === 0) {
-    throw mkErr('BAD_SIG', 'sig_b64 missing', 400);
-  }
-  let pub;
-  let sig;
-  try {
-    pub = b64Dec(pubkey_b64);
-  } catch {
-    throw mkErr('BAD_PUBKEY', 'pubkey_b64 is not base64', 400);
-  }
-  try {
-    sig = b64Dec(sig_b64);
-  } catch {
-    try {
-      sig = b64uDec(sig_b64);
-    } catch {
-      throw mkErr('BAD_SIG', 'sig_b64 is neither base64 nor base64url', 400);
-    }
-  }
-  if (pub.length !== 1952) throw mkErr('BAD_PUBKEY', `pubkey must be 1952 bytes (got ${pub.length})`, 400);
-  if (sig.length !== 3309) throw mkErr('BAD_SIG', `signature must be 3309 bytes (got ${sig.length})`, 400);
-  return ml_dsa65.verify(sig, message_bytes, pub);
-}
-
-function challengeMessageBytes(email, challenge_b64) {
-  if (typeof email !== 'string' || email.length === 0) {
-    throw mkErr('BAD_EMAIL', 'email required', 400);
-  }
-  if (typeof challenge_b64 !== 'string' || challenge_b64.length === 0) {
-    throw mkErr('BAD_CHALLENGE', 'challenge_b64 required', 400);
-  }
-  return utf8(CHALLENGE_DOMAIN + email + ':' + challenge_b64);
-}
-
-async function issueChallenge(email) {
-  if (typeof email !== 'string' || email.length === 0 || email.length > 320) {
-    throw mkErr('BAD_EMAIL', 'email required (1..320 chars)', 400);
-  }
-  const fs = await getFirestore();
-  const challengeBytes = randomBytes32();
-  const challenge_b64 = b64Enc(challengeBytes);
-  const expires_at = new Date(Date.now() + CHALLENGE_TTL_SECS * 1000).toISOString();
-  const ch_id = await fs.createDoc('tm_challenges', {
-    email,
-    challenge_b64,
-    expires_at
-  });
-  return { ch_id, challenge_b64 };
-}
-
-async function consumeChallenge(ch_id) {
-  if (typeof ch_id !== 'string' || ch_id.length === 0) {
-    throw mkErr('BAD_CH_ID', 'ch_id required', 400);
-  }
-  const fs = await getFirestore();
-  const doc = await fs.fetchAndDelete('tm_challenges', ch_id);
-  if (!doc) return null;
-  if (typeof doc.expires_at === 'string') {
-    const exp = Date.parse(doc.expires_at);
-    if (!Number.isFinite(exp) || exp <= Date.now()) {
-      return null;
-    }
-  }
-  return doc;
-}
-
 // ---------------------------------------------------------------------------
 // Per-action HMAC.
 // ---------------------------------------------------------------------------
@@ -529,8 +452,6 @@ async function getUsers() {
 function _setUsersForTest(mock) {
   _users = mock;
 }
-
-const getServerPubkeyB64 = getServerPubB64;
 
 async function authenticate(req) {
   const headers = req?.headers || {};
@@ -700,10 +621,6 @@ async function requireFreshHmacSig(actor, action, target, headers) {
   };
 }
 
-// Backwards-compatible alias for any caller that still uses the old
-// name. Same behaviour: HMAC, not ML-DSA.
-const requireFreshUserSig = requireFreshHmacSig;
-
 // SPEC DEVIATION (acceptable per spec G): a parallel system-sig path
 // rather than an extension to requireFreshHmacSig. Reasons:
 //   - The HMAC path is bound to a session-scoped action key cached on the
@@ -770,25 +687,99 @@ async function requireFreshSystemSig(actor, action, target, sigB64) {
   };
 }
 
-function canonicalActionTarget(uid, action, target) {
-  // Pre-existing helper used by `handleRegister` for the ML-DSA-signed
-  // *invite*. Invites still ride ML-DSA because they are signed at
-  // mint time and stored alongside the invite, not on every request.
-  if (typeof uid !== 'string' || uid.length === 0) {
-    throw new AuthError('bad_action', 'actor.uid required for invite signature.', 400);
-  }
-  if (typeof action !== 'string' || action.length === 0) {
-    throw new AuthError('bad_action', 'action required for invite signature.', 400);
-  }
-  if (typeof target !== 'string') {
-    throw new AuthError('bad_action', 'target required for invite signature.', 400);
-  }
-  return JSON.stringify({ uid, action, target });
-}
-
 function asNonEmptyString(v, code, msg) {
   if (typeof v !== 'string' || v.length === 0) throw new AuthError(code, msg, 400);
   return v;
+}
+
+// Server-side scrypt password helpers. Plaintext password rides TLS.
+// Storage: { password_salt_b64u, password_hash_b64u } on tm_users.
+function _hashPasswordWithSalt(password, salt) {
+  const dk = scryptSync(password, salt, SCRYPT_DK_LEN, SCRYPT_PARAMS);
+  return b64u(new Uint8Array(dk));
+}
+
+function hashPassword(password) {
+  if (typeof password !== 'string' || password.length < PASSWORD_MIN_LEN) {
+    throw new AuthError('bad_password', `Password must be ${PASSWORD_MIN_LEN}..${PASSWORD_MAX_LEN} chars.`, 400);
+  }
+  if (password.length > PASSWORD_MAX_LEN) {
+    throw new AuthError('bad_password', `Password must be ${PASSWORD_MIN_LEN}..${PASSWORD_MAX_LEN} chars.`, 400);
+  }
+  const salt = new Uint8Array(randomBytes(PASSWORD_SALT_LEN));
+  const hashB64u = _hashPasswordWithSalt(password, salt);
+  return { saltB64u: b64u(salt), hashB64u };
+}
+
+function verifyPassword(password, saltB64u, expectedHashB64u) {
+  if (typeof password !== 'string' || password.length === 0) return false;
+  if (typeof saltB64u !== 'string' || saltB64u.length === 0) return false;
+  if (typeof expectedHashB64u !== 'string' || expectedHashB64u.length === 0) return false;
+  let salt;
+  try { salt = b64uDec(saltB64u); }
+  catch { return false; }
+  if (salt.length === 0 || salt.length > 64) return false;
+  let got;
+  try { got = _hashPasswordWithSalt(password, salt); }
+  catch { return false; }
+  return timingSafeEqB64u(got, expectedHashB64u);
+}
+
+async function handleLogin(body, _ctx) {
+  if (!body || typeof body !== 'object') throw new AuthError('bad_request', 'body required.', 400);
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+  if (email.length === 0 || email.length > 320) {
+    throw new AuthError('bad_credentials', 'Wrong email or password.', 401);
+  }
+  if (password.length < 1 || password.length > PASSWORD_MAX_LEN) {
+    throw new AuthError('bad_credentials', 'Wrong email or password.', 401);
+  }
+
+  const users = await getUsers();
+  if (typeof users.lookupByEmailRaw !== 'function' || typeof users.touchLastLogin !== 'function') {
+    throw new AuthError('tm_users_module_incomplete', 'users.js missing lookupByEmailRaw / touchLastLogin.', 503);
+  }
+  const user = await users.lookupByEmailRaw(email);
+  // Run scrypt even on missing user / missing creds to mask account
+  // existence under timing observation.
+  const cred = (user && typeof user.password_salt_b64u === 'string' && typeof user.password_hash_b64u === 'string')
+    ? { saltB64u: user.password_salt_b64u, hashB64u: user.password_hash_b64u }
+    : { saltB64u: _DUMMY_SALT_B64U, hashB64u: _DUMMY_HASH_B64U };
+  const ok = verifyPassword(password, cred.saltB64u, cred.hashB64u);
+
+  if (!user || !ok) {
+    throw new AuthError('bad_credentials', 'Wrong email or password.', 401);
+  }
+  if (user.status === 'suspended') {
+    throw new AuthError('account_suspended', 'Account is suspended.', 403);
+  }
+
+  const action_key_b64 = b64Enc(randomBytes32());
+  const key_id = newKeyId();
+  const token = signSession({
+    uid: user.uid,
+    tier: user.tier,
+    scope_path: user.scope_path,
+    action_key_b64,
+    key_id
+  });
+  const payload = await verifySession(token);
+  users.touchLastLogin(user.uid).catch(() => { /* best-effort */ });
+  return {
+    token,
+    exp: new Date(payload.exp * 1000).toISOString(),
+    action_key_b64,
+    key_id,
+    user: {
+      uid: user.uid,
+      email: user.email,
+      name: user.name,
+      tier: user.tier,
+      tier_name: typeof users.tierName === 'function' ? users.tierName(user.tier) : undefined,
+      scope_path: user.scope_path
+    }
+  };
 }
 
 async function handleRegister(body, _ctx) {
@@ -801,7 +792,10 @@ async function handleRegister(body, _ctx) {
     'invite_id required.'
   );
   asNonEmptyString(body.name, 'bad_request', 'name required.');
-  asNonEmptyString(body.pubkey_b64, 'bad_request', 'pubkey_b64 required.');
+  const password = asNonEmptyString(body.password, 'bad_password', 'password required.');
+  if (password.length < PASSWORD_MIN_LEN || password.length > PASSWORD_MAX_LEN) {
+    throw new AuthError('bad_password', `Password must be ${PASSWORD_MIN_LEN}..${PASSWORD_MAX_LEN} chars.`, 400);
+  }
 
   const fs = await getFirestore();
   if (typeof fs.getDoc !== 'function') {
@@ -813,34 +807,17 @@ async function handleRegister(body, _ctx) {
   const expMs = Date.parse(inv.expires_at || '') || 0;
   if (!expMs || expMs < Date.now()) throw new AuthError('invite_expired', 'Invite has expired.', 410);
 
-  const issuerUid = typeof inv.issued_by_uid === 'string' ? inv.issued_by_uid : '';
-  const issuerSigB64 = typeof inv.issued_signature_b64 === 'string' ? inv.issued_signature_b64 : '';
-  if (!issuerUid || !issuerSigB64) {
-    throw new AuthError('invite_unsigned', 'Invite is missing issuer signature.', 409);
-  }
-  const issuer = await fs.getDoc('tm_users', issuerUid);
-  if (!issuer) throw new AuthError('issuer_gone', 'Invite issuer no longer exists.', 409);
-  if (typeof issuer.pubkey_b64 !== 'string' || issuer.pubkey_b64.length === 0) {
-    throw new AuthError('issuer_no_pubkey', 'Invite issuer has no pubkey.', 500);
-  }
-  const inviteTarget = `invite|${inv.email || ''}|${inv.tier || ''}|${inv.parent_uid || ''}|${inv.scope_path || ''}`;
-  const canonical = canonicalActionTarget(issuerUid, 'user.invite', inviteTarget);
-  let ok;
-  try {
-    ok = verifyUserSig(issuer.pubkey_b64, utf8(canonical), issuerSigB64);
-  } catch (e) {
-    throw new AuthError('invite_sig_bad', e?.message || 'invite signature rejected.', 409);
-  }
-  if (!ok) throw new AuthError('invite_sig_bad', 'invite signature did not verify.', 409);
-
   const users = await getUsers();
-  if (typeof users.acceptInvite !== 'function') {
-    throw new AuthError('tm_users_module_incomplete', 'users.js missing acceptInvite().', 503);
+  if (typeof users.acceptInviteWithPassword !== 'function') {
+    throw new AuthError('tm_users_module_incomplete', 'users.js missing acceptInviteWithPassword().', 503);
   }
-  // Pass the resolved invite_id forward under both names so legacy
-  // helpers in users.js still see what they expect.
-  const forwarded = { ...body, invite_id, invite_token: invite_id };
-  return users.acceptInvite(forwarded);
+  const cred = hashPassword(password);
+  return users.acceptInviteWithPassword({
+    invite_id,
+    name: body.name,
+    password_salt_b64u: cred.saltB64u,
+    password_hash_b64u: cred.hashB64u
+  });
 }
 
 async function handleBootstrap(body, _ctx) {
@@ -850,12 +827,16 @@ async function handleBootstrap(body, _ctx) {
   if (!body || typeof body !== 'object') throw new AuthError('bad_request', 'body required.', 400);
   const email = asNonEmptyString(body.email, 'bad_request', 'email required.');
   const name = asNonEmptyString(body.name, 'bad_request', 'name required.');
-  const pubkey_b64 = asNonEmptyString(body.pubkey_b64, 'bad_request', 'pubkey_b64 required.');
-  const users = await getUsers();
-  if (typeof users.bootstrap !== 'function') {
-    throw new AuthError('tm_users_module_incomplete', 'users.js missing bootstrap().', 503);
+  const password = asNonEmptyString(body.password, 'bad_password', 'password required.');
+  if (password.length < PASSWORD_MIN_LEN || password.length > PASSWORD_MAX_LEN) {
+    throw new AuthError('bad_password', `Password must be ${PASSWORD_MIN_LEN}..${PASSWORD_MAX_LEN} chars.`, 400);
   }
-  const created = await users.bootstrap(email, name, pubkey_b64);
+  const users = await getUsers();
+  if (typeof users.bootstrapWithPassword !== 'function') {
+    throw new AuthError('tm_users_module_incomplete', 'users.js missing bootstrapWithPassword().', 503);
+  }
+  const cred = hashPassword(password);
+  const created = await users.bootstrapWithPassword(email, name, cred.saltB64u, cred.hashB64u);
   return {
     uid: created.uid,
     scope_path: created.scope_path,
@@ -864,82 +845,6 @@ async function handleBootstrap(body, _ctx) {
     email: created.email,
     name: created.name,
     created_at: created.created_at || null
-  };
-}
-
-async function handleChallenge(body, _ctx) {
-  if (!body || typeof body !== 'object') throw new AuthError('bad_request', 'body required.', 400);
-  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
-  if (email.length === 0 || email.length > 320) {
-    throw new AuthError('bad_email', 'email required (1..320 chars).', 400);
-  }
-  const { ch_id, challenge_b64 } = await issueChallenge(email);
-  const expires_at = new Date(Date.now() + CHALLENGE_TTL_SECS * 1000).toISOString();
-  return { ch_id, challenge_b64, expires_at };
-}
-
-async function handleVerify(body, _ctx) {
-  if (!body || typeof body !== 'object') throw new AuthError('bad_request', 'body required.', 400);
-  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
-  const ch_id = typeof body.ch_id === 'string' ? body.ch_id : '';
-  const signature_b64 = typeof body.signature_b64 === 'string' ? body.signature_b64 : '';
-  if (email.length === 0) throw new AuthError('bad_request', 'email required.', 400);
-  if (ch_id.length === 0) throw new AuthError('bad_request', 'ch_id required.', 400);
-  if (signature_b64.length === 0) throw new AuthError('bad_request', 'signature_b64 required.', 400);
-
-  const failGeneric = () => new AuthError('challenge_invalid', 'Challenge could not be verified.', 401);
-
-  const challenge = await consumeChallenge(ch_id);
-  if (!challenge) throw failGeneric();
-  const storedEmail = typeof challenge.email === 'string' ? challenge.email.trim().toLowerCase() : '';
-  if (storedEmail !== email) throw failGeneric();
-
-  const users = await getUsers();
-  if (typeof users.lookupByEmail !== 'function' || typeof users.touchLastLogin !== 'function') {
-    throw new AuthError('tm_users_module_incomplete', 'users.js missing lookupByEmail / touchLastLogin.', 503);
-  }
-  const user = await users.lookupByEmail(email);
-  if (!user) throw failGeneric();
-  if (user.status === 'suspended') {
-    throw new AuthError('account_suspended', 'Account is suspended.', 403);
-  }
-  if (typeof user.pubkey_b64 !== 'string' || user.pubkey_b64.length === 0) {
-    throw new AuthError('user_no_pubkey', 'tm_users record missing pubkey_b64.', 500);
-  }
-  const msgBytes = challengeMessageBytes(email, challenge.challenge_b64);
-  let ok;
-  try {
-    ok = verifyUserSig(user.pubkey_b64, msgBytes, signature_b64);
-  } catch {
-    throw failGeneric();
-  }
-  if (!ok) throw failGeneric();
-
-  const action_key_b64 = b64Enc(randomBytes32());
-  const key_id = newKeyId();
-  const token = signSession({
-    uid: user.uid,
-    tier: user.tier,
-    scope_path: user.scope_path,
-    action_key_b64,
-    key_id
-  });
-  const payload = await verifySession(token);
-  await users.touchLastLogin(user.uid);
-  return {
-    token,
-    exp: new Date(payload.exp * 1000).toISOString(),
-    server_pubkey_b64: getServerPubB64(),
-    action_key_b64,
-    key_id,
-    user: {
-      uid: user.uid,
-      email: user.email,
-      name: user.name,
-      tier: user.tier,
-      tier_name: user.tier_name,
-      scope_path: user.scope_path
-    }
   };
 }
 
@@ -1087,10 +992,6 @@ async function handleDeviceRevoke(actor, deviceId, signatureB64, _ctx) {
 export {
   signSession,
   verifySession,
-  verifyUserSig,
-  issueChallenge,
-  consumeChallenge,
-  challengeMessageBytes,
   randomBytes32,
   b64u,
   b64uDec,
@@ -1099,9 +1000,6 @@ export {
   utf8,
   utf8Dec,
   eqBytes,
-  getServerPub,
-  getServerPubB64,
-  isServerKeyEphemeral,
   _setFirestoreForTest,
   _setUsersForTest,
   _setSessionEntryForTest,
@@ -1110,23 +1008,19 @@ export {
   _clearReplayStoreForTest,
   AuthError,
   authenticate,
-  getServerPubkeyB64,
+  handleLogin,
   handleRegister,
   handleBootstrap,
-  handleChallenge,
-  handleVerify,
+  hashPassword,
+  verifyPassword,
   requireFreshHmacSig,
-  requireFreshUserSig,
   requireFreshSystemSig,
   requireFreshHmacSigForDevice,
   handleDeviceList,
   handleDeviceRegister,
   handleDeviceRevoke,
-  canonicalActionTarget,
   hmacB64u,
-  CHALLENGE_DOMAIN,
   SESSION_TTL_SECS,
-  CHALLENGE_TTL_SECS,
   ACTION_TS_SKEW_SECS,
   ACTION_REPLAY_TTL_SECS,
   ACTION_KEY_GRACE_SECS

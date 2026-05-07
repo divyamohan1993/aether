@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#050505">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex,nofollow">
+<title>NDMA Aether — Legal Notice</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#050505;color:#fff;font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-text-size-adjust:100%}
+body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.gov{background:#050505;border-bottom:1px solid #1a1a1a;padding:.5rem .9rem;display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;font:600 .75rem/1.25 system-ui,sans-serif;letter-spacing:.02em}
+.gov::before{content:"";display:block;width:.55rem;height:.55rem;background:linear-gradient(180deg,#ff9933 0 33%,#fff 33% 67%,#138808 67% 100%);border-radius:2px;flex:0 0 auto}
+.gov b{color:#fff;font-weight:800}
+.gov span{color:#bdbdbd}
+.gov .ms{color:#d8631a;font-weight:700;letter-spacing:.04em}
+.wrap{max-width:54rem;margin:0 auto;padding:1.5rem 1rem 4rem}
+@media(min-width:720px){.wrap{padding:2rem 2rem 5rem}}
+h1{font:800 clamp(1.5rem,3.5vw,2rem)/1.2 inherit;margin:.2rem 0 1rem;letter-spacing:-.01em}
+h2{font:700 1.05rem/1.3 inherit;margin:1.6rem 0 .55rem;color:#d8631a;text-transform:uppercase;letter-spacing:.06em}
+p{color:#d8d8d8;margin:.55rem 0;max-width:60ch}
+ul{margin:.4rem 0 .6rem 1.2rem;color:#d8d8d8}
+li{padding:.15rem 0}
+strong{color:#fff;font-weight:700}
+a{color:#d8631a;text-decoration:underline;text-underline-offset:3px}
+a:focus-visible{outline:3px solid #ffd400;outline-offset:3px;border-radius:4px}
+.crumbs{font-size:.85rem;color:#bdbdbd;margin-bottom:.4rem}
+.crumbs a{color:#bdbdbd}
+.notice{border-left:4px solid #d8631a;background:#0a0a0a;padding:.7rem .9rem;border-radius:0 8px 8px 0;color:#fff;margin:1rem 0;font-size:.95rem}
+.kv{font:.85rem/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;color:#bdbdbd;background:#0a0a0a;padding:.6rem .8rem;border:1px solid #1a1a1a;border-radius:8px;margin:.5rem 0}
+footer{margin-top:3rem;padding-top:1rem;border-top:1px solid #1a1a1a;color:#888;font-size:.78rem;text-align:center}
+</style>
+</head>
+<body>
+<div class="gov" role="contentinfo" aria-label="Government of India · NDMA"><b>भारत सरकार · Government of India</b><span>·</span><span class="ms">NDMA · National Disaster Management Authority</span></div>
+<div class="wrap">
+<p class="crumbs"><a href="/">Survivor SOS</a> · <a href="/tm/">Task Manager</a> · <strong>Legal Notice</strong></p>
+<h1>Legal Notice — NDMA Aether</h1>
+
+<div class="notice">
+<strong>This is an emergency response platform operated by the National Disaster Management Authority (NDMA), Government of India.</strong>
+False reporting wastes rescue capacity that real survivors depend on. Misuse may attract penalties under the Disaster Management Act, 2005, the Bharatiya Nyaya Sanhita, 2023, and the Information Technology Act, 2000.
+</div>
+
+<h2>Statutory basis</h2>
+<ul>
+<li><strong>Disaster Management Act, 2005</strong> — empowers NDMA to coordinate response to disasters across India. Aether is a coordination tool used to translate survivor distress signals into accountable State Disaster Response Force (SDRF) action.</li>
+<li><strong>Information Technology Act, 2000</strong> — governs the platform as an intermediary. Aether complies with Section 79 safe-harbour requirements, including reasonable due diligence, takedown on actual knowledge, and grievance redressal.</li>
+<li><strong>Digital Personal Data Protection Act, 2023 (DPDPA)</strong> — Aether processes personal data only for the lawful purpose of disaster response, which is a recognised legitimate use under Section 7. Data is minimised, purpose-limited, and deleted per the schedule below.</li>
+<li><strong>Bharatiya Nyaya Sanhita, 2023</strong> — knowingly false distress reports may be treated under Sections 217 and 230 (false information to a public servant; obstruction of public servant in lawful duty).</li>
+</ul>
+
+<h2>Data we collect</h2>
+<ul>
+<li>Voice clip (when you press SOS or when Auto-listen captures a phrase) — up to 512 KB per clip.</li>
+<li>Coarse and precise location — only when you grant browser permission. We capture latitude, longitude, accuracy, altitude (when available), and source (GPS, WiFi, cell, cached).</li>
+<li>Device telemetry that aids rescuer triangulation — battery level, network type, motion magnitude, atmospheric pressure (when sensor is available), Bluetooth peer count (only on user-granted scan).</li>
+<li>Device fingerprint — a stable per-install UUID stored in your phone. Lets us de-duplicate repeated SOS from the same device without identifying you.</li>
+<li>Identity (Task Manager only) — name, email, hashed password (server-side scrypt; the plaintext never reaches storage), tier, and scope under the NDMA chain of command.</li>
+</ul>
+
+<h2>Data we do NOT collect</h2>
+<ul>
+<li>We do not collect contact lists, photos, or media beyond the audio clip you submit.</li>
+<li>We do not run advertising trackers, analytics SDKs, or third-party fingerprinting.</li>
+<li>We do not share data with commercial partners.</li>
+</ul>
+
+<h2>Retention schedule</h2>
+<div class="kv">
+audio clip          24 hours · then deleted from object storage<br>
+location pings      7 days · for incident reconstruction<br>
+dispatch records    1 year · for post-incident audit (NDMA mandate)<br>
+audit log           7 years · tamper-evident hash chain<br>
+session token       30 minutes idle · then expires<br>
+challenges/invites  60 seconds / 7 days TTL · auto-purged
+</div>
+
+<h2>Tamper-evident audit</h2>
+<p>Every privileged action — invite, delegate, suspend, archive, dispatch escalate, dispatch assign — is appended to an immutable audit log. Each entry contains a SHA-256 chain of the previous entry's hash and the current row's contents. Any silent edit to a past row breaks the chain. The audit chain is verified on read by the supervising tier and independently by NDMA on request.</p>
+
+<h2>Your rights under DPDPA</h2>
+<ul>
+<li><strong>Right to access</strong> — write to <a href="mailto:dpo@ndma.gov.in">dpo@ndma.gov.in</a> with your registered email; we respond within 30 days.</li>
+<li><strong>Right to correction and erasure</strong> — same channel. Erasure is honoured unless the data is required for an active investigation under Section 17(1).</li>
+<li><strong>Right to grievance</strong> — write to the Data Protection Officer at the same address. If unresolved, escalate to the Data Protection Board of India.</li>
+<li><strong>Right to nominate</strong> — survivors may nominate a representative to act on their behalf during incapacitation.</li>
+</ul>
+
+<h2>Sharing with police and other agencies</h2>
+<p>Audio clips that fail the on-server noise gate from anonymous channels may be forwarded to law-enforcement under Section 91 of the CrPC / Bharatiya Nagarik Suraksha Sanhita as evidence of a possible false report. Forwarding is logged in the tamper-evident audit and the survivor's location data is redacted unless a written request from a magistrate compels disclosure.</p>
+
+<h2>Security posture</h2>
+<ul>
+<li>TLS 1.3 in flight. HSTS preload. Strict CSP. nosniff, no-referrer, frame-ancestors none.</li>
+<li>Server-side scrypt (N=4096, r=8, p=1) for password hashing. Plaintext passwords never leave the request handler.</li>
+<li>Per-action HMAC signatures over a rotated session-bound key for every mutating operation. Replay protection over a 5-minute window. ±60 second skew tolerance.</li>
+<li>Rate limit: 30 requests per minute and 200 per day per IP on auth endpoints; 10 per minute and 200 per day per IP on the triage endpoint.</li>
+<li>Cloud Run scale-to-zero. Idle cost is zero. No single tenant access between calls.</li>
+</ul>
+
+<h2>Open source and reproducibility</h2>
+<p>Aether is open source under the Apache 2.0 licence. The complete server, client, and deploy scripts are published. NDMA maintains the production deployment; any state agency or NGO may run their own instance after self-attestation.</p>
+
+<h2>Grievance officer</h2>
+<div class="kv">
+Name:    Designated Grievance Officer<br>
+Address: National Disaster Management Authority, NDMA Bhawan, A-1 Safdarjung Enclave, New Delhi 110 029<br>
+Email:   <a href="mailto:grievance@ndma.gov.in">grievance@ndma.gov.in</a><br>
+Phone:   1078 (NDMA helpline) · 011-2670-1700
+</div>
+
+<footer>Government of India · National Disaster Management Authority · Aether is an open-source coordination tool. Apache 2.0.</footer>
+</div>
+</body></html>
